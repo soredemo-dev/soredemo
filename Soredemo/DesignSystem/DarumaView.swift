@@ -15,6 +15,9 @@ struct DarumaPose: Equatable, Sendable {
     var recordFill: Double = 0
     /// The second eye painted in — 目入れ — rather than waiting as a dashed ring.
     var waitingPainted = false
+    /// 0 … 1: the countdown's ring round the record eye, the share of this second still to run.
+    /// `nil` when nothing is being counted — no ring at all, not an empty one.
+    var countRing: Double?
 
     static let resting = DarumaPose()
 
@@ -28,6 +31,13 @@ struct DarumaPose: Equatable, Sendable {
         case .area: DarumaPose(look: 1, attending: 1)
         case nil: .resting
         }
+    }
+
+    /// The countdown in the middle of the screen: the menu bar's ring round the record eye —
+    /// what is left of this second — and in the last second the eye fills as the ring drains,
+    /// so it is painted as the recording begins.
+    static func counting(remaining: Int, ringRemaining: Double) -> DarumaPose {
+        DarumaPose(recordFill: remaining <= 1 ? 1 - ringRemaining : 0, countRing: ringRemaining)
     }
 
     /// The permissions page: one eye per permission a recording needs. The record eye fills when
@@ -55,6 +65,9 @@ struct DarumaView: View, Animatable {
     var pose: DarumaPose = .resting
     var icon: AppIconChoice = .black
     var style: Style = .colour
+    /// A washi edge round the body, for a mark drawn over whatever is on screen — over a dark
+    /// one a sumi body has no edge of its own.
+    var rimmed = false
     @Environment(\.colorScheme) private var scheme
 
     /// The small mark's record eye, in the 100-unit box. **At rest it is the baked mark's, right
@@ -65,12 +78,17 @@ struct DarumaView: View, Animatable {
         return (62 + a * (52 + pose.look * 12 - 62), 47 + a * 4)
     }
 
-    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, Double> {
-        get { AnimatablePair(AnimatablePair(pose.look, pose.attending), pose.recordFill) }
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
+        get {
+            AnimatablePair(AnimatablePair(pose.look, pose.attending),
+                           AnimatablePair(pose.recordFill, pose.countRing ?? 0))
+        }
         set {
             pose.look = newValue.first.first
             pose.attending = newValue.first.second
-            pose.recordFill = newValue.second
+            pose.recordFill = newValue.second.first
+            // Only a ring that exists is moved: interpolating toward `nil` is not a ring at zero.
+            if pose.countRing != nil { pose.countRing = newValue.second.second }
         }
     }
 
@@ -136,7 +154,23 @@ struct DarumaView: View, Animatable {
             context.fill(Path(ellipseIn: CGGeometryBridge.rect(from: box(25, 26.5, 50, 39))),
                          with: .color(face.color))
             let red = Color(Signal.record)
-            context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red), lineWidth: 3.4 * unit)
+            if rimmed {
+                context.stroke(outline, with: .color(Palette.Brand.washi.color), lineWidth: 1.6 * unit)
+            }
+            // **Counting, the eye's own ring is the timer**: a faint track, and in full red what
+            // is left of this second. A second ring round the eye, the menu bar's arrangement,
+            // read as a target at this size and crowded the face's edge (seen 2026-10-25).
+            if let ring = pose.countRing {
+                context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red.opacity(0.3)),
+                               lineWidth: 3.4 * unit)
+                let arc = CGGeometryBridge.countdownArc(centreX: left + (60 + shift) * unit,
+                                                        centreY: top + (46 + drop) * unit,
+                                                        radius: 7.5 * unit, remaining: ring)
+                context.stroke(Path(arc), with: .color(red),
+                               style: StrokeStyle(lineWidth: 3.4 * unit, lineCap: .round))
+            } else {
+                context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red), lineWidth: 3.4 * unit)
+            }
             if pose.recordFill > 0 {
                 context.fill(circle(60 + shift, 46 + drop, 7.5 * pose.recordFill), with: .color(red))
             }

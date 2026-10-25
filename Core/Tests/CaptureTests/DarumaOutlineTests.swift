@@ -16,3 +16,16 @@ import Testing
     #expect(path.contains(CGPoint(x: 110, y: 120)))
     #expect(!path.contains(CGPoint(x: 40, y: 40)) && !path.contains(CGPoint(x: 180, y: 40)))
 }
+
+/// The countdown's ring starts at twelve o'clock and runs clockwise on screen — y down — so a
+/// quarter left is the arc from the top to three o'clock, and nothing left draws nothing.
+/// Centred off the origin so an arc drawn about (0, 0) cannot pass.
+@Test func theCountdownArcRunsClockwiseFromTheTop() {
+    let quarter = CGGeometryBridge.countdownArc(centreX: 40, centreY: 60, radius: 10, remaining: 0.25)
+    let box = quarter.boundingBoxOfPath
+    #expect(abs(box.minX - 40) < 0.01 && abs(box.maxX - 50) < 0.01, "x \(box.minX)…\(box.maxX)")
+    #expect(abs(box.minY - 50) < 0.01 && abs(box.maxY - 60) < 0.01, "y \(box.minY)…\(box.maxY)")
+    #expect(abs(quarter.currentPoint.x - 50) < 0.01 && abs(quarter.currentPoint.y - 60) < 0.01,
+            "ends at three o'clock, not nine: \(quarter.currentPoint)")
+    #expect(CGGeometryBridge.countdownArc(centreX: 40, centreY: 60, radius: 10, remaining: 0).isEmpty)
+}

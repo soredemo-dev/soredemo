@@ -205,6 +205,20 @@ public enum CGGeometryBridge {
         return path
     }
 
+    /// What is left of a countdown's second, as an arc round `(centreX, centreY)` in top-left
+    /// points: from twelve o'clock, clockwise, `remaining` of the way round (0 … 1). Empty for 0.
+    public nonisolated static func countdownArc(centreX: Double, centreY: Double, radius: Double, remaining: Double) -> CGPath {
+        let path = CGMutablePath()
+        let share = min(max(remaining, 0), 1)
+        guard share > 0 else { return path }
+        // In top-left points y grows downward, so a clockwise sweep on screen is an increasing
+        // angle — `clockwise: false` in CoreGraphics' own (y-up) terms.
+        let start = -Double.pi / 2
+        path.addArc(center: CGPoint(x: centreX, y: centreY), radius: radius,
+                    startAngle: start, endAngle: start + 2 * .pi * share, clockwise: false)
+        return path
+    }
+
     /// A video track's DISPLAYED size in whole pixels, transform applied.
     ///
     /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made

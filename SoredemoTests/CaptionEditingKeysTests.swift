@@ -224,13 +224,12 @@ import Timeline
     #expect(!CountdownState(total: 3, subject: String(localized: "A window")).subject.isEmpty)
 }
 
-/// The count starts where it was told to and stays there — the ring divides by it.
+/// The count starts where it was told to. (The ring is a second's, not the whole count's, so
+/// nothing divides by the total any more and it is not kept.)
 @Test @MainActor func theCountStartsAtItsTotal() {
     let state = CountdownState(total: 5, subject: "Whole display")
     #expect(state.remaining == 5)
-    #expect(state.total == 5)
-    state.remaining = 1
-    #expect(state.total == 5, "the total moved with the count, so the ring would jump")
+    #expect(state.ringRemaining == 1, "a second not yet begun has its whole ring")
 }
 
 /// **Nothing is cancelled until somebody cancels it.** The presenter reads this between slices

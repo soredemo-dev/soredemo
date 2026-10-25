@@ -128,9 +128,6 @@ private final class CountdownKeyPanel: NSPanel {
 @Observable
 final class CountdownState {
     var remaining: Int
-    /// What the count started at — the ring needs it to know how much of itself to draw, and it
-    /// does not change.
-    let total: Int
     /// What is about to be recorded, in a person's words: an application's name, "Whole display",
     /// or "Region". **Never a window's title** — that is the contents of somebody's work, and
     /// the application name answers "did I pick the right thing" just as well.
@@ -144,72 +141,48 @@ final class CountdownState {
 
     init(total: Int, subject: String) {
         self.remaining = total
-        self.total = total
         self.subject = subject
     }
 }
 
 private struct CountdownView: View {
     let state: CountdownState
+    @AppStorage(AppIconChoice.defaultsKey) private var icon = AppIconChoice.black
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let width: Double = 280
     static let height: Double = 300
-    private static let ring: Double = 168
+    private static let mark: Double = 196
 
-    /// **Drawn from the ring rather than from `remaining`.** A ring that stepped once a second
-    /// would say the same thing as the number and say it at the same moments; one that drains
-    /// continuously answers "how long have I got" in between, which is the question the number
-    /// cannot answer at all.
+    /// **The daruma counts, and the count is written on its belly** — where a real one carries
+    /// its characters in gold. The record eye's ring drains with each second, as the menu bar's
+    /// does; in the last second the eye fills as it drains, so it is painted as the recording
+    /// begins (`DarumaPose.counting`).
     ///
-    /// Animated in one pass on appearance instead of per frame: a timer here would wake the main
-    /// actor sixty times a second to move a shape SwiftUI can interpolate itself.
-    @State private var drained = false
-
-    /// The final second reads differently, because "now" is a different thing to know than
-    /// "soon". The ring takes `Signal.record` — red means "this is being captured" everywhere
-    /// else in this app, and one second out is close enough to mean it here.
-    private var isFinalSecond: Bool { state.remaining <= 1 }
-
+    /// **Drawn light, whatever the system**, with a washi rim: a sumi body with a white face
+    /// reads over a white page, and the rim gives it an edge over a dark one. The dark theme's
+    /// paper body would vanish over the white page this has to be legible over.
     var body: some View {
         VStack(spacing: Space.regular) {
             ZStack {
-                // **A dark scrim UNDER the material, because this has to be legible over
-                // anything.** Material alone samples what is behind it, and what is behind it is
-                // whatever somebody is about to record — measured over a white web page, the
-                // circle came out light grey with white text on it and the digit was barely
-                // readable. The scrim fixes the floor; the material still carries the blur that
-                // keeps it from looking like a sticker.
-                Circle()
-                    .fill(.black.opacity(0.62))
-                    .background(Circle().fill(.ultraThinMaterial))
-                    .environment(\.colorScheme, .dark)
-                    .overlay { Circle().strokeBorder(.white.opacity(0.18), lineWidth: 1) }
+                DarumaView(pose: .counting(remaining: state.remaining, ringRemaining: state.ringRemaining),
+                           icon: icon, rimmed: true)
+                    .environment(\.colorScheme, .light)
                     .shadow(color: .black.opacity(0.45), radius: 26)
-
-                // The track, so the drained part of the ring is still readable as a ring.
-                Circle()
-                    .strokeBorder(.white.opacity(0.22), lineWidth: 4)
-                    .padding(6)
-
-                Circle()
-                    .trim(from: 0, to: drained ? 0 : 1)
-                    .stroke(isFinalSecond ? Signal.record : .white,
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    // From the top, clockwise: the direction every timer on this platform drains.
-                    .rotationEffect(.degrees(-90))
-                    .padding(6)
-                    .animation(.easeInOut(duration: 0.25), value: isFinalSecond)
+                    // A tenth at a time, linear, so the ring drains rather than steps.
+                    .animation(reduceMotion ? nil : .linear(duration: 0.1), value: state.tenthsGone)
 
                 Text(verbatim: "\(state.remaining)")
-                    .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(.white)
+                    .font(.system(size: 54, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(icon == .vermilion ? Palette.Brand.washi.color : Palette.Brand.kin.color)
+                    // The belly, below the face: 79 of the mark's 100 units, 50 being its middle.
+                    .offset(y: Self.mark * 0.29)
                     // Keyed on the value so each number gets its own transition rather than the
                     // digits morphing into one another.
                     .id(state.remaining)
-                    .transition(.scale(scale: 1.35).combined(with: .opacity))
-                    .scaleEffect(isFinalSecond ? 1.08 : 1)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 1.35).combined(with: .opacity))
             }
-            .frame(width: Self.ring, height: Self.ring)
+            .frame(width: Self.mark, height: Self.mark)
 
             VStack(spacing: Space.tight) {
                 Text(verbatim: state.subject)
@@ -231,11 +204,7 @@ private struct CountdownView: View {
             .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
         }
         .frame(width: Self.width, height: Self.height)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: state.remaining)
-        .onAppear {
-            // One animation for the whole count, started once.
-            withAnimation(.linear(duration: Double(state.total))) { drained = true }
-        }
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7), value: state.remaining)
         // **A zero-sized `Button`, because ⎋ needs a control to hang on.** The panel takes the
         // keyboard but SwiftUI's shortcut machinery needs something focusable; the same shape
         // `TimelineEditor.shortcutLayer` uses, and for the same reason.

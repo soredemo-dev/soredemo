@@ -11,6 +11,7 @@ motion carries information (a menu-bar cat: the cat's speed *is* the load).
 | --- | --- | --- |
 | panel header | the small mark's eye looks down at the card under the pointer — Screen left, Window middle, Area right | built |
 | permissions page | one eye per permission: the record eye fills with Screen Recording, the waiting eye is painted with Accessibility | built |
+| the countdown, mid-screen | the daruma replaces the digit in a disc: the count is written on its belly in kin, the record eye's ring drains with each second, and the last second fills the eye (owner's request, 2026-10-25) | built |
 | editor, nothing open | the small resting mark above the one thing to do | built |
 | the permissions page's body | vermilion when the person chose that icon (`AppIconChoice`) | built |
 | sway with the microphone before a take | **not built, on purpose**: there is no level before a take, and opening the microphone to animate a mascot would light the system's microphone indicator for nothing — a privacy cost for decoration |
@@ -36,6 +37,12 @@ motion carries information (a menu-bar cat: the cat's speed *is* the load).
   owner's screenshot had the header's space and no mark. A path filled as a view takes the
   foreground style the way the template image it replaced did. The offscreen sheet could not have
   caught this; only the running panel can.
+- **The countdown's timer is the eye's own ring.** The menu bar's arrangement — a second ring
+  round the eye — read as a target at 196 points and crowded the face's edge; the eye's ring
+  drawn faint, with the second's remainder over it in full red, says the same with one shape.
+  Drawn light whatever the system, with a washi rim: the sumi body vanished over a dark screen
+  without it (both seen on a contact sheet before shipping). Gold on sumi; washi on vermilion,
+  where gold has too little contrast.
 - **The ring fills as one path.** The foreground ink is translucent, so a disc drawn over its own
   ring darkened the overlap, and a union of the two cancelled into a white seam. The hole in the
   ring closes instead (even-odd fill).
@@ -64,7 +71,8 @@ card and ¾ of a point from rest, with every point of the eye's edge inside the 
 first row tried, 42/54/66, which touched the edge); a late exit does not clear the next card's
 glance (red on a hover that clears on any exit); each permission paints its own eye and no other;
 the drawn record eye within its body against the baked one; the small mark's path is ink and
-paper where the baked one is (red with the face's cut-out dropped). `DarumaOutlineTests`: the body fills
+paper where the baked one is (red with the face's cut-out dropped). `theCountRingsTheEyeAndTheLastSecondPaintsIt` (red on the stub). `DarumaOutlineTests`: the countdown arc
+runs clockwise from twelve (red with the direction flipped); the body fills
 an off-origin box at twice the scale (red with the offset dropped).
 
 Looked at: a contact sheet of every pose in both styles, light and dark, at 96 and 18 points,

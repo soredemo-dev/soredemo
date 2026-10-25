@@ -106,6 +106,20 @@ import Testing
         #expect(!ink(.resting, 5, 5), "outside the body")
     }
 
+    /// **The count rings the record eye, a second at a time, and the last second paints it.**
+    /// The ring is the menu bar's — what is left of this second — so the two say the same thing;
+    /// the eye fills only as the last ring drains, so it is painted as the recording begins.
+    @Test func theCountRingsTheEyeAndTheLastSecondPaintsIt() {
+        let early = DarumaPose.counting(remaining: 3, ringRemaining: 0.7)
+        #expect(early.countRing == 0.7)
+        #expect(early.recordFill == 0, "a second that is not the last paints nothing")
+        let last = DarumaPose.counting(remaining: 1, ringRemaining: 0.25)
+        #expect(last.countRing == 0.25)
+        #expect(last.recordFill == 0.75, "the eye fills as the last ring drains")
+        #expect(DarumaPose.counting(remaining: 1, ringRemaining: 1).recordFill == 0)
+        #expect(DarumaPose.resting.countRing == nil, "nothing counted is no ring")
+    }
+
     /// Moving from one card to the next may report the new card's entry before the old one's exit;
     /// the late exit must not clear the glance the new card just took.
     @Test func aLateExitDoesNotClearTheNextCardsGlance() {
