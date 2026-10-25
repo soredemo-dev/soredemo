@@ -37,6 +37,9 @@ motion carries information (a menu-bar cat: the cat's speed *is* the load).
   owner's screenshot had the header's space and no mark. A path filled as a view takes the
   foreground style the way the template image it replaced did. The offscreen sheet could not have
   caught this; only the running panel can.
+- **The countdown rocks on each count** (owner's request, 2026-10-25): tipped 7° on its round
+  base, back past upright to 5°, settling by 2.5° to still, in about 0.8 s — a daruma nudged
+  once a second. Pivoted at the bottom, where a real one rocks; still under Reduce Motion.
 - **The countdown's timer is the eye's own ring.** The menu bar's arrangement — a second ring
   round the eye — read as a target at 196 points and crowded the face's edge; the eye's ring
   drawn faint, with the second's remainder over it in full red, says the same with one shape.

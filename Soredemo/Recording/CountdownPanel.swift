@@ -183,6 +183,19 @@ private struct CountdownView: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: 1.35).combined(with: .opacity))
             }
             .frame(width: Self.mark, height: Self.mark)
+            // **It rocks on each count, as a daruma does when it is nudged** — tips one way on its
+            // round base, swings back past upright, and settles. Keyed on the count, so each
+            // second is one nudge; still under Reduce Motion.
+            .keyframeAnimator(initialValue: 0.0, trigger: state.remaining) { content, angle in
+                content.rotationEffect(.degrees(reduceMotion ? 0 : angle), anchor: .bottom)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    CubicKeyframe(-7, duration: 0.18)
+                    CubicKeyframe(5, duration: 0.24)
+                    CubicKeyframe(-2.5, duration: 0.2)
+                    CubicKeyframe(0, duration: 0.22)
+                }
+            }
 
             VStack(spacing: Space.tight) {
                 Text(verbatim: state.subject)
