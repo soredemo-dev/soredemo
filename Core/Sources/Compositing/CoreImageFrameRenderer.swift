@@ -110,11 +110,25 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         if let shadow = shadowImage(plan) {
             composed = shadow.composited(over: composed)
         }
+        // **The turned card's thickness, under the card and over the shadow** — the device
+        // body's when there is one, in its own finish, since the body is what has the edge.
+        let edge: (rect: StageRect, radius: Double, shade: (r: Double, g: Double, b: Double))
+        if let device = plan.deviceFrame {
+            let b = device.finish.bottom
+            edge = (device.body, device.bodyCornerRadius, (b.r * 0.55, b.g * 0.55, b.b * 0.55))
+        } else {
+            edge = (plan.card, plan.cornerRadius, (0.30, 0.30, 0.32))
+        }
+        if let slab = slabImage(plan, of: edge.rect, radius: edge.radius, front: edge.shade) {
+            composed = faded(slab, by: plan.cardOpacity).composited(over: composed)
+        }
         // **The body goes under the card and over the shadow.** The recording draws into
         // `plan.card`, which IS the screen when there is a frame — so the body is the ring of
         // hardware around it, and anything drawn after the card would cover the picture.
         if let device = plan.deviceFrame {
-            composed = deviceBody(device).composited(over: composed)
+            // Turned with the card it holds (reported 2026-10-25: it stayed flat).
+            composed = Self.tilted(deviceBody(device), of: device.body, by: plan.style.tilt,
+                                   about: plan.card).composited(over: composed)
         }
         // **The fade is on the card and its border, and on nothing else.** A caption, a text
         // overlay or a camera bubble is not part of the recording; fading the whole frame would
@@ -124,7 +138,9 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         // **After the card and before everything else.** The border belongs to the card's edge,
         // so it must sit over the picture — but under the pointer, the captions and the camera,
         // none of which are inside the card's frame in the sense the border describes.
-        composed = faded(cardBorder(plan), by: plan.cardOpacity).composited(over: composed)
+        // Turned with the card — it is the card's edge (reported 2026-10-25: it stayed flat).
+        composed = faded(Self.tilted(cardBorder(plan), of: plan.card, by: plan.style.tilt),
+                         by: plan.cardOpacity).composited(over: composed)
         // Whether to draw a pointer is `StageCompositor`'s decision, not this file's.
         if let pointer = plan.pointer {
             composed = cursorImage(for: pointer, outputHeight: plan.outputHeight,
@@ -320,12 +336,6 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         return scaled.transformed(by: CGAffineTransform(translationX: offsetX, y: offsetY))
     }
 
-    /// `image` reduced to `crop`, with the result moved back to the origin.
-    ///
-    /// **Moved back, because everything downstream measures from zero.** `cardImage` scales by
-    /// `card.width / image.extent.width` and translates by the plan's own origin; an image
-    /// cropped in place would still carry its offset in `extent.minX` and would land that far
-    /// off the card.
     /// `image` turned, if the style says the card is turned.
     ///
     /// **Cropped to `rect` first, because `CIPerspectiveTransform` maps the image's EXTENT
@@ -335,9 +345,18 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
     /// Affine cannot do this: it maps a rectangle to a parallelogram, so the far edge stays as
     /// long as the near one and the result reads as a shear. See
     /// `docs/design/2026-09-25-tilting-the-card.md`.
-    static func tilted(_ image: CIImage, of rect: StageRect, by tilt: StageTilt) -> CIImage {
+    ///
+    /// `about` is the plane that turns — the card's — so the device body around it lands where
+    /// the card's edges do rather than turning about its own centre.
+    static func tilted(_ image: CIImage, of rect: StageRect, by tilt: StageTilt,
+                       about plane: StageRect? = nil) -> CIImage {
         guard !tilt.isFlat, rect.width > 0, rect.height > 0 else { return image }
-        let quad = tilt.quad(for: rect)
+        let card = plane ?? rect
+        let quad = StageQuad(
+            topLeft: tilt.project(StagePoint(x: rect.x, y: rect.y + rect.height), on: card),
+            topRight: tilt.project(StagePoint(x: rect.x + rect.width, y: rect.y + rect.height), on: card),
+            bottomRight: tilt.project(StagePoint(x: rect.x + rect.width, y: rect.y), on: card),
+            bottomLeft: tilt.project(StagePoint(x: rect.x, y: rect.y), on: card))
         let box = HeadlessGeometryBridge.rect(x: rect.x, y: rect.y,
                                               width: rect.width, height: rect.height)
         return image.cropped(to: box).applyingFilter("CIPerspectiveTransform", parameters: [
@@ -348,6 +367,53 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
         ])
     }
 
+    /// How thick a turned card is, as a share of its longer side. **Uncalibrated** — chosen to
+    /// read as a slab of glass at the angles the tilt presets use, not as a box.
+    static let slabDepthFraction = 0.018
+
+    /// The edge a turned card shows: a shape — the card, or the device body around it — stepped
+    /// back to `slabDepthFraction` behind its face, each step projected with the card's camera. The steps that stick out past the
+    /// face are the side facing the camera; the rest are hidden under the card. **Steps, not one
+    /// back face**: a single face behind the card leaves a notch at each corner where the side's
+    /// silhouette would have joined front to back. `nil` for a flat card, which has no visible edge.
+    private func slabImage(_ plan: RenderPlan, of rect: StageRect, radius: Double,
+                           front: (r: Double, g: Double, b: Double)) -> CIImage? {
+        let tilt = plan.style.tilt, card = plan.card
+        guard !tilt.isFlat, card.width > 0, card.height > 0, rect.width > 0, rect.height > 0 else { return nil }
+        let depth = Self.slabDepthFraction * max(card.width, card.height)
+        let steps = 8
+        var slab = CIImage.empty()
+        for step in stride(from: steps, through: 1, by: -1) {
+            let d = depth * Double(step) / Double(steps)
+            // Darker toward the back, so the edge reads as turning away from the light.
+            let dim = 1 - 0.45 * Double(step) / Double(steps)
+            guard let shape = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+                "inputExtent": CIVector(x: rect.x, y: rect.y, z: rect.width, w: rect.height),
+                "inputRadius": radius,
+                "inputColor": CIColor(red: front.r * dim, green: front.g * dim, blue: front.b * dim),
+            ])?.outputImage else { continue }
+            func at(_ x: Double, _ y: Double) -> CIVector {
+                let p = tilt.project(StagePoint(x: x, y: y), on: card, depth: d)
+                return CIVector(x: p.x, y: p.y)
+            }
+            let box = HeadlessGeometryBridge.rect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+            let layer = shape.cropped(to: box).applyingFilter("CIPerspectiveTransform", parameters: [
+                "inputTopLeft": at(rect.x, rect.y + rect.height),
+                "inputTopRight": at(rect.x + rect.width, rect.y + rect.height),
+                "inputBottomRight": at(rect.x + rect.width, rect.y),
+                "inputBottomLeft": at(rect.x, rect.y),
+            ])
+            slab = layer.composited(over: slab)
+        }
+        return slab
+    }
+
+    /// `image` reduced to `crop`, with the result moved back to the origin.
+    ///
+    /// **Moved back, because everything downstream measures from zero.** `cardImage` scales by
+    /// `card.width / image.extent.width` and translates by the plan's own origin; an image
+    /// cropped in place would still carry its offset in `extent.minX` and would land that far
+    /// off the card.
     static func cropped(_ image: CIImage, to crop: CropRect) -> CIImage {
         guard !crop.isWhole else { return image }
         let extent = image.extent

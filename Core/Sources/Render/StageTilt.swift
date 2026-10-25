@@ -116,6 +116,12 @@ public struct StageTilt: Hashable, Codable, Sendable {
     /// picture, so projecting a point here puts it where that point's pixel ends up.
     /// `onATurnedCardThePointerLandsOnWhatItPointsAt`.
     public func project(_ point: StagePoint, on card: StageRect) -> StagePoint {
+        project(point, on: card, depth: 0)
+    }
+
+    /// The same, for a point `depth` behind the card's face, in the card's own units — the back of
+    /// the slab a turned card is drawn as, so its edge shows on the side facing the camera.
+    public func project(_ point: StagePoint, on card: StageRect, depth: Double) -> StagePoint {
         guard !isFlat else { return point }
         let centreX = card.x + card.width / 2
         let centreY = card.y + card.height / 2
@@ -124,8 +130,9 @@ public struct StageTilt: Hashable, Codable, Sendable {
         let yawRadians = yaw * .pi / 180
         let pitchRadians = pitch * .pi / 180
         let camera = distance * max(card.width, card.height)
-        let x1 = x * cos(yawRadians)
-        let z1 = -x * sin(yawRadians)
+        let z0 = -depth
+        let x1 = x * cos(yawRadians) + z0 * sin(yawRadians)
+        let z1 = -x * sin(yawRadians) + z0 * cos(yawRadians)
         let y2 = y * cos(pitchRadians) - z1 * sin(pitchRadians)
         let z2 = y * sin(pitchRadians) + z1 * cos(pitchRadians)
         // Positive by construction — see the type's own note on the clamps.

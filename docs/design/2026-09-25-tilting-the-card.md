@@ -71,3 +71,27 @@ never touches the control pays nothing, which is the same arrangement `CropRect.
   usable or absurd.
 - **Whether the default distance reads as a lens somebody would choose.** 2.5 card-widths is a
   mild wide-angle. It has not been compared against anything.
+
+## 2026-10-25: the edge turns with the card, and the card has a thickness
+
+Reported by the owner: turned, the card's edge did not follow the angle, and the card read as
+paper. Both were true, and both were the same omission — only the picture and the shadow were
+put through `tilted(_:of:by:)`.
+
+- **The light border** was drawn flat around the turned card: measured in a 35° yaw, its top edge
+  sat at the flat card's row 29 while the turned picture's top was at rows 17 and 42 on its two
+  sides. It is now turned with the card (`theBorderTurnsWithTheCard`, red before).
+- **The device body** was drawn flat around a turned screen. It is now projected with the card's
+  own camera — `tilted(_:of:by:about:)` takes the card as the plane, so a shape larger than the
+  card lands where the card's edges do instead of turning about its own centre
+  (`theDeviceBodyTurnsWithTheCard`: the body's lit span is shorter on the turned-away side; equal,
+  288 and 288 rows, for a flat body and for a body not turned — the control that showed the first
+  version of this measure, a count of lit pixels, measured nothing).
+- **Thickness.** `StageTilt.project(_:on:depth:)` places a point behind the card's face; the
+  renderer draws the card's shape — or the device body, in its finish — stepped back to 1.8% of the
+  card's longer side in eight layers, darkening toward the back, under the card. The layers that
+  stick out past the face are the side facing the camera. Steps rather than one back face, which
+  would leave a notch at each corner. `aTurnedCardShowsItsEdgeOnTheSideThatFacesTheCamera`: a strip
+  of the edge's colour left of a 35°-yawed picture and none right of it, and none on a flat card
+  (red with the depth at zero). The depth is **uncalibrated**, chosen by eye to read as a slab of
+  glass rather than a box.

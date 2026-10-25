@@ -92,3 +92,16 @@ private let card = StageRect(x: 100, y: 50, width: 800, height: 450)
     #expect(decoded.yaw == -StageTilt.steepestAngle)
     #expect(decoded.distance == StageTilt.nearestDistance)
 }
+
+/// **A point behind the card is a different point only when the card is turned.** At depth zero
+/// the projection is the face's own — the pointer's placement rests on that — and a flat card
+/// hides its back exactly behind its face. A card off the origin and not square, so a projection
+/// that ignored the card's centre or swapped its axes cannot pass.
+@Test func depthMovesAPointOnlyOnATurnedCard() {
+    let card = StageRect(x: 120, y: 80, width: 640, height: 300)
+    let point = StagePoint(x: 150, y: 330)
+    let turned = StageTilt(pitch: 10, yaw: 30, distance: 2.5)
+    #expect(turned.project(point, on: card, depth: 0) == turned.project(point, on: card))
+    #expect(turned.project(point, on: card, depth: 12) != turned.project(point, on: card))
+    #expect(StageTilt.flat.project(point, on: card, depth: 12) == point)
+}
