@@ -90,6 +90,22 @@ import Testing
                 (sumY / count - Double(minY)) / Double(maxY - minY))
     }
 
+    /// **The small mark is ink and paper in the right places**, read off the one even-odd path
+    /// the header fills: body ink, face paper, the eye a ring until it fills. In a 100-point box
+    /// so a unit is a point.
+    @Test func theSmallMarkIsInkAndPaperWhereTheBakedOneIs() {
+        func ink(_ pose: DarumaPose, _ x: Double, _ y: Double) -> Bool {
+            DarumaView.templatePath(width: 100, height: 100, pose: pose)
+                .contains(CGPoint(x: x, y: y), eoFill: true)
+        }
+        #expect(ink(.resting, 50, 85), "the body below the face")
+        #expect(!ink(.resting, 35, 47), "the face, left of the eye")
+        #expect(ink(.resting, 62 + 9, 47), "the eye's ring")
+        #expect(!ink(.resting, 62, 47), "the ring's hole")
+        #expect(ink(DarumaPose(recordFill: 1), 62, 47), "a filled eye has no hole")
+        #expect(!ink(.resting, 5, 5), "outside the body")
+    }
+
     /// Moving from one card to the next may report the new card's entry before the old one's exit;
     /// the late exit must not clear the glance the new card just took.
     @Test func aLateExitDoesNotClearTheNextCardsGlance() {

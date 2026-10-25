@@ -75,6 +75,46 @@ struct DarumaView: View, Animatable {
     }
 
     var body: some View {
+        Group {
+            switch style {
+            case .colour: colour
+            // **A path filled as a view, not drawn in a Canvas.** The Canvas's foreground shading
+            // drew nothing in the menu bar's vibrant popover (seen by the owner, 2026-10-25) while
+            // an offscreen render showed it; a filled path takes the foreground style the way the
+            // template image it replaced did.
+            case .template:
+                GeometryReader { proxy in
+                    Self.templatePath(width: Double(proxy.size.width), height: Double(proxy.size.height), pose: pose)
+                        .fill(style: FillStyle(eoFill: true))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// The small mark as one even-odd path: the body, the face cut out of it, the eye's ring
+    /// inside the face, and the ring's hole closing as it fills. Each lies inside the last, so
+    /// even-odd alternates ink and paper without ever drawing ink twice — the foreground ink is
+    /// translucent, and a disc over its own ring darkened the overlap.
+    static func templatePath(width: Double, height: Double, pose: DarumaPose) -> Path {
+        let unit = min(width, height) / 100
+        let left = (width - 100 * unit) / 2, top = (height - 100 * unit) / 2
+        func box(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> PointRect {
+            PointRect(x: left + x * unit, y: top + y * unit, width: w * unit, height: h * unit)
+        }
+        func circle(_ x: Double, _ y: Double, _ r: Double) -> Path {
+            Path(ellipseIn: CGGeometryBridge.rect(from: box(x - r, y - r, 2 * r, 2 * r)))
+        }
+        var path = Path(CGGeometryBridge.darumaOutline(in: box(0, 0, 100, 100)))
+        path.addPath(Path(ellipseIn: CGGeometryBridge.rect(from: box(21, 25, 58, 44))))
+        let eye = templateEye(pose)
+        path.addPath(circle(eye.x, eye.y, 11.3))
+        if pose.recordFill < 1 { path.addPath(circle(eye.x, eye.y, 6.7 * (1 - pose.recordFill))) }
+        if pose.waitingPainted { path.addPath(circle(38, eye.y, 9)) }
+        return path
+    }
+
+    private var colour: some View {
         Canvas { context, size in
             let unit = min(Double(size.width), Double(size.height)) / 100
             let left = (Double(size.width) - 100 * unit) / 2, top = (Double(size.height) - 100 * unit) / 2
@@ -88,47 +128,26 @@ struct DarumaView: View, Animatable {
             let outline = Path(CGGeometryBridge.darumaOutline(in: box(0, 0, 100, 100)))
             // The eyes glance together, three units at most — inside the face at any glance.
             let shift = pose.look * 3, drop = pose.attending * 2
-            switch style {
-            case .colour:
-                let dark = scheme == .dark
-                let ink = dark ? Palette.Brand.paper : Palette.Brand.sumi
-                let body = icon == .vermilion ? Palette.Brand.shuNuri : ink
-                let face = dark ? Palette.Brand.sumi : Palette.RGB(hex: 0xFFFFFF)
-                context.fill(outline, with: .color(body.color))
-                context.fill(Path(ellipseIn: CGGeometryBridge.rect(from: box(25, 26.5, 50, 39))),
-                             with: .color(face.color))
-                let red = Color(Signal.record)
-                context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red), lineWidth: 3.4 * unit)
-                if pose.recordFill > 0 {
-                    context.fill(circle(60 + shift, 46 + drop, 7.5 * pose.recordFill), with: .color(red))
-                }
-                let waiting = circle(40 + shift, 46 + drop, 7.5)
-                if pose.waitingPainted {
-                    context.fill(waiting, with: .color(ink.color))
-                } else {
-                    let dash = 2 * Double.pi * 7.5 * unit / 20
-                    context.stroke(waiting, with: .color(ink.color),
-                                   style: StrokeStyle(lineWidth: 2.6 * unit, dash: [dash, dash]))
-                }
-            case .template:
-                // The small mark's numbers: a larger face and eye, legible at a header's size.
-                let ink = GraphicsContext.Shading.style(.foreground)
-                context.drawLayer { layer in
-                    layer.fill(outline, with: ink)
-                    layer.blendMode = .destinationOut
-                    layer.fill(Path(ellipseIn: CGGeometryBridge.rect(from: box(21, 25, 58, 44))),
-                               with: .color(.black))
-                }
-                // **The ring's hole closes as it fills — one path, never a disc over a ring.** The
-                // foreground ink is translucent: a disc over its ring darkened the overlap, and a
-                // union of the two cancelled to a white seam between them.
-                let eye = Self.templateEye(pose)
-                var marks = circle(eye.x, eye.y, 11.3)
-                if pose.recordFill < 1 { marks.addPath(circle(eye.x, eye.y, 6.7 * (1 - pose.recordFill))) }
-                if pose.waitingPainted { marks.addPath(circle(38, eye.y, 9)) }
-                context.fill(marks, with: ink, style: FillStyle(eoFill: true))
+            let dark = scheme == .dark
+            let ink = dark ? Palette.Brand.paper : Palette.Brand.sumi
+            let body = icon == .vermilion ? Palette.Brand.shuNuri : ink
+            let face = dark ? Palette.Brand.sumi : Palette.RGB(hex: 0xFFFFFF)
+            context.fill(outline, with: .color(body.color))
+            context.fill(Path(ellipseIn: CGGeometryBridge.rect(from: box(25, 26.5, 50, 39))),
+                         with: .color(face.color))
+            let red = Color(Signal.record)
+            context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red), lineWidth: 3.4 * unit)
+            if pose.recordFill > 0 {
+                context.fill(circle(60 + shift, 46 + drop, 7.5 * pose.recordFill), with: .color(red))
+            }
+            let waiting = circle(40 + shift, 46 + drop, 7.5)
+            if pose.waitingPainted {
+                context.fill(waiting, with: .color(ink.color))
+            } else {
+                let dash = 2 * Double.pi * 7.5 * unit / 20
+                context.stroke(waiting, with: .color(ink.color),
+                               style: StrokeStyle(lineWidth: 2.6 * unit, dash: [dash, dash]))
             }
         }
-        .accessibilityHidden(true)
     }
 }
