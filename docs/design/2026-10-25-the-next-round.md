@@ -8,6 +8,10 @@ SDK or the code before it is planned, and the order.
 
 ## Export speed: measure before changing anything
 
+**Measured the same day — `2026-10-25-where-an-export-spends-its-time.md`.** The export is as
+fast as the hardware encoder with nothing in front of it; the three changes below are each
+discarded by a number there.
+
 The export already takes the fast road: `MP4Exporter` reads with `AVAssetReader`, composites in
 Core Image on a Metal device (`CoreImageFrameRenderer`) and writes with `AVAssetWriter` — the same
 road another project measured at about 3× an `AVAssetExportSession`
@@ -64,6 +68,6 @@ selection (a jump), the editor opening from a finished take.
 ## Order
 
 Commit what is built (owner, 2026-10-25) — done, in four commits. Then: the daruma that answers
-— done; the export measurement;
+— done; the export measurement — done, and it changes nothing in the exporter;
 the toolbar's priorities and the canvas bar; bundle identifiers and the out-of-date check;
 transitions; then landscape items 2–4.
