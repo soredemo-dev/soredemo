@@ -121,6 +121,8 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [2026-10-25-a-daruma-that-answers](2026-10-25-a-daruma-that-answers.md) | the mark drawn in code: the header's eye looks at the card under the pointer, the permissions page paints an eye per grant |
 | [2026-10-25-the-next-round](2026-10-25-the-next-round.md) | research and order after the daruma: export speed measured first, toolbar priorities, transitions |
 | [2026-10-25-where-an-export-spends-its-time](2026-10-25-where-an-export-spends-its-time.md) | measured: an H.264/HEVC export is as fast as the hardware encoder alone, so nothing in the code is the limit |
+| [2026-10-25-the-editor-opens-as-a-window](2026-10-25-the-editor-opens-as-a-window.md) | the editor comes forward at its final size on the same desktop instead of moving into a full-screen Space |
+| [2026-10-25-the-editors-layout](2026-10-25-the-editors-layout.md) | proposal: the picture's settings first and the file's in the export sheet, one bar fewer, labelled tools, an empty lane that says why |
 | [2026-09-25-tilting-the-card](2026-09-25-tilting-the-card.md) | tilting the card |
 | [2026-09-22-the-preview-composited-at-export-resolution](2026-09-22-the-preview-composited-at-export-resolution.md) | the preview composited at export resolution |
 | [2026-10-24-a-replaced-picture-is-drawn](2026-10-24-a-replaced-picture-is-drawn.md) | a picture replaced under its own name |

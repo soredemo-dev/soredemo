@@ -8,21 +8,18 @@ import AppKit
 /// The policy is switched rather than chosen once, so each surface gets the one it needs.
 @MainActor
 enum EditorWindowPresence {
-    /// Opens the editor, or brings the one that exists forward, full screen either way.
+    /// Opens the editor, or brings the one that exists forward, filling the screen either way —
+    /// as a window since 2026-10-25 (`EditorOpening`), or full screen if that switch is back on.
     ///
     /// **`WindowGroup` permits a second window and this is what refuses one** — a group's
     /// `openWindow(id:)` makes a NEW window every call, and two editors would be two sets of
     /// models over one set of process-global `StageCompositor` statics. Matched on the window's
     /// `identifier` rather than its title, which is the recording's name and changes with it.
     ///
-    /// **Full screen is a property of being shown, not an event on the window's first key.** A
-    /// one-shot `didBecomeKey` observer fires when SwiftUI CREATES the window and never again,
-    /// so the first recording opened full screen and no later one did. A rule spent by one
-    /// event stops applying — the same correction the opening SIZE went through.
-    ///
-    /// **The cost, stated rather than discovered**: leave the editor windowed, record again,
-    /// and you are put back into full screen. Acceptable only because this has ONE caller — a
-    /// new recording or a newly opened project — which is the moment full screen is wanted.
+    /// **Filling the screen is a property of being shown, not an event on the first key**: a
+    /// one-shot `didBecomeKey` observer fires when SwiftUI creates the window and never again.
+    /// The cost: an editor left smaller is filled again by the next recording — acceptable
+    /// because this has one caller, a new recording or a newly opened project.
     /// Why `LSUIElement` is still in the Info.plist: `docs/design/full-screen-and-window-behaviour.md`.
     static func openEditor(_ open: (String) -> Void) {
         willOpen()
@@ -31,6 +28,11 @@ enum EditorWindowPresence {
         }) {
             existing.makeKeyAndOrderFront(nil)
             showFullScreen(existing)
+            // An editor left smaller is grown to fill the screen again, the way a new one opens.
+            if !WindowConfigurator.opensFullScreen, !existing.styleMask.contains(.fullScreen),
+               let visible = (existing.screen ?? NSScreen.main)?.visibleFrame {
+                EditorOpening.present(existing, within: visible)
+            }
         } else {
             // A window SwiftUI has not built yet has no `NSWindow` to toggle;
             // `WindowConfigurator` takes that path when the window becomes key.

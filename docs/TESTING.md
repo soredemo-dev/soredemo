@@ -183,7 +183,7 @@ other's work and look like a hang.
 | 3 | `scripts/run-cross-boundary-probe.sh` | 473 checks, zero skipped without a named reason | ~2.5 min |
 | 4 | `xcodebuild -scheme Soredemo` | builds | ~2 min |
 | 5 | `scripts/run-app-tests.sh` | every app-tier test passes | ~2 min |
-| 6 | `scripts/check-editor-opens-full-screen.sh` | AppKit says the editor window is full screen | ~1 min |
+| 6 | `scripts/check-editor-opens-full-screen.sh` | AppKit says the editor window fills the visible frame and is visible (full screen, when `WindowConfigurator.opensFullScreen` is turned back on) | ~1 min |
 | 7 | `scripts/coverage.sh` | line coverage at or above the floor | ~4 min |
 | 8 | `scripts/check-the-bar-can-be-dragged.sh` | the recording bar moves when dragged | ~1 min |
 
@@ -198,6 +198,12 @@ read.
 `--no-parallel` flag and must not grow one; when it hangs — CoreMedia's own workers idle at
 0% CPU — run the four filtered runs by hand with `--no-parallel` and check the sum yourself.
 Observed again 2026-09-16 at forty minutes on `CompositingTests`. See the next section.
+
+**Since 2026-10-25 gate 6 asks about a window, not full screen**
+(`docs/design/2026-10-25-the-editor-opens-as-a-window.md`): `fillsVisibleFrame=`, each edge's
+distance in `edgesInsideVisibleFrame=`, and `alpha=`, because a window hidden until it is drawn
+and never shown is an editor nobody can see. The full-screen fields below apply when the switch
+is turned back on.
 
 **Gate 6 says which ending it hit.** `fullScreenStopped=` in its report is `arrived`,
 `exhausted`, `windowNotVisible`, `asking` or `notAsked`, and `fullScreenAsks=` is how many

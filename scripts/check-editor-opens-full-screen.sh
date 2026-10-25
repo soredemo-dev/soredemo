@@ -1,5 +1,6 @@
 #!/bin/bash
-# The editor opens, and it is full screen — docs/TESTING.md § 6.0.
+# The editor opens, and fills the screen — as a window, or full screen if the app says so.
+# docs/TESTING.md § 6.0.
 #
 # **A script, not a test case, and that was arrived at rather than chosen.** Two earlier
 # shapes were built and measured first:
@@ -98,6 +99,23 @@ if [ ! -f "$REPORT" ]; then
 fi
 
 cat "$REPORT"
+# **Since 2026-10-25 the editor opens as a window filling the screen**, not in full screen —
+# docs/design/2026-10-25-the-editor-opens-as-a-window.md. The app says which it meant to do, and
+# this asks AppKit whether that happened: the frame against the visible frame, and the alpha,
+# because a window hidden until it grows and never grown is an editor nobody can see.
+if grep -q "opensFullScreen=false" "$REPORT"; then
+  if grep -q "fillsVisibleFrame=true" "$REPORT" && grep -q "^alpha=1" "$REPORT"; then
+    echo "EDITOR OPENS: the window fills the screen's visible frame and is visible."
+    exit 0
+  fi
+  echo "" >&2
+  echo "EDITOR OPENS: FAILED. The report above is AppKit's answer. Read in this order:" >&2
+  echo "  alpha=0            hidden and never grown: EditorOpening.present never ran, and the" >&2
+  echo "                     reveal deadline did not show it either." >&2
+  echo "  fillsVisibleFrame  false with alpha=1: shown, but not grown — the frame says where." >&2
+  echo "  frame 900x492      the un-configured default: the window was never configured." >&2
+  exit 1
+fi
 if ! grep -q "fullScreen=true" "$REPORT"; then
   echo "" >&2
   # **The four causes used to be listed and not distinguished, and that cost five launches.**

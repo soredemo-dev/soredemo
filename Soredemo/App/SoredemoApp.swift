@@ -185,8 +185,27 @@ struct SoredemoApp: App {
                 $0.identifier?.rawValue.contains(WindowID.editor) == true && $0.isVisible
             }
             let screen = window?.screen ?? NSScreen.main
+            // **Fills the visible frame, and can be seen** — what "opened" means since the editor
+            // became a window (`EditorOpening`). A window at alpha 0 is one nobody can see, so
+            // its alpha is reported rather than assumed.
+            // **Within two points per edge, and each edge's distance printed.** Measured
+            // 2026-10-25 on a 1512 x 982 screen: asked for (0, 84, 1512, 865), AppKit settled the
+            // window at (0, 86, 1512, 863) — its bottom two points up, the rest exact. The
+            // distances are in the report so a larger miss says where, not just that.
+            let edges = window.flatMap { window in
+                screen.map { screen -> [Double] in
+                    let (f, v) = (window.frame, screen.visibleFrame)
+                    return [f.minX - v.minX, f.minY - v.minY, v.maxX - f.maxX, v.maxY - f.maxY]
+                }
+            }
+            let fills = edges.map { $0.allSatisfy { abs($0) <= 2 } } ?? false
             let report = """
+                opensFullScreen=\(WindowConfigurator.opensFullScreen)
                 fullScreen=\(window?.styleMask.contains(.fullScreen) == true)
+                fillsVisibleFrame=\(fills)
+                edgesInsideVisibleFrame=\(edges.map { "\($0)" } ?? "none")
+                alpha=\(window.map { "\($0.alphaValue)" } ?? "none")
+                visibleFrame=\(screen.map { "\($0.visibleFrame)" } ?? "none")
                 frame=\(window.map { "\($0.frame)" } ?? "none")
                 screen=\(screen.map { "\($0.frame)" } ?? "none")
                 safeAreaTop=\(screen?.safeAreaInsets.top ?? -1)

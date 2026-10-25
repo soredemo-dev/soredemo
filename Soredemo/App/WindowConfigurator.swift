@@ -14,8 +14,9 @@ import SwiftUI
 /// behaviour: `docs/design/full-screen-and-window-behaviour.md`.
 struct WindowConfigurator: NSViewRepresentable {
     /// Whether the editor enters full screen when it opens. The switch, so that turning it off
-    /// is one word rather than an excavation.
-    static let opensFullScreen = true
+    /// is one word rather than an excavation. **Off since 2026-10-25**: the editor grows into a
+    /// window filling the screen instead (`EditorOpening`), and full screen is the toolbar button's and ⌃⌘F's.
+    static let opensFullScreen = false
 
     func makeNSView(context: Context) -> AttachedView { AttachedView() }
 
@@ -59,6 +60,10 @@ struct WindowConfigurator: NSViewRepresentable {
             //
             // This window is the thing somebody just asked for, so asking to be front is what
             // it should do regardless of who else remembered to.
+            // Hidden until it grows, so the default frame painted before it is key is not seen.
+            if !WindowConfigurator.opensFullScreen && !window.styleMask.contains(.fullScreen) {
+                EditorOpening.hide(window)
+            }
             if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
             observers.adopt(openFullScreen(window) + keepUsablyLarge(window)
                             + watchFullScreen(window),
@@ -130,6 +135,19 @@ struct WindowConfigurator: NSViewRepresentable {
         enterFullScreenOrGrow(window)
         return []
     }
+    // **Filling the screen does not need the key window; only the full-screen toggle does.**
+    // After a recording the app is not frontmost, and a window that never became key was left
+    // at its default 900 × 492 by the reveal deadline — no growth, no fade (seen by the owner,
+    // 2026-10-25). So that path runs a turn after the window is attached, key or not.
+    if !WindowConfigurator.opensFullScreen {
+        DispatchQueue.main.async { [weak window] in
+            MainActor.assumeIsolated {
+                guard let window else { return }
+                enterFullScreenOrGrow(window)
+            }
+        }
+        return []
+    }
 
     let token = ObserverToken()
     token.value = NotificationCenter.default.addObserver(
@@ -151,11 +169,13 @@ struct WindowConfigurator: NSViewRepresentable {
 /// Full screen if that is what this editor does, and the size floor if it is not.
 @MainActor private func enterFullScreenOrGrow(_ window: NSWindow) {
     guard let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-    guard WindowConfigurator.opensFullScreen,
-          !window.styleMask.contains(.fullScreen) else {
-        // Not going full screen — either it is off or the window is already there — so this is
-        // the only moment the floor gets applied on the way in.
-        WindowSizeFloor.grow(window, within: visible)
+    if window.styleMask.contains(.fullScreen) {
+        window.alphaValue = 1
+        return
+    }
+    guard WindowConfigurator.opensFullScreen else {
+        // Grown out of the top of the screen to fill what the menu bar and the Dock leave.
+        EditorOpening.present(window, within: visible)
         return
     }
     // **Full size first, then the toggle.** AppKit paints at the autosaved size before the

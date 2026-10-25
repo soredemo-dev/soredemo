@@ -1,5 +1,9 @@
 # Full screen, and what SwiftUI has no modifier for
 
+> **2026-10-25: the editor no longer opens in full screen** — it opens as a window filling the
+> visible frame (`2026-10-25-the-editor-opens-as-a-window.md`). Everything below still governs
+> full screen, which is now the toolbar's Full Screen button's, ⌃⌘F's, and `WindowConfigurator.opensFullScreen`'s.
+
 *Measured 2026-08-26 and 2026-08-27. Code: `Soredemo/App/WindowConfigurator.swift`,
 `Soredemo/App/SoredemoApp.swift`.*
 
