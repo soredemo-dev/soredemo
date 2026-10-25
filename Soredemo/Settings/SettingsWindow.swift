@@ -114,6 +114,17 @@ struct SettingsWindow: View {
                 .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Before recording") {
+            // **Here rather than in the panel**: set once and kept, unlike the microphone a person
+            // checks before nearly every take. Only rates an attached display can produce
+            // (`CaptureFrameRate.available`) — a higher one would change nothing observable.
+            Picker("Frame rate", selection: Binding(
+                get: { coordinator.preferences.frameRate },
+                set: { coordinator.preferences.frameRate = $0 })) {
+                ForEach(CaptureFrameRate.available(forDisplayRates: DisplayRefreshRates.current),
+                        id: \.self) {
+                    Text("\($0.rawValue) fps").tag($0)
+                }
+            }
             Picker("Countdown", selection: Binding(
                 get: { coordinator.preferences.countdownSeconds },
                 set: { coordinator.preferences.countdownSeconds = $0 })) {

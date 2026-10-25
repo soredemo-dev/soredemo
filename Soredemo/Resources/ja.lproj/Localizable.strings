@@ -129,7 +129,6 @@
 "Solid" = "単色";
 "Sources" = "入力";
 "Split at playhead" = "再生ヘッドで分割";
-"Start Recording" = "収録を開始";
 "Start a recording from the menu bar." = "メニューバーから収録を始めてください。";
 "Start and stop" = "開始と停止";
 "Start here" = "ここから始める";
@@ -791,3 +790,5 @@
 "Could not save the copy: %@" = "コピーを保存できませんでした:%@";
 "Counting down" = "カウントダウン中";
 "Recording finished" = "収録完了";
+"Record what is chosen (%@)" = "選んだものを収録（%@）";
+"A connected device is recorded, not photographed" = "接続したデバイスは収録のみで、スクリーンショットは撮れません";

@@ -21,7 +21,9 @@ struct MenuBarMicrophoneRow: View {
     let coordinator: RecordingCoordinator
 
     var body: some View {
-        Menu {
+        MenuBarRow(icon: coordinator.microphone == .off ? "mic.slash" : "mic.fill",
+                   iconIsOff: coordinator.microphone == .off, title: "Microphone",
+                   value: Text(LocalizedStringKey(coordinator.microphone.displayName))) {
             Button("No microphone") { coordinator.microphone = .off }
             Divider()
             Button("System default") { coordinator.microphone = .systemDefault }
@@ -29,64 +31,39 @@ struct MenuBarMicrophoneRow: View {
                 Button(LocalizedStringKey(source.displayName)) { coordinator.microphone = source }
             }
             Divider()
-            // **Voice Isolation is the noise removal, done by the system, on the input.** It is
-            // a mode macOS applies before any app sees a sample, so it is in the recording
-            // rather than something an export has to undo. No app can set it — see
-            // `CameraEffects` — so this opens the panel that can.
             Button("Microphone Modes\u{2026}") { CameraEffects.showMicrophoneModes() }
             Divider()
-            // A checkmark rather than a `Toggle`: inside a `Menu` the two look the
-            // same and the button carries its own action, which keeps the state in
-            // the coordinator rather than in a binding this view would own.
             Button {
                 coordinator.preferences.capturesSystemAudio.toggle()
             } label: {
                 Label("Record system audio",
                       systemImage: coordinator.preferences.capturesSystemAudio ? "checkmark" : "")
             }
-        } label: {
-            SourceRowLabel(icon: coordinator.microphone == .off ? "mic.slash" : "mic.fill",
-                           isOff: coordinator.microphone == .off,
-                           name: coordinator.microphone.displayName) {
-                // Shown only when it is OFF. A speaker drawn on every recording
-                // would be one more thing to read on a row that is usually just
-                // "System default"; a struck-through one appears exactly when
-                // somebody has turned something off and needs to see that they did.
-                if !coordinator.preferences.capturesSystemAudio {
-                    Image(systemName: "speaker.slash.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("System audio is off")
-                }
+        } accessory: {
+            if !coordinator.preferences.capturesSystemAudio {
+                Image(systemName: "speaker.slash.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("System audio is off")
             }
         }
-        .sourceRowMenu()
     }
 }
 
-/// Which camera, including none.
-///
-/// **Hidden entirely when this machine has no camera** — an option that can only fail is worse
-/// than no option. The permission is asked for when a camera is chosen rather than at launch,
-/// because a recorder that asks for the camera on first run before anyone has asked for one is
-/// a recorder people distrust; **a refusal keeps the row and says so** (`wasRefused`, below),
-/// because hiding it would teach only that the row had vanished.
 struct MenuBarCameraRow: View {
     let camera: CameraController
 
     var body: some View {
         if !camera.available.isEmpty {
-            Menu {
+            MenuBarRow(icon: camera.source == .off ? "video.slash" : "video.fill",
+                       iconIsOff: camera.source == .off, title: "Camera",
+                       value: Text(LocalizedStringKey(camera.source.displayName))) {
                 Button("No camera") { camera.choose(.off) }
                 Divider()
                 ForEach(camera.available, id: \.self) { source in
                     Button(LocalizedStringKey(source.displayName)) { camera.choose(source) }
                 }
                 Divider()
-                // **The quality is the camera's, read from the device.** It was capped at 1080p
-                // by a decision this app had no business making — a camera grows when the stage
-                // zooms, it can be made large, and a ProRes 4444 export of a large overlay wants
-                // every pixel the source has.
                 Menu("Camera Quality") {
                     ForEach(CameraRecorder.qualities(for: camera.source), id: \.self) { q in
                         Button {
@@ -98,11 +75,7 @@ struct MenuBarCameraRow: View {
                 }
                 Divider()
                 Button("Video Effects\u{2026}") { CameraEffects.showVideoEffects() }
-            } label: {
-                SourceRowLabel(icon: camera.source == .off ? "video.slash" : "video.fill",
-                               isOff: camera.source == .off, name: camera.source.displayName) {}
             }
-            .sourceRowMenu()
 
             // **What the chosen camera will actually record at.** Every camera used to be
             // recorded at 480p whatever it could do, so an external one was throwing away most
@@ -158,53 +131,5 @@ struct MenuBarCameraRow: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-}
-
-/// The label both source rows wear: an icon, the source's name, room for one more mark, and the
-/// chevron that says it opens.
-///
-/// **One shape for the two rows**, for `MenuBarSettingRow`'s reason: two labels built side by
-/// side are two labels free to drift apart in padding and height.
-private struct SourceRowLabel<Accessory: View>: View {
-    let icon: String
-    let isOff: Bool
-    /// **Looked up here, because the name crosses a module boundary as a `String`.**
-    /// `MicrophoneSource.displayName` is in the package, which has no strings table and should
-    /// not have one — a capture module that knew about the app's UI language would be the wrong
-    /// shape. "System default" and "No microphone" are keys in this app's table; a real device's
-    /// name is not, and falls through to itself, which is right — the system already localised it.
-    let name: String
-    @ViewBuilder let accessory: () -> Accessory
-
-    var body: some View {
-        HStack(spacing: Space.snug) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(isOff ? .secondary : .primary)
-                .frame(width: 14)
-            accessory()
-            Text(LocalizedStringKey(name))
-                .font(.system(size: 12))
-                .lineLimit(1)
-            Spacer(minLength: Space.tight)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, Space.regular)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-            .fill(.quaternary.opacity(0.5)))
-    }
-}
-
-private extension View {
-    /// A source row's menu: borderless, no indicator, and **not in the accent** — a `Menu`'s
-    /// label inherits the tint, and these report state rather than offering the primary action.
-    func sourceRowMenu() -> some View {
-        menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .tint(Theme.Ink.primary)
     }
 }

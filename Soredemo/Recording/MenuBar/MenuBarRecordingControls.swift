@@ -1,38 +1,37 @@
 import Capture
 import SwiftUI
 
-/// The panel's one primary action.
-struct MenuBarStartButton: View {
+/// The panel's two acts, as Apple's own capture toolbar has them: the target is chosen above,
+/// and these say what to do with it. **Record is the system's prominent button in the ink accent,
+/// its mark in the label's own ink** — no red before anything records: the owner found the red dot
+/// on an idle panel too loud (2026-10-25), and red then means "recording" and nothing else.
+/// Screenshot is the system's bordered button, and a chosen device cannot be
+/// photographed: disabled, with its reason, rather than hidden.
+/// `docs/design/2026-10-25-the-panel-and-a-daruma-that-answers.md`, "Building option two".
+struct MenuBarActions: View {
     let coordinator: RecordingCoordinator
 
     var body: some View {
-        Button {
-            coordinator.beginRecording(.displaysAndWindows)
-        } label: {
-            HStack(spacing: Space.snug) {
-                Image(systemName: "record.circle.fill").font(.system(size: 13))
-                Text("Start Recording").font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Text(verbatim: GlobalHotkey.toggleRecordingSpelling)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.Ink.onAccent.opacity(0.8))
+        let deviceChosen = coordinator.selectedDevice != nil
+        HStack(spacing: Space.snug) {
+            Button { coordinator.start(.take) } label: {
+                Label("Record", systemImage: "record.circle")
+                    .frame(maxWidth: .infinity)
             }
-            // **`onAccent`, not white**: the accent is ink — sumi in the light theme, washi in the
-            // dark — so the label is the paper it is not
-            // (`PaletteTests.aLabelReadsOnTheAccentAndTheAccentOnThePanel`).
-            .foregroundStyle(Theme.Ink.onAccent)
-            .padding(.horizontal, Space.regular)
-            .frame(height: 34)
-            .frame(maxWidth: .infinity)
-            // **The app's own colour, not red.** On macOS red means destructive, and a large red
-            // button reading "Start Recording" looks like one — the record dot beside the label
-            // already carries the meaning. Red stays where it belongs: the state while a
-            // recording is running, and the control that ends it.
-            .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-                .fill(Theme.accent))
+            .buttonStyle(.borderedProminent)
+            .help("Record what is chosen (\(GlobalHotkey.toggleRecordingSpelling))")
+            Button { coordinator.start(.picture) } label: {
+                Label("Screenshot", systemImage: "camera.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(deviceChosen)
+            // Two `Text`s, not a ternary of literals: that would type as `String` and skip the table.
+            .help(deviceChosen ? Text("A connected device is recorded, not photographed")
+                               : Text("Screenshot"))
         }
-        .buttonStyle(.plain)
-        .help("Choose what to record")
+        .controlSize(.extraLarge)
+        .tint(Theme.accent)
     }
 }
 

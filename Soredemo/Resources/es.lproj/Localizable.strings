@@ -129,7 +129,6 @@
 "Solid" = "Color sólido";
 "Sources" = "Fuentes";
 "Split at playhead" = "Dividir en el cabezal";
-"Start Recording" = "Empezar a grabar";
 "Start a recording from the menu bar." = "Empieza una grabación desde la barra de menús.";
 "Start and stop" = "Empezar y parar";
 "Start here" = "Empezar aquí";
@@ -791,3 +790,5 @@
 "Could not save the copy: %@" = "No se pudo guardar la copia: %@";
 "Counting down" = "Cuenta atrás en curso";
 "Recording finished" = "Grabación terminada";
+"Record what is chosen (%@)" = "Grabar lo elegido (%@)";
+"A connected device is recorded, not photographed" = "Un dispositivo conectado se graba, no se fotografía";

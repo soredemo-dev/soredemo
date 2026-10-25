@@ -9,21 +9,19 @@ struct NotchRecorderControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             HStack(spacing: Space.snug) {
-                target("display", "Screen") { coordinator.beginRecording(.displaysOnly) }
-                target("macwindow", "Window") { coordinator.beginWindowRecordingByPointing() }
-                target("rectangle.dashed", "Area") { coordinator.beginRegionRecording() }
-                // **A plugged-in phone or tablet, the same fourth choice the menu offers.** This row
-                // was built from the menu's first three and the fourth — which exists only while a
-                // device does — was missed, so recording a phone from the notch was impossible.
-                // A take's only: a phone is recorded through a stack with no screenshot path.
-                if coordinator.capturePurpose == .take {
-                    ForEach(coordinator.availableMobileScreens) { device in
-                        target(device.symbolName, verbatim: device.displayName) {
-                            coordinator.beginMobileRecording(device)
-                        }
+                target("display", "Screen", chosen: coordinator.isChosen(.screen)) { coordinator.choose(.screen) }
+                target("macwindow", "Window", chosen: coordinator.isChosen(.window)) { coordinator.choose(.window) }
+                target("rectangle.dashed", "Area", chosen: coordinator.isChosen(.area)) { coordinator.choose(.area) }
+                // **A plugged-in phone or tablet, the same fourth choice the menu offers** — once
+                // missed here, so recording a phone from the notch was impossible. Chosen like the
+                // others; Screenshot is disabled for it, as in the panel.
+                ForEach(coordinator.availableMobileScreens) { device in
+                    target(device.symbolName, verbatim: device.displayName,
+                           chosen: coordinator.isChosen(device: device)) {
+                        coordinator.choose(device: device)
                     }
-                    ForEach(coordinator.mobileScreensWaiting, id: \.self) { name in waiting(name) }
                 }
+                ForEach(coordinator.mobileScreensWaiting, id: \.self) { name in waiting(name) }
             }
             HStack(spacing: Space.snug) {
                 Menu {
@@ -46,25 +44,21 @@ struct NotchRecorderControls: View {
                           systemImage: coordinator.camera.source == .off ? "video.slash" : "video")
                 }
                 // **A hint, beside the choice it is about, and IN this row.** The open surface's
-                // depth is fixed (`NotchSurfaceLayout.openDepth`); as a third row it was cut in
-                // half at the surface's bottom edge — reported 2026-09-29 with a screenshot. This
-                // row has the width to spare. Only when true; see `AudioRoute` for why it
-                // suggests headphones and not muting.
+                // depth is fixed (`NotchSurfaceLayout.openDepth`); a third row is cut in half at
+                // its bottom edge — reported 2026-09-29, and repeated 2026-10-25 by the Record row
+                // before it moved in here too. An icon, so the row keeps room for the act; the
+                // sentence is its label and its help. See `AudioRoute` for why it says headphones.
                 if coordinator.speakersReachTheMicrophone {
-                    Spacer(minLength: Space.snug)
                     Label("The speakers will be heard in the recording", systemImage: "speaker.wave.2.fill")
-                        .lineLimit(1)
+                        .labelStyle(.iconOnly)
                         .foregroundStyle(Signal.paused)
                         .help("The built-in microphone hears the built-in speakers, so whatever this Mac plays is recorded twice. Headphones keep it out of the take.")
                 }
+                NotchActions(coordinator: coordinator, done: done)
             }
             .menuStyle(.borderlessButton)
             .font(.system(size: 11))
             .foregroundStyle(.white.opacity(0.8))
-            // **Hidden, not removed, for a picture**: a picture has no sound and no camera, and
-            // keeping the row's space stops the surface's content jumping when the mode changes.
-            .opacity(coordinator.capturePurpose == .take ? 1 : 0)
-            .disabled(coordinator.capturePurpose != .take)
         }
         .onChange(of: coordinator.microphone) { coordinator.refreshAudioRoute() }
         // When the surface opens, which is the moment a phone was plugged in for — the menu's
@@ -91,31 +85,80 @@ struct NotchRecorderControls: View {
         .help(Text("\(name) is connected. Unlock it \u{2014} and tap Trust if it asks \u{2014} to record its screen."))
     }
 
-    private func target(_ icon: String, verbatim title: String, _ start: @escaping () -> Void) -> some View {
-        targetButton(icon, label: Text(verbatim: title), start)
+    private func target(_ icon: String, verbatim title: String, chosen: Bool,
+                        _ choose: @escaping () -> Void) -> some View {
+        targetButton(icon, label: Text(verbatim: title), chosen: chosen, choose)
     }
 
-    /// A way to start. Closes the surface first: the picker that follows is a window of its own,
-    /// and the surface hanging open over it would be in the way of the choice it asks for.
-    private func target(_ icon: String, _ title: LocalizedStringKey, _ start: @escaping () -> Void) -> some View {
-        targetButton(icon, label: Text(title), start)
+    /// A target, chosen — the notch's grammar is the panel's; the act is Record or Screenshot.
+    private func target(_ icon: String, _ title: LocalizedStringKey, chosen: Bool,
+                        _ choose: @escaping () -> Void) -> some View {
+        targetButton(icon, label: Text(title), chosen: chosen, choose)
     }
 
-    private func targetButton(_ icon: String, label: Text, _ start: @escaping () -> Void) -> some View {
-        Button {
-            done()
-            start()
-        } label: {
+    private func targetButton(_ icon: String, label: Text, chosen: Bool,
+                              _ choose: @escaping () -> Void) -> some View {
+        Button(action: choose) {
             VStack(spacing: Space.tight) {
                 Image(systemName: icon).font(.system(size: 18))
                 label.font(.system(size: 11, weight: .medium)).lineLimit(1)
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white.opacity(0.1)))
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+                shape.fill(.white.opacity(chosen ? 0.16 : 0.08))
+                    .overlay(shape.stroke(.white.opacity(chosen ? 0.9 : 0), lineWidth: 1.5))
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+}
+
+/// The notch's act: Screenshot and Record for the chosen target, as in the panel. Both close the
+/// surface first — the picker that follows is a window of its own, and the surface hanging open
+/// over it would be in the way. Record is a white capsule with an ink mark — no red before
+/// anything records, as in the panel.
+struct NotchActions: View {
+    let coordinator: RecordingCoordinator
+    let done: () -> Void
+
+    var body: some View {
+        let deviceChosen = coordinator.selectedDevice != nil
+        HStack(spacing: Space.snug) {
+            Spacer(minLength: 0)
+            Button {
+                done()
+                coordinator.start(.picture)
+            } label: {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 30, height: 26)
+                    .background(Capsule().fill(.white.opacity(0.12)))
+            }
+            .disabled(deviceChosen)
+            .help(deviceChosen ? Text("A connected device is recorded, not photographed")
+                               : Text("Screenshot"))
+            .accessibilityLabel(Text("Screenshot"))
+            Button {
+                done()
+                coordinator.start(.take)
+            } label: {
+                HStack(spacing: Space.tight) {
+                    Image(systemName: "record.circle").font(.system(size: 12, weight: .medium))
+                    Text("Record").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.black)
+                .padding(.horizontal, Space.regular)
+                .frame(height: 26)
+                .background(Capsule().fill(.white))
+            }
+            .help(Text("Record what is chosen (\(GlobalHotkey.toggleRecordingSpelling))"))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
     }
 }
 

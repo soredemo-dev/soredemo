@@ -1,88 +1,83 @@
 import Capture
 import SwiftUI
 
-/// How often the capture may deliver a frame.
-///
-/// **Only rates some attached display can produce** (`DisplayRefreshRates`):
-/// `minimumFrameInterval` is a ceiling and the panel is the floor, so offering 120 with only
-/// 60 Hz displays attached would be offering a control that changes no observable thing.
-struct MenuBarFrameRateRow: View {
-    let preferences: RecordingPreferences
-
-    var body: some View {
-        MenuBarSettingRow(icon: "speedometer", title: "Frame rate",
-                          selection: Binding(get: { preferences.frameRate },
-                                             set: { preferences.frameRate = $0 })) {
-            ForEach(CaptureFrameRate.available(forDisplayRates: DisplayRefreshRates.current),
-                    id: \.self) {
-                // A format key, not the name: the rate is the display's own (144, 240…), so no
-                // table of fixed names can hold it, and French and Russian do not say "fps".
-                Text("\($0.rawValue) fps").tag($0)
-            }
-        }
-    }
-}
-
 /// How long to wait before the capture starts.
 struct MenuBarCountdownRow: View {
     let preferences: RecordingPreferences
 
     var body: some View {
-        MenuBarSettingRow(icon: preferences.countdownSeconds == 0 ? "timer.square" : "timer",
-                          // Muted when it is off, so the row says so before the value is read.
-                          iconIsMuted: preferences.countdownSeconds == 0,
-                          title: "Countdown",
-                          selection: Binding(get: { preferences.countdownSeconds },
-                                             set: { preferences.countdownSeconds = $0 })) {
+        let seconds = preferences.countdownSeconds
+        MenuBarRow(icon: seconds == 0 ? "timer.square" : "timer", iconIsOff: seconds == 0,
+                   title: "Countdown", value: seconds == 0 ? Text("Off") : Text("\(seconds)s")) {
             ForEach(RecordingPreferences.countdownChoices, id: \.self) { value in
-                (value == 0 ? Text("Off") : Text("\(value)s")).tag(value)
+                Button { preferences.countdownSeconds = value } label: {
+                    Label { value == 0 ? Text("Off") : Text("\(value)s") } icon: {
+                        Image(systemName: value == seconds ? "checkmark" : "")
+                    }
+                }
             }
         }
     }
 }
 
-/// One settings row: an icon, a label, and a popup on the right. Both rows go through this,
-/// so the padding, the height, the corner radius and the popup width cannot disagree.
-struct MenuBarSettingRow<Value: Hashable, Options: View>: View {
+/// One row of the panel: an icon, what it sets, its current value, and a menu. **Microphone,
+/// camera and countdown all go through this**, so the three cannot drift into three shapes — the
+/// way Frame rate and Countdown once came out different lengths
+/// (`AppSourceAllowListTests.theMenuBarPanelHasOneSettingsRowShape`).
+///
+/// **A menu, not a `.menu` picker**, because the microphone's menu holds more than its choices
+/// (Microphone Modes, system audio) and a picker cannot. **The value is text, not the accent**:
+/// the accent marks the act — Record — and a setting's value is something to read.
+struct MenuBarRow<Choices: View, Accessory: View>: View {
     let icon: String
-    var iconIsMuted = false
+    var iconIsOff = false
     let title: LocalizedStringKey
-    let selection: Binding<Value>
-    @ViewBuilder let options: () -> Options
-
-    /// **How wide the popup on a settings row is.** One number for both rows, because the two
-    /// were built differently and did not line up: the countdown's was a `labelsHidden` picker
-    /// pinned to 76 points, and the frame rate's was a `Picker(label:)` whose popup sized itself
-    /// to its widest entry. Two shapes for one kind of row is how they came to be different
-    /// lengths, and matching the numbers would have left the shapes free to drift again.
-    ///
-    /// Wide enough for the longest value either row offers — `120 fps` — so neither truncates.
-    /// Computed, because a generic type cannot hold a static stored property.
-    private static var pickerWidth: Double { 92 }
+    let value: Text
+    @ViewBuilder let choices: () -> Choices
+    @ViewBuilder let accessory: () -> Accessory
 
     var body: some View {
-        HStack(spacing: Space.snug) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(iconIsMuted ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                .frame(width: 14)
-            Text(title).font(.system(size: 12))
-            Spacer(minLength: Space.tight)
-            Picker("", selection: selection) { options() }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                // **These two values opt out of the accent, and the panel's one purple thing
-                // stays the record button.** A `.menu` picker draws its selection in the tint,
-                // and the panel is tinted — so "120 fps" and "3s" came out the same purple as
-                // Start Recording, which made three things compete for the eye in a panel whose
-                // whole job is to get out of the way. The accent marks the ACTION; a setting's
-                // current value is text.
-                .tint(.primary)
-                .frame(width: Self.pickerWidth)
+        Menu {
+            choices()
+        } label: {
+            HStack(spacing: Space.snug) {
+                Image(systemName: icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(iconIsOff ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                    .frame(width: 16)
+                Text(title).font(.system(size: 12))
+                accessory()
+                Spacer(minLength: Space.tight)
+                value
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, Space.regular)
+            .frame(height: 30)
+            .background(ConcentricRectangle(corners: .concentric(minimum: .fixed(Glass.controlRadius)),
+                                            isUniform: true)
+                .fill(.fill.quaternary))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, Space.regular)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-            .fill(.quaternary.opacity(0.5)))
+        // **`.button` with a plain button style, not `.borderlessButton`**: the borderless style
+        // draws only a label's icon and title, which dropped the value, the chevrons and the
+        // fill — measured on the running panel, and true of the old microphone row too.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .tint(Theme.Ink.primary)
+    }
+}
+
+extension MenuBarRow where Accessory == EmptyView {
+    init(icon: String, iconIsOff: Bool = false, title: LocalizedStringKey, value: Text,
+         @ViewBuilder choices: @escaping () -> Choices) {
+        self.init(icon: icon, iconIsOff: iconIsOff, title: title, value: value, choices: choices,
+                  accessory: { EmptyView() })
     }
 }

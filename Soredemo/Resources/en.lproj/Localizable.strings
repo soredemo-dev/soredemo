@@ -127,7 +127,6 @@
 "Solid" = "Solid";
 "Sources" = "Sources";
 "Split at playhead" = "Split at playhead";
-"Start Recording" = "Start Recording";
 "Start a recording from the menu bar." = "Start a recording from the menu bar.";
 "Start and stop" = "Start and stop";
 "Start here" = "Start here";
@@ -805,3 +804,5 @@
 "Could not save the copy: %@" = "Could not save the copy: %@";
 "Counting down" = "Counting down";
 "Recording finished" = "Recording finished";
+"Record what is chosen (%@)" = "Record what is chosen (%@)";
+"A connected device is recorded, not photographed" = "A connected device is recorded, not photographed";

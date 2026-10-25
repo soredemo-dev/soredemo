@@ -38,6 +38,9 @@ final class RecordingPreferences {
         // never set, and 0 is not a frame rate.
         frameRate = (defaults.object(forKey: Self.frameRateKey) as? Int)
             .flatMap(CaptureFrameRate.init(rawValue:)) ?? .sixty
+        // A value a later build wrote and this one does not know is the screen, not a failure.
+        captureTarget = defaults.string(forKey: Self.captureTargetKey)
+            .flatMap(CaptureTarget.init(rawValue:)) ?? .screen
     }
 
     /// What a take — or a picture — leaves out of the frame, from the switches below. **One
@@ -48,6 +51,14 @@ final class RecordingPreferences {
                           hidesDesktopWidgets: hidesDesktopWidgets,
                           hidesNotifications: hidesNotifications)
     }
+
+    /// What the next capture is pointed at — the panel's chosen card. Persisted: the same target
+    /// is chosen nearly every time, and a choice that resets on every open is made again on every
+    /// open.
+    var captureTarget: CaptureTarget {
+        didSet { defaults.set(captureTarget.rawValue, forKey: Self.captureTargetKey) }
+    }
+    static let captureTargetKey = "captureTarget"
 
     /// The ceiling on capture frame delivery. Persisted, like the countdown: a preference rather
     /// than a per-recording decision.

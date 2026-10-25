@@ -129,7 +129,6 @@
 "Solid" = "纯色";
 "Sources" = "来源";
 "Split at playhead" = "在播放头处分割";
-"Start Recording" = "开始录制";
 "Start a recording from the menu bar." = "从菜单栏开始一次录制。";
 "Start and stop" = "开始与停止";
 "Start here" = "从此开始";
@@ -791,3 +790,5 @@
 "Could not save the copy: %@" = "无法保存副本:%@";
 "Counting down" = "倒计时中";
 "Recording finished" = "录制完成";
+"Record what is chosen (%@)" = "录制所选内容（%@）";
+"A connected device is recorded, not photographed" = "已连接的设备只能录制，不能截图";

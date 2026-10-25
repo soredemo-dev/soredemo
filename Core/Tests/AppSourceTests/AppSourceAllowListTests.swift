@@ -1105,27 +1105,27 @@ func firstPartySourceFiles() throws -> [URL] {
         """)
 }
 
-/// **The menu bar panel's two settings rows are built from one shape.**
+/// **The menu bar panel's rows are built from one shape.**
 ///
-/// Frame rate and Countdown are the same kind of row — an icon, a label, a popup — and they
-/// were built two different ways: one a `labelsHidden` picker pinned to 76 points, the other a
-/// `Picker(label:)` whose popup sized itself to its widest entry. They came out different
-/// lengths, which is what a person sees. Matching the two numbers would have left the two
-/// shapes free to drift apart again, so there is one row builder and both rows go through it.
+/// Frame rate and Countdown were once the same kind of row built two ways — a `labelsHidden`
+/// picker pinned to 76 points, and a `Picker(label:)` sized to its widest entry — and they came
+/// out different lengths. Since the panel was redesigned (2026-10-25) microphone, camera and
+/// countdown are all rows, and all go through `MenuBarRow`, a `Menu` with its indicator hidden.
 ///
-/// Checked as "exactly one popup style in the panel's files", which is the mechanical
-/// consequence: a second row that built its own popup would have to declare one. Every file in
-/// `Recording/MenuBar/`, since the panel became one file per section (2026-10-24), so a row
-/// added to a new file is counted too.
+/// Checked as its mechanical consequence: exactly one declaration of the hidden menu indicator
+/// in the panel's files — `MenuBarRow`'s own — and no `.menu` picker at all, so a row that built
+/// its own shape would have to declare one or the other. Every file in `Recording/MenuBar/`, so
+/// a row added to a new file is counted too.
 @Test func theMenuBarPanelHasOneSettingsRowShape() throws {
     let panel = try appSourceFiles()
         .filter { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") }
     try #require(panel.count >= 7, "the menu bar panel's files are not where this scan names them")
-    let popups = try codeLinesNaming("pickerStyle(.menu)", in: panel)
-    #expect(popups.count == 1, """
-        \(popups.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
-        Two rows declaring their own popup is how Frame rate and Countdown came to be different \
-        lengths. Route the new row through `MenuBarSettingRow`.
+    let rows = try codeLinesNaming("menuIndicator(.hidden)", in: panel)
+    let pickers = try codeLinesNaming("pickerStyle(.menu)", in: panel)
+    #expect(rows.count == 1 && pickers.isEmpty, """
+        \((rows + pickers).map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        A row that declares its own menu is how two rows came to be different lengths. Route the \
+        new row through `MenuBarRow`.
         """)
 }
 
@@ -2547,46 +2547,50 @@ private let untranslatableLiterals: Set<String> = [
         """)
 }
 
-/// **Every way the menu offers to start a recording, the notch offers too.**
+/// **Every way the menu offers to start, and every target it offers to choose, the notch offers
+/// too.**
 ///
-/// The notch's row was built from the menu's first three choices, and the fourth — a plugged-in
-/// phone, which exists only while a device does — was missed: recording a phone from the notch
-/// was impossible and nothing said so, found 2026-09-28 by somebody looking for the feature.
-/// Compared by the coordinator verb each surface calls, so a new way of starting that reaches one
-/// surface and not the other fails here rather than being noticed by its absence.
+/// The notch's row was once built from the menu's first three choices, and the fourth — a
+/// plugged-in phone, which exists only while a device does — was missed: recording a phone from
+/// the notch was impossible and nothing said so, found 2026-09-28 by somebody looking for it.
+/// Since both surfaces became choose-then-act (2026-10-25), compared by the coordinator calls each
+/// makes — `start(.take)`, `start(.picture)`, `choose(.screen)` and the rest, `choose(device:)` —
+/// so a way in that reaches one surface and not the other fails here.
 @Test func theNotchOffersEveryWayOfStartingThatTheMenuDoes() throws {
     let files = try appSourceFiles()
-    func verbs(where matches: (URL) -> Bool, _ what: String) throws -> Set<String> {
+    func calls(where matches: (URL) -> Bool, _ what: String) throws -> Set<String> {
         let chosen = files.filter(matches)
         try #require(!chosen.isEmpty, "\(what) is not under the app's sources")
-        let pattern = try Regex(#"coordinator\.(begin[A-Za-z]*Recording[A-Za-z]*)\("#)
+        let pattern = try Regex(#"coordinator\.(start\(\.[a-z]+\)|choose\(\.[a-z]+\)|choose\(device:)"#)
         return Set(try chosen.flatMap { file in
             SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
                 .flatMap { line in line.matches(of: pattern).map { String($0.output[1].substring ?? "") } }
         })
     }
-    // The menu is every file of the panel, since it became one file per section.
-    let menu = try verbs(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") },
+    let menu = try calls(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/MenuBar/") },
                          "Recording/MenuBar/")
-    let notch = try verbs(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/Notch/") },
+    let notch = try calls(where: { pathRelativeToRepositoryRoot($0).hasPrefix("Soredemo/Recording/Notch/") },
                           "Recording/Notch/")
-    try #require(menu.count >= 4, "the menu offers \(menu.sorted()) — fewer than the four ways there are, so the pattern has stopped matching")
+    try #require(menu.count >= 6, "the menu offers \(menu.sorted()) — fewer than the six there are, so the pattern has stopped matching")
     #expect(menu.subtracting(notch).isEmpty, """
-        the menu can start a recording with \(menu.subtracting(notch).sorted()) and the notch cannot
+        the menu offers \(menu.subtracting(notch).sorted()) and the notch does not
         """)
 }
 
-/// **A screenshot is offered wherever a recording is started.** The menu and the notch each carry
-/// the take-or-picture switch — the same rule as the one above, for a mode rather than a verb:
-/// a surface without it can only record.
-@Test func theNotchAndTheMenuBothOfferAScreenshot() throws {
-    let files = try appSourceFiles()
-    for name in ["MenuBarTargets.swift", "NotchSurfaceView.swift"] {
-        let file = try #require(files.first { $0.lastPathComponent == name }, "\(name) is not under the app's sources")
-        let lines = SwiftSourceLexer.codeViewLines(of: try String(contentsOf: file, encoding: .utf8))
-        #expect(lines.contains { $0.contains("coordinator.capturePurpose = $0") },
-                "\(name) has no way to choose a screenshot")
+/// **Neither surface has a take-or-picture switch.** The purpose is chosen by the button pressed —
+/// Record or Screenshot — through `start(_:)`, so it cannot be one thing in the panel and another
+/// in the notch. A switch set from a view is how the two came to disagree.
+@Test func neitherSurfaceSwitchesBetweenATakeAndAPicture() throws {
+    let files = try appSourceFiles().filter {
+        let path = pathRelativeToRepositoryRoot($0)
+        return path.hasPrefix("Soredemo/Recording/MenuBar/") || path.hasPrefix("Soredemo/Recording/Notch/")
     }
+    try #require(files.count >= 8, "the panel's and the notch's files are not where this scan names them")
+    let switches = try codeLinesNaming("capturePurpose", in: files)
+    #expect(switches.isEmpty, """
+        \(switches.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Choose the purpose by the button: `coordinator.start(.take)` or `coordinator.start(.picture)`.
+        """)
 }
 
 /// **The take's clock has one owner.** `RecordingCoordinator.tick` was driven by the floating

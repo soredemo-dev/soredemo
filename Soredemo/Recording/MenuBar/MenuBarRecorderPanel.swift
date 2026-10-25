@@ -25,15 +25,13 @@ struct MenuBarRecorderPanel: View {
                 MenuBarRecordingControls(coordinator: coordinator)
             } else {
                 MenuBarTargets(coordinator: coordinator)
-                // A picture has no sound, no camera, no frame rate and no countdown; the rows
-                // that set them would be settings that do nothing.
-                if coordinator.capturePurpose == .take {
-                    MenuBarMicrophoneRow(coordinator: coordinator)
-                    MenuBarCameraRow(camera: coordinator.camera)
-                    MenuBarFrameRateRow(preferences: coordinator.preferences)
-                    MenuBarCountdownRow(preferences: coordinator.preferences)
-                    MenuBarStartButton(coordinator: coordinator)
-                }
+                // **The take's rows, always shown.** There is no mode to hide them behind any more:
+                // they set what Record records, and Screenshot, beside it, takes none of them. The
+                // frame rate is set once and lives in Settings, beside the countdown's own entry.
+                MenuBarMicrophoneRow(coordinator: coordinator)
+                MenuBarCameraRow(camera: coordinator.camera)
+                MenuBarCountdownRow(preferences: coordinator.preferences)
+                MenuBarActions(coordinator: coordinator)
             }
             hotkeyWarning
             failureNote

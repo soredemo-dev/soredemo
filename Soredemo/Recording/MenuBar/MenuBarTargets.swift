@@ -1,47 +1,34 @@
 import Capture
 import SwiftUI
 
-/// What to capture, and the cards that start it.
+/// What to capture: the cards a person chooses between before pressing Record or Screenshot.
 struct MenuBarTargets: View {
     let coordinator: RecordingCoordinator
 
     var body: some View {
-        purposePicker
         targets
     }
 
-    /// A take or a picture, chosen before the target. **Segmented, unlike the targets below**:
-    /// this IS two settings of one thing, and choosing one starts nothing.
-    @ViewBuilder private var purposePicker: some View {
-        Picker("Capture", selection: Binding(get: { coordinator.capturePurpose },
-                                             set: { coordinator.capturePurpose = $0 })) {
-            Text("Record").tag(RecordingCoordinator.CapturePurpose.take)
-            Text("Screenshot").tag(RecordingCoordinator.CapturePurpose.picture)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-    }
-
-    /// The two ways to start. **Cards rather than a segmented control**, because they are not two
-    /// settings of one thing — each opens the system picker narrowed to its own kind of target,
-    /// and pressing one is the act of starting.
+    /// **Chosen, not pressed.** Pressing a card used to start, which made the panel's three cards
+    /// and its Start button four ways in that looked like two kinds of thing; now a card is the
+    /// choice and Record or Screenshot is the act, as in Apple's capture toolbar.
     @ViewBuilder private var targets: some View {
         HStack(spacing: Space.snug) {
             TargetCard(icon: "display", title: "Screen", detail: "A whole display",
-                       isBusy: coordinator.pendingMode == .displaysOnly) {
-                coordinator.beginRecording(.displaysOnly)
+                       isSelected: coordinator.isChosen(.screen), isBusy: coordinator.pendingMode == .displaysOnly) {
+                coordinator.choose(.screen)
             }
             TargetCard(icon: "macwindow", title: "Window", detail: "Point at it",
-                       isBusy: coordinator.pendingMode == .windowsOnly) {
-                coordinator.beginWindowRecordingByPointing()
+                       isSelected: coordinator.isChosen(.window), isBusy: coordinator.pendingMode == .windowsOnly) {
+                coordinator.choose(.window)
             }
             // **The third thing a recorder has to be able to point at.** A display capture of a
             // demo living in a small panel spends most of its pixels on desktop, and a window
             // capture cannot do it at all when the subject is part of a window rather than all
             // of it.
             TargetCard(icon: "rectangle.dashed", title: "Area", detail: "Drag it out",
-                       isBusy: coordinator.pendingMode == .region) {
-                coordinator.beginRegionRecording()
+                       isSelected: coordinator.isChosen(.area), isBusy: coordinator.pendingMode == .region) {
+                coordinator.choose(.area)
             }
         }
         // **The fourth card exists only while a device does.** A card that is always there and
@@ -51,13 +38,14 @@ struct MenuBarTargets: View {
         // phone recording; none of the seven open-source projects beside this repo does.
         // A phone is recorded through a different stack with no screenshot path; its card is a
         // take's only.
-        if !coordinator.availableMobileScreens.isEmpty && coordinator.capturePurpose == .take {
+        if !coordinator.availableMobileScreens.isEmpty {
             VStack(alignment: .leading, spacing: Space.snug) {
                 ForEach(coordinator.availableMobileScreens) { device in
                     TargetCard(icon: device.symbolName, title: "",
-                               verbatimTitle: device.displayName,
-                               detail: "Its screen", isBusy: false) {
-                        coordinator.beginMobileRecording(device)
+                               verbatimTitle: device.displayName, detail: "Its screen",
+                               isSelected: coordinator.isChosen(device: device),
+                               isBusy: false) {
+                        coordinator.choose(device: device)
                     }
                 }
                 // **Said before the recording, not after it.** iOS does not send touch
@@ -89,7 +77,7 @@ struct MenuBarTargets: View {
     }
 }
 
-/// One way to start: a screen, a window, an area, or a connected device.
+/// One choice of target: a screen, a window, an area, or a connected device.
 private struct TargetCard: View {
     let icon: String
     // **`LocalizedStringKey`, not `String`, and that is the whole translation bug.** Every one
@@ -107,8 +95,10 @@ private struct TargetCard: View {
     /// different kinds of string, not one parameter with a flag.
     var verbatimTitle: String? = nil
     let detail: LocalizedStringKey
-    /// True while the system picker this card opened is up, so the card reads as the thing that
-    /// is happening rather than staying inert behind a picker a person may not connect to it.
+    /// The chosen card — what Record and Screenshot will capture.
+    let isSelected: Bool
+    /// True while the picker for this card is up, so the card reads as the thing that is
+    /// happening rather than staying inert behind a picker a person may not connect to it.
     let isBusy: Bool
     let action: () -> Void
     @State private var isHovering = false
@@ -118,25 +108,34 @@ private struct TargetCard: View {
             VStack(alignment: .leading, spacing: Space.tight) {
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(isBusy ? Signal.record : .primary)
                     .frame(height: 20)
                 (verbatimTitle.map(Text.init(verbatim:)) ?? Text(title))
-                    .font(.system(size: 13, weight: .medium))
-                Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(.system(size: 13, weight: .semibold))
+                // **Two lines, not one.** "A whole display" was cut to "A whole d…" in a third of
+                // the panel, and every language longer than English cut all three.
+                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
             .padding(Space.regular)
-            .background {
-                RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-                    .fill(.quaternary.opacity(isHovering || isBusy ? 0.9 : 0.5))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: Glass.controlRadius, style: .continuous)
-                    .strokeBorder(Signal.record.opacity(isBusy ? 0.9 : 0), lineWidth: 1.5)
-            }
+            .background { card }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// The system's own fill, with corners concentric to the popover's; the chosen card wears the
+    /// ink accent's edge. Busy — its picker is up — is the same edge, not a new colour.
+    @ViewBuilder private var card: some View {
+        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(Glass.controlRadius)),
+                                        isUniform: true)
+        if isSelected || isBusy {
+            shape.fill(Theme.accent.opacity(0.10))
+                .overlay(shape.stroke(Theme.accent, lineWidth: 1.5))
+        } else {
+            shape.fill(isHovering ? AnyShapeStyle(.fill.tertiary) : AnyShapeStyle(.fill.quaternary))
+        }
     }
 }

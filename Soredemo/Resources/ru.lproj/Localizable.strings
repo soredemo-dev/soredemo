@@ -127,7 +127,6 @@
 "Solid" = "Сплошной цвет";
 "Sources" = "Источники";
 "Split at playhead" = "Разделить на позиции воспроизведения";
-"Start Recording" = "Начать запись";
 "Start a recording from the menu bar." = "Начните запись из строки меню.";
 "Start and stop" = "Старт и стоп";
 "Start here" = "Начать здесь";
@@ -789,3 +788,5 @@
 "Could not save the copy: %@" = "Не удалось сохранить копию: %@";
 "Counting down" = "Обратный отсчёт";
 "Recording finished" = "Запись завершена";
+"Record what is chosen (%@)" = "Записать выбранное (%@)";
+"A connected device is recorded, not photographed" = "Подключённое устройство можно записать, но не сфотографировать";

@@ -70,24 +70,16 @@ struct NotchSurfaceView: View {
                 // housing, in eight of ten languages. The symbols are 50 in all of them, and the
                 // right wing says which mode is on in words.
                 wings(left: {
-                    Picker("Capture", selection: Binding(get: { coordinator.capturePurpose },
-                                                         set: { coordinator.capturePurpose = $0 })) {
-                        Image(systemName: "record.circle").accessibilityLabel(Text("Record"))
-                            .tag(RecordingCoordinator.CapturePurpose.take)
-                        Image(systemName: "camera.viewfinder").accessibilityLabel(Text("Screenshot"))
-                            .tag(RecordingCoordinator.CapturePurpose.picture)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .fixedSize()
-                    .help(coordinator.capturePurpose == .take ? Text("Record") : Text("Screenshot"))
+                    // **The mark, where the take-or-picture switch was.** The choice moved to the
+                    // act — Record or Screenshot below — as it did in the panel.
+                    Image("LogomarkTemplate")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                        .accessibilityLabel(Text("Soredemo"))
                 }, right: {
-                    if coordinator.capturePurpose == .take {
-                        Text(verbatim: GlobalHotkey.toggleRecordingSpelling).opacity(0.6)
-                    } else {
-                        Text("Screenshot").lineLimit(1).minimumScaleFactor(0.8)
-                    }
+                    Text(verbatim: GlobalHotkey.toggleRecordingSpelling).opacity(0.6)
                 })
                 NotchRecorderControls(coordinator: coordinator) { model.send(.escape) }
                     .padding(.horizontal, Space.regular)

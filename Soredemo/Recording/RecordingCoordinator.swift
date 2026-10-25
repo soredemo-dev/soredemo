@@ -21,7 +21,7 @@ import Timeline
 final class RecordingCoordinator {
     private(set) var mediaURL: URL?
     /// The switches a person sets once — see `RecordingPreferences`. Read when a take starts.
-    let preferences = RecordingPreferences()
+    let preferences: RecordingPreferences
     /// The camera the next take may carry — see `CameraController`. The coordinator answers
     /// whether a take is running and says its problems; the controller owns the choice and the
     /// self-view.
@@ -83,7 +83,27 @@ final class RecordingCoordinator {
     /// `docs/design/2026-09-30-a-screenshot-is-a-one-frame-take.md`. Not persisted: a person who
     /// took one screenshot has not decided that the next press of Screen is a screenshot too.
     enum CapturePurpose: Hashable { case take, picture }
-    var capturePurpose: CapturePurpose = .take
+    /// Set by `start(_:)` alone: the panel and the notch choose it by which button they press.
+    private(set) var capturePurpose: CapturePurpose = .take
+    /// A connected device chosen in the panel, for as long as it stays connected. Not a
+    /// preference: it is gone when the device is.
+    var selectedDevice: MobileScreen.Source?
+
+    /// The target a press of Record or Screenshot will capture — one choice for the panel and the
+    /// notch both, so choosing Window in one is choosing it in the other.
+    func choose(_ target: CaptureTarget) {
+        selectedDevice = nil
+        preferences.captureTarget = target
+    }
+
+    func choose(device: MobileScreen.Source) { selectedDevice = device }
+
+    /// Shown as chosen: the remembered target, unless a connected device was chosen over it.
+    func isChosen(_ target: CaptureTarget) -> Bool {
+        selectedDevice == nil && preferences.captureTarget == target
+    }
+
+    func isChosen(device: MobileScreen.Source) -> Bool { selectedDevice?.id == device.id }
 
     /// How long a picture's still movie lasts: long enough that an annotation added at the
     /// playhead, which lasts `AnnotationsModel.defaultDuration`, is all inside it.
@@ -175,8 +195,10 @@ final class RecordingCoordinator {
     }
 
     /// Sweeps leftover scratch directories once, at construction — the earliest point this app
-    /// runs, before any recording exists to protect.
-    init() {
+    /// runs, before any recording exists to protect. `preferences` is passed in so a test holds
+    /// its own and never writes a person's.
+    init(preferences: RecordingPreferences = RecordingPreferences()) {
+        self.preferences = preferences
         camera.isTakeRunning = { [weak self] in self?.isRecording ?? false }
         camera.onProblem = { [weak self] in self?.status = .problem($0) }
         guards.onSleep = { [weak self] in self?.pauseBecauseTheMacIsSleeping() }
@@ -327,11 +349,31 @@ final class RecordingCoordinator {
         return pendingEdit
     }
 
+    /// ⇧⌘R: stop, or record the chosen target — what the Record button does, so the shortcut is
+    /// not a way in the panel does not show.
     func toggleRecording() {
         if isRecording {
             Task { await stopRecording() }
         } else {
-            beginOpenRecording()
+            start(.take)
+        }
+    }
+
+    /// Record or Screenshot, pressed: the purpose, then the door for the chosen target
+    /// (`CaptureEntry`). A device that has been unplugged since it was chosen is not chosen.
+    func start(_ purpose: CapturePurpose) {
+        guard !isRecording else { return }
+        let device = selectedDevice.flatMap { chosen in
+            availableMobileScreens.first { $0.id == chosen.id }
+        }
+        guard let entry = CaptureEntry.for(target: preferences.captureTarget, device: device,
+                                           purpose: purpose) else { return }
+        capturePurpose = purpose
+        switch entry {
+        case .displayPicker: beginRecording(.displaysOnly)
+        case .pointAtWindow: beginWindowRecordingByPointing()
+        case .dragArea: beginRegionRecording()
+        case .device(let source): beginMobileRecording(source)
         }
     }
 

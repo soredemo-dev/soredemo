@@ -113,6 +113,8 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [2026-09-27-light-and-dark](2026-09-27-light-and-dark.md) | the app in light and dark |
 | [2026-10-25-the-daruma-theme](2026-10-25-the-daruma-theme.md) | the app's colours from the daruma: sumi, washi, shu, kin |
 | [2026-10-25-the-menu-bar-counts-down-and-paints-the-eye](2026-10-25-the-menu-bar-counts-down-and-paints-the-eye.md) | the menu bar's countdown, and the second eye painted when a take finishes |
+| [2026-10-25-the-panel-and-a-daruma-that-answers](2026-10-25-the-panel-and-a-daruma-that-answers.md) | research and proposal: the menu bar panel, red kept for recording, a daruma that responds |
+| [2026-10-25-the-notch-says-what-the-panel-says](2026-10-25-the-notch-says-what-the-panel-says.md) | the notch's recorder in the panel's grammar: choose, then Record or Screenshot |
 | [2026-09-25-tilting-the-card](2026-09-25-tilting-the-card.md) | tilting the card |
 | [2026-09-22-the-preview-composited-at-export-resolution](2026-09-22-the-preview-composited-at-export-resolution.md) | the preview composited at export resolution |
 | [2026-10-24-a-replaced-picture-is-drawn](2026-10-24-a-replaced-picture-is-drawn.md) | a picture replaced under its own name |
