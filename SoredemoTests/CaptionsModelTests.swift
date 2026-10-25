@@ -48,7 +48,10 @@ import Timeline
         #expect(cues[0].text == "inside")
         #expect(cues[0].start == seconds(2.5))
         #expect(cues[0].end == seconds(3.5))
-        #expect(model.status?.contains("1 fell outside the edit") == true)
+        // **The sentence in the app's own language, not English.** The status is localised, and
+        // this compared it with an English literal — so it failed whenever the app followed a
+        // system in another language (found 2026-10-25, on a Mac set to Chinese).
+        #expect(model.status?.contains(String(localized: "\(1) fell outside the edit.", bundle: .main)) == true)
     }
 
     /// Nothing placeable leaves the captions as they were: a file that fits nowhere is not an
