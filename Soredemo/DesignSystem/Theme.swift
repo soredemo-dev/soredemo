@@ -30,7 +30,8 @@ enum Theme {
         })
     }
 
-    /// A fill under a white label, and the colour of a selected control.
+    /// The colour of a selected control, and a fill under an `Ink.onAccent` label. Ink, not a
+    /// hue: the record red is kept for recording (`PaletteTests.noControlIsDrawnInTheRecordRed`).
     static let accent = adaptive(\.accent)
 
     // MARK: - surfaces, back to front
@@ -56,6 +57,8 @@ enum Theme {
         /// `.orange` was used, and is 2.2:1 on a light panel.
         /// The accent as words — a link-like label, a selected value. `Theme.accent` is for fills.
         static let accent = adaptive(\.accentText)
+        /// A label on a `Theme.accent` fill — washi on sumi, sumi on washi.
+        static let onAccent = adaptive(\.onAccent)
         static let caution = adaptive(\.caution)
         /// Text on a lane-coloured block: dark on the dark theme's light lanes, light on the
         /// light theme's dark ones.

@@ -16,32 +16,53 @@ import SwiftUI
 /// began. So the width is constant. The elapsed time lives on the floating bar, which is on the
 /// recorded screen the whole time anyway, and in the panel.
 ///
-/// Idle it is the logomark as a template image, so the system tints it for a light or dark menu
-/// bar. Recording it is a filled record symbol, and paused a filled pause — different SHAPES
-/// rather than different colours, because a template image has no colour of its own.
+/// **The mark is a daruma, and its painted eye is the record button.** Idle the eye is a ring;
+/// counting down it is faint inside a draining red ring; recording it is filled, in the record
+/// red; paused it is two bars; and when a take finishes the second eye is painted in for a moment.
+/// `MenuBarMark` decides which. The plain states are template images, so the system tints them;
+/// the two with red are drawn — `RecordingMark`, `CountdownMark`. All five share one canvas,
+/// drawn by `scripts/make-daruma-marks.swift`, so the item keeps one width whatever it shows.
 struct MenuBarRecorderLabel: View {
     let coordinator: RecordingCoordinator
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
-            if coordinator.isRecording {
-                Image(systemName: coordinator.isPaused
-                      ? "pause.circle.fill" : "record.circle.fill")
-            } else {
+            switch MenuBarMark.state(countdown: CountdownPresenter.shared.running,
+                                     isStarting: coordinator.isStartingCapture,
+                                     isRecording: coordinator.isRecording,
+                                     isPaused: coordinator.isPaused,
+                                     isFinished: coordinator.paintedEye.isPainted) {
+            case .paused:
+                Image("LogomarkPausedTemplate")
+                    .renderingMode(.template)
+                    .accessibilityLabel(Text("Paused"))
+            case .recording:
+                Image(nsImage: RecordingMark.image)
+                    .accessibilityLabel(Text("Recording"))
+            case .countingDown(let ring):
+                Image(nsImage: CountdownMark.image(ring: ring))
+                    .accessibilityLabel(Text("Counting down"))
+            case .finished:
+                Image("LogomarkDoneTemplate")
+                    .renderingMode(.template)
+                    .accessibilityLabel(Text("Recording finished"))
+            case .idle:
                 // **No `.frame` here, and that is the fix.** Twice I sized this with a frame
                 // and twice it changed nothing a person could see: SwiftUI scales a menu bar
                 // image to the bar's height whatever frame it is given, so the only thing that
                 // controls how big the mark LOOKS is the proportion of its canvas the ink
-                // occupies. `scripts/make-menubar-logomark.swift` bakes that in — the ink is
-                // 62% of a square canvas and the rest is transparent.
+                // occupies. `scripts/make-daruma-marks.swift` bakes that in — the ink is 88% of a
+                // square canvas and the rest is transparent.
                 //
-                // Measured, which is how the frame theory died: an SF Symbol in the menu bar has
-                // about 14pt of ink, and this mark inside a 13pt frame had 12pt — already
-                // shorter, and still reading as larger, because a solid brushstroke carries far
-                // more visual weight than line art at the same height.
+                // Measured on a screenshot of the menu bar (2026-10-25, 2x): the system's own
+                // symbols — volume, Wi-Fi, Control Center — have 12 to 13pt of ink. At 62% the
+                // daruma had 11pt and read as a size smaller than its neighbours, and at 70%, level
+                // with them in height, it still did: it is narrower, and its face is cut out. 88% is
+                // 15.8pt, between Google Drive's and LINE's marks, which reads as the same size.
                 Image("LogomarkTemplate")
                     .renderingMode(.template)
+                    .accessibilityLabel(Text("Soredemo"))
             }
         }
         // **The label is where this lives because the label is always in the scene graph.** The
@@ -67,4 +88,29 @@ struct MenuBarRecorderLabel: View {
             NSApp.activate(ignoringOtherApps: true)
         }
     }
+}
+
+/// The recording state's mark: the daruma's body in the menu bar's own ink, its eye in the record
+/// red, as the website draws it.
+///
+/// **A template image cannot carry the red** — it is alpha only, and the system paints all of it
+/// one colour — so this is two images drawn together each time the item is drawn: the body
+/// filled with `labelColor`, which resolves against the appearance the menu bar is drawing in
+/// (light or dark, which follows the wallpaper rather than the system's setting), and the red eye
+/// over it unchanged. Drawn rather than baked, so the body follows the bar when the wallpaper or
+/// the appearance changes.
+private enum RecordingMark {
+    static let image: NSImage = {
+        let body = NSImage(named: "LogomarkRecordingBody")
+        let eye = NSImage(named: "LogomarkRecordingEye")
+        let size = body?.size ?? NSSize(width: 18, height: 18)
+        return NSImage(size: size, flipped: false) { rect in
+            guard let body, let eye else { return false }
+            body.draw(in: rect)
+            NSColor.labelColor.set()
+            rect.fill(using: .sourceAtop)
+            eye.draw(in: rect)
+            return true
+        }
+    }()
 }

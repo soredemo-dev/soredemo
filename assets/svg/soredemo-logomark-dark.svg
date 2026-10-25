@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 100 100">
+<g transform="translate(50 50) scale(1.0) translate(-50 -50)"><path d="M50 8C73 8 86 30 86 55C86 77 71 92 50 92C29 92 14 77 14 55C14 30 27 8 50 8Z" fill="#f4f4f5"/><path d="M25 46a25 19.5 0 1 0 50 0a25 19.5 0 1 0 -50 0Z" fill="#16171b"/><circle cx="60" cy="46" r="7.5" fill="none" stroke="#fa3d4a" stroke-width="3.4"/><circle cx="40" cy="46" r="7.5" fill="none" stroke="#f4f4f5" stroke-width="2.6" pathLength="20" stroke-dasharray="1 1"/></g>
+</svg>

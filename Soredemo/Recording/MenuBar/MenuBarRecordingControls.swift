@@ -15,13 +15,12 @@ struct MenuBarStartButton: View {
                 Spacer()
                 Text(verbatim: GlobalHotkey.toggleRecordingSpelling)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(Theme.Ink.onAccent.opacity(0.8))
             }
-            // **White on the accent, and that is contrast rather than taste.** Until 2026-09-27 the
-            // accent was a light periwinkle and this was near-black, because white on it measured
-            // 2.4:1; the accent is now dark in both themes so a white label clears 4.5
+            // **`onAccent`, not white**: the accent is ink — sumi in the light theme, washi in the
+            // dark — so the label is the paper it is not
             // (`PaletteTests.aLabelReadsOnTheAccentAndTheAccentOnThePanel`).
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.Ink.onAccent)
             .padding(.horizontal, Space.regular)
             .frame(height: 34)
             .frame(maxWidth: .infinity)

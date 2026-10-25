@@ -803,3 +803,5 @@
 "%@ (shared)" = "%@(分享用)";
 "Saved a copy without screen text to %@." = "已把不含畫面文字的副本存到 %@。";
 "Could not save the copy: %@" = "無法儲存副本:%@";
+"Counting down" = "倒數中";
+"Recording finished" = "錄製完成";

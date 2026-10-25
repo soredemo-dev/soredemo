@@ -1,8 +1,27 @@
 {
-  "primary_white": "#FFFFFF",
-  "ink": "#101114",
-  "background": "#1A1A1D",
-  "surface": "#2B2B31",
-  "muted_gray": "#8C8C94",
-  "accent_blue": "#8EA1FF"
+  "sumi": "#16171B",
+  "shu_nuri": "#E8452C",
+  "washi": "#F4F3EF",
+  "shu": "#FA3D4A",
+  "kin": "#C8A24A",
+  "app": {
+    "dark": {
+      "base": "#0F1013",
+      "panel": "#16171B",
+      "raised": "#26272D",
+      "accent": "#F4F3EF",
+      "accent_text": "#F4F3EF",
+      "caution": "#DDB966",
+      "on_accent": "#16171B"
+    },
+    "light": {
+      "base": "#E7E6E0",
+      "panel": "#F4F3EF",
+      "raised": "#FFFFFF",
+      "accent": "#16171B",
+      "accent_text": "#16171B",
+      "caution": "#826412",
+      "on_accent": "#F4F3EF"
+    }
+  }
 }

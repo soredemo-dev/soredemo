@@ -787,3 +787,5 @@
 "%@ (shared)" = "%@ (공유용)";
 "Saved a copy without screen text to %@." = "화면 텍스트를 뺀 사본을 %@에 저장했습니다.";
 "Could not save the copy: %@" = "사본을 저장할 수 없습니다: %@";
+"Counting down" = "카운트다운 중";
+"Recording finished" = "녹화 완료";

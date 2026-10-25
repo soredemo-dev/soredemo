@@ -1,8 +1,23 @@
 :root {
-  --soredemo-white: #FFFFFF;
-  --soredemo-ink: #101114;
-  --soredemo-background: #1A1A1D;
-  --soredemo-surface: #2B2B31;
-  --soredemo-muted: #8C8C94;
-  --soredemo-accent: #8EA1FF;
+  /* The mark: a daruma. */
+  --soredemo-sumi: #16171B;   /* body, text */
+  --soredemo-shu-nuri: #E8452C; /* the vermilion daruma's body */
+  --soredemo-washi: #F4F3EF;  /* face, background */
+  --soredemo-shu: #FA3D4A;    /* the record eye — the app's Signal record red */
+  --soredemo-kin: #C8A24A;    /* only the moment the second eye is painted */
+
+  /* The app's own UI colours (Palette.swift), built from the four above. */
+  --soredemo-app-base-dark: #0F1013;
+  --soredemo-app-panel-dark: #16171B;
+  --soredemo-app-raised-dark: #26272D;
+  --soredemo-app-accent-dark: #F4F3EF;      /* washi — the accent is ink; red is kept for recording */
+  --soredemo-app-accent-text-dark: #F4F3EF;
+  --soredemo-app-on-accent-dark: #16171B;
+  --soredemo-app-caution-dark: #DDB966;     /* OKLCH 0.80 0.11 86° */
+  --soredemo-app-base-light: #E7E6E0;
+  --soredemo-app-panel-light: #F4F3EF;
+  --soredemo-app-accent-light: #16171B;     /* sumi */
+  --soredemo-app-accent-text-light: #16171B;
+  --soredemo-app-on-accent-light: #F4F3EF;
+  --soredemo-app-caution-light: #826412;    /* OKLCH 0.52 0.10 86° */
 }

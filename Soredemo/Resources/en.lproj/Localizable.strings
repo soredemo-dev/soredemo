@@ -803,3 +803,5 @@
 "%@ (shared)" = "%@ (shared)";
 "Saved a copy without screen text to %@." = "Saved a copy without screen text to %@.";
 "Could not save the copy: %@" = "Could not save the copy: %@";
+"Counting down" = "Counting down";
+"Recording finished" = "Recording finished";

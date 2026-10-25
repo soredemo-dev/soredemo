@@ -111,6 +111,8 @@ their name; renaming them would break the comments that cite them, so they keep 
 | --- | --- |
 | [2026-08-24-colour-pipeline](2026-08-24-colour-pipeline.md) | colour from capture to export |
 | [2026-09-27-light-and-dark](2026-09-27-light-and-dark.md) | the app in light and dark |
+| [2026-10-25-the-daruma-theme](2026-10-25-the-daruma-theme.md) | the app's colours from the daruma: sumi, washi, shu, kin |
+| [2026-10-25-the-menu-bar-counts-down-and-paints-the-eye](2026-10-25-the-menu-bar-counts-down-and-paints-the-eye.md) | the menu bar's countdown, and the second eye painted when a take finishes |
 | [2026-09-25-tilting-the-card](2026-09-25-tilting-the-card.md) | tilting the card |
 | [2026-09-22-the-preview-composited-at-export-resolution](2026-09-22-the-preview-composited-at-export-resolution.md) | the preview composited at export resolution |
 | [2026-10-24-a-replaced-picture-is-drawn](2026-10-24-a-replaced-picture-is-drawn.md) | a picture replaced under its own name |

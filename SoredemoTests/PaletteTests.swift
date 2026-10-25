@@ -40,7 +40,7 @@ import Foundation
     @Test(arguments: Palette.Mode.allCases)
     func aLabelReadsOnTheAccentAndTheAccentOnThePanel(_ mode: Palette.Mode) {
         let palette = Palette.values(for: mode)
-        #expect(Palette.RGB(hex: 0xFFFFFF).contrast(with: palette.accent) >= 4.5)
+        #expect(palette.onAccent.contrast(with: palette.accent) >= 4.5)
         #expect(palette.accent.contrast(with: palette.panel) >= 3)
     }
 
@@ -67,6 +67,42 @@ import Foundation
     func lanesShareOneLightness(_ mode: Palette.Mode) {
         let lightnesses = Palette.Lane.allCases.map { Palette.values(for: mode).lane($0).oklabLightness }
         #expect(lightnesses.max()! - lightnesses.min()! < 0.02, "\(mode): \(lightnesses)")
+    }
+
+    /// Positive control for the hue, known independently: CSS Color 4's sRGB red is 29.2339°.
+    @Test func oklchHueOfAKnownColour() {
+        #expect(abs(Palette.RGB(hex: 0xFF0000).oklchHue - 29.2339) < 0.05)
+    }
+
+    /// The theme is the daruma's: the panels are sumi and washi themselves, the accent is the
+    /// ink of the other — sumi on washi, washi on sumi — and caution keeps kin's hue.
+    @Test(arguments: Palette.Mode.allCases)
+    func theThemeIsTheDarumas(_ mode: Palette.Mode) {
+        let palette = Palette.values(for: mode)
+        let ink = mode == .dark ? Palette.Brand.washi : Palette.Brand.sumi
+        #expect(palette.panel == (mode == .dark ? Palette.Brand.sumi : Palette.Brand.washi), "\(mode) panel")
+        #expect(palette.accent == ink, "\(mode) accent")
+        #expect(palette.accentText == ink, "\(mode) accent text")
+        let gap = abs(palette.caution.oklchHue - Palette.Brand.kin.oklchHue)
+        #expect(min(gap, 360 - gap) < 4, "\(mode) caution \(palette.caution.oklchHue)°")
+    }
+
+    /// **Red is kept for recording.** Red means error and destruction on every platform this
+    /// app's people use, and the record red only means something if nothing else is red — so no
+    /// token a control is drawn in carries colour. `docs/design/2026-10-25-the-panel-and-a-daruma-that-answers.md`.
+    @Test(arguments: Palette.Mode.allCases)
+    func noControlIsDrawnInTheRecordRed(_ mode: Palette.Mode) {
+        let palette = Palette.values(for: mode)
+        for (name, token) in [("accent", palette.accent), ("accentText", palette.accentText),
+                              ("onAccent", palette.onAccent)] {
+            #expect(token.oklchChroma < 0.02, "\(mode) \(name) has chroma \(token.oklchChroma)")
+        }
+    }
+
+    /// Positive control for the chroma: sRGB red is 0.25768 (CSS Color 4), grey is zero.
+    @Test func oklchChromaOfKnownColours() {
+        #expect(abs(Palette.RGB(hex: 0xFF0000).oklchChroma - 0.25768) < 0.001)
+        #expect(Palette.RGB(hex: 0x777777).oklchChroma < 0.0001)
     }
 
     @Test func noTwoLanesShareAHue() {

@@ -47,6 +47,10 @@ final class RecordingCoordinator {
         status = .report(String(localized: "Paused because the Mac went to sleep. Resume or stop when you are back."))
     }
     private(set) var isPaused = false
+    /// The menu bar daruma's second eye, painted when a take produces a file.
+    let paintedEye = PaintedEye()
+    /// Between the countdown ending and the capture running: `newSession.start()` is awaited.
+    private(set) var isStartingCapture = false
     /// Seconds since recording started, not counting time paused. Driven by a timer the bar
     /// starts and stops — see `tick()`.
     private(set) var elapsed: Double = 0
@@ -645,8 +649,10 @@ final class RecordingCoordinator {
             status = .report(String(localized: "Recording cancelled."))
             return
         }
+        isStartingCapture = true
         do {
             try await newSession.start()
+            isStartingCapture = false
             isRecording = true
             isPaused = false
             elapsed = 0
@@ -660,6 +666,7 @@ final class RecordingCoordinator {
             // The disk warning outranks the reminder of how to stop: it is the one that can cost the take.
             status = .report(lowDiskWarning ?? String(localized: "Recording\u{2026} choose \u{201C}Stop Recording\u{201D} (\u{2318}R) when done."))
         } catch {
+            isStartingCapture = false
             status = .problem(String(localized: "Could not start recording: \(String(describing: error))"))
             session = nil
             // **The camera was started before the countdown, so it is running by now.** Left
@@ -759,6 +766,7 @@ final class RecordingCoordinator {
         }
         mediaSourceSink = sink
         mediaURL = written
+        paintedEye.paint()
         // **No camera offset and no camera.** A phone recording has one video track; setting a
         // stale offset from a previous take would place a camera that is not there.
         cameraURL = nil
@@ -848,6 +856,7 @@ final class RecordingCoordinator {
                 // later, by SwiftUI reconciling this new `mediaURL`. `.onDisappear` observes it.
                 mediaURL = url
                 mediaSourceSink = sink
+                paintedEye.paint()
                 status = discardedCount == 0 ? .quiet : .problem(String(localized:
                     "\(discardedCount) segment(s) did not make it into the recording."))
 

@@ -100,11 +100,11 @@ private struct MenuBarHeader: View {
 
     var body: some View {
         HStack(spacing: Space.snug) {
-            // **The template mark, not the coloured one.** `Logomark` is the brand's purple,
-            // which is right on a launch screen and wrong beside a label: in the header it read
-            // as the one coloured thing in a panel of white text, drawing the eye to the app's
-            // own name — the least useful thing on the panel. Template rendering hands it the
-            // same ink the title is set in, and follows a light system the way the title does.
+            // **The template mark, not the coloured one.** `Logomark` is a black daruma with a
+            // red eye, which is right on a welcome page and wrong beside a label: in the header
+            // it would be the one coloured thing in a panel of plain text, drawing the eye to the
+            // app's own name — the least useful thing on the panel. Template rendering hands it
+            // the same ink the title is set in, and follows a light system the way the title does.
             Image("LogomarkTemplate")
                 .renderingMode(.template)
                 .resizable()

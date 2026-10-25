@@ -789,3 +789,5 @@
 "%@ (shared)" = "%@(共有用)";
 "Saved a copy without screen text to %@." = "画面上の文字を含まないコピーを %@ に保存しました。";
 "Could not save the copy: %@" = "コピーを保存できませんでした:%@";
+"Counting down" = "カウントダウン中";
+"Recording finished" = "収録完了";

@@ -23,9 +23,12 @@ import SwiftUI
 /// matters most: picking the wrong window and being unable to stop is the failure this whole
 /// pause exists to prevent, and until now the only way out was to record the mistake.
 @MainActor
+@Observable
 final class CountdownPresenter {
     static let shared = CountdownPresenter()
-    private var panel: NSPanel?
+    @ObservationIgnored private var panel: NSPanel?
+    /// The count while it runs — the menu bar's mark watches it. `nil` before and after.
+    private(set) var running: CountdownState?
 
     private init() {}
 
@@ -38,15 +41,20 @@ final class CountdownPresenter {
         guard seconds > 0 else { return true }
         let state = CountdownState(total: seconds, subject: subject)
         show(state)
-        defer { hide() }
+        running = state
+        defer {
+            running = nil
+            hide()
+        }
 
         for value in stride(from: seconds, through: 1, by: -1) {
             guard !state.isCancelled else { return false }
             state.remaining = value
             // Woken in slices so ⎋ is answered within a tenth of a second rather than at the
             // next whole one. A person who has seen the wrong window has already decided.
-            for _ in 0..<10 {
+            for tenth in 0..<10 {
                 guard !state.isCancelled else { return false }
+                state.tenthsGone = tenth
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
@@ -129,6 +137,10 @@ final class CountdownState {
     let subject: String
     /// Set by ⎋. Read by the presenter between slices of the wait.
     var isCancelled = false
+    /// Tenths of the current second already waited, 0…9 — the presenter's own slices.
+    var tenthsGone = 0
+    /// The share of the current second still to run: the menu bar's ring, drained in tenths.
+    var ringRemaining: Double { Double(10 - tenthsGone) / 10 }
 
     init(total: Int, subject: String) {
         self.remaining = total

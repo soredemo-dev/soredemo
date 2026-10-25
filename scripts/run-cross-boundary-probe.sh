@@ -152,6 +152,7 @@ xcrun swiftc \
   Soredemo/Recording/Notch/NotchControls.swift \
   Soredemo/Recording/Notch/NotchSurfacePresenter.swift \
   Soredemo/Recording/MenuBar/MenuBarRecorderLabel.swift \
+  Soredemo/Recording/MenuBar/MenuBarMark.swift \
   Soredemo/Recording/MenuBar/MenuBarRecorderPanel.swift \
   Soredemo/Recording/MenuBar/MenuBarTargets.swift \
   Soredemo/Recording/MenuBar/MenuBarSourceRows.swift \

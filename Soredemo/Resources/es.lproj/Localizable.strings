@@ -789,3 +789,5 @@
 "%@ (shared)" = "%@ (compartido)";
 "Saved a copy without screen text to %@." = "Se guardó una copia sin el texto de la pantalla en %@.";
 "Could not save the copy: %@" = "No se pudo guardar la copia: %@";
+"Counting down" = "Cuenta atrás en curso";
+"Recording finished" = "Grabación terminada";

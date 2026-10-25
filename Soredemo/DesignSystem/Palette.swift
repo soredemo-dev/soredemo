@@ -53,12 +53,29 @@ nonisolated enum Palette {
         }
 
         /// OKLab's L — perceived lightness, the quantity the lanes are held equal on.
-        var oklabLightness: Double {
+        var oklabLightness: Double { oklab.lightness }
+
+        /// OKLCH's hue in degrees, 0…360 — what a token keeps of the brand colour it comes from.
+        var oklchHue: Double {
+            let lab = oklab
+            let degrees = atan2(lab.b, lab.a) * 180 / .pi
+            return degrees < 0 ? degrees + 360 : degrees
+        }
+
+        /// OKLCH's chroma — how far from grey. Ink and paper are near zero; the record red is not.
+        var oklchChroma: Double {
+            let lab = oklab
+            return (lab.a * lab.a + lab.b * lab.b).squareRoot()
+        }
+
+        private var oklab: (lightness: Double, a: Double, b: Double) {
             let (r, g, b) = (Self.linear(red), Self.linear(green), Self.linear(blue))
             let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
             let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
             let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
-            return 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+            return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
         }
 
         /// The WCAG 2 contrast ratio, 1…21.
@@ -73,6 +90,15 @@ nonisolated enum Palette {
                 green: green * opacity + ground.green * (1 - opacity),
                 blue: blue * opacity + ground.blue * (1 - opacity))
         }
+    }
+
+    /// The daruma's four colours (`assets/tokens/colors.json`). The tokens below keep their hues
+    /// and take the lightness each job needs — see `docs/design/2026-10-25-the-daruma-theme.md`.
+    enum Brand {
+        static let sumi = RGB(hex: 0x16171B)
+        static let washi = RGB(hex: 0xF4F3EF)
+        static let shu = RGB(hex: 0xFA3D4A)
+        static let kin = RGB(hex: 0xC8A24A)
     }
 
     /// One tint per timeline track. The hue is the lane's; lightness and chroma are the theme's.
@@ -107,9 +133,11 @@ nonisolated enum Palette {
         /// White on dark, black on light; hairlines and fills are this at low opacity.
         let line: RGB
         let accent: RGB
-        /// The accent as the colour of words and small glyphs. Separate from `accent`, which is a
-        /// fill under a white label and on the dark ground reads at 3.48:1 — an edge, not text.
+        /// The accent as the colour of words and small glyphs. The same ink as `accent` today; kept
+        /// separate because a fill and a word have different contrast needs, measured apart.
         let accentText: RGB
+        /// A label drawn ON the accent — the accent is ink, so this is the paper it is not.
+        let onAccent: RGB
         let caution: RGB
         /// Text drawn ON a lane-coloured block, at `onLaneOpacity`.
         let onLane: RGB
@@ -124,25 +152,25 @@ nonisolated enum Palette {
         }
     }
 
-    /// The brand's own dark values (`assets/tokens/colors.json`) for the grounds; the two text
-    /// greys and the accent moved, because as they were they failed contrast.
+    /// The daruma's colours (`Brand`): sumi is the dark panel and the light text, washi the light
+    /// panel and the dark text, and **the accent is ink** — washi on sumi, sumi on washi — because
+    /// the record red only means "recording" while nothing else is red. Caution keeps kin's hue.
+    /// The base sits a step behind the panel and the raised surface a step forward.
     static let dark = Values(
-        base: RGB(hex: 0x101114), panel: RGB(hex: 0x1A1A1D), raised: RGB(hex: 0x2B2B31),
-        primaryText: RGB(hex: 0xFFFFFF), secondaryText: RGB(hex: 0x9A9AA3),
+        base: RGB(hex: 0x0F1013), panel: Brand.sumi, raised: RGB(hex: 0x26272D),
+        primaryText: Brand.washi, secondaryText: RGB(hex: 0x9A9AA3),
         tertiaryText: RGB(hex: 0x7C7C85), line: RGB(hex: 0xFFFFFF),
-        accent: .oklch(lightness: 0.55, chroma: 0.15, hue: 268),
-        accentText: .oklch(lightness: 0.82, chroma: 0.085, hue: 268),
-        caution: .oklch(lightness: 0.80, chroma: 0.13, hue: 60),
+        accent: Brand.washi, accentText: Brand.washi, onAccent: Brand.sumi,
+        caution: .oklch(lightness: 0.80, chroma: 0.11, hue: 86),
         onLane: RGB(hex: 0x000000), onLaneOpacity: 0.75,
         laneLightness: 0.82, laneChroma: 0.085)
 
     static let light = Values(
-        base: RGB(hex: 0xE4E5EA), panel: RGB(hex: 0xF4F4F7), raised: RGB(hex: 0xFFFFFF),
-        primaryText: RGB(hex: 0x15161A), secondaryText: RGB(hex: 0x5E606B),
+        base: RGB(hex: 0xE7E6E0), panel: Brand.washi, raised: RGB(hex: 0xFFFFFF),
+        primaryText: Brand.sumi, secondaryText: RGB(hex: 0x5E606B),
         tertiaryText: RGB(hex: 0x767883), line: RGB(hex: 0x000000),
-        accent: .oklch(lightness: 0.50, chroma: 0.13, hue: 268),
-        accentText: .oklch(lightness: 0.50, chroma: 0.13, hue: 268),
-        caution: .oklch(lightness: 0.52, chroma: 0.11, hue: 60),
+        accent: Brand.sumi, accentText: Brand.sumi, onAccent: Brand.washi,
+        caution: .oklch(lightness: 0.52, chroma: 0.10, hue: 86),
         onLane: RGB(hex: 0xFFFFFF), onLaneOpacity: 0.9,
         laneLightness: 0.46, laneChroma: 0.09)
 
