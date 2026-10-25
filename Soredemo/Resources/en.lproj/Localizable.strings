@@ -806,3 +806,7 @@
 "Recording finished" = "Recording finished";
 "Record what is chosen (%@)" = "Record what is chosen (%@)";
 "A connected device is recorded, not photographed" = "A connected device is recorded, not photographed";
+"App icon" = "App icon";
+"Black" = "Black";
+"Vermilion" = "Vermilion";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature.";

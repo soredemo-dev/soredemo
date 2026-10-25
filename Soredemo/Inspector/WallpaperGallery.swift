@@ -90,11 +90,14 @@ struct WallpaperPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
+            // **A menu, not segments**: five sources in a ~300-point inspector put None off the
+            // edge, unpressable (`theBackgroundSourceIsAMenuNotSegments`).
             Picker("", selection: $source) {
                 ForEach(Source.allCases, id: \.self) { Text(LocalizedStringKey($0.title)).tag($0) }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .labelsHidden()
+            .fixedSize()
 
             if source == .none {
                 transparent
@@ -137,6 +140,7 @@ struct WallpaperPicker: View {
                            in: 0...1) { Text("Blur") }
                     Text("Blurs the picture only. A colour or a gradient has nothing to blur.")
                         .font(Type.detail).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, Space.hairline)
             }

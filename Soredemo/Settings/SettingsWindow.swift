@@ -17,6 +17,7 @@ struct SettingsWindow: View {
     @State private var section = Section.recording
     @State private var languageChanged = false
     @AppStorage(Appearance.defaultsKey) private var appearance = Appearance.system
+    @AppStorage(AppIconChoice.defaultsKey) private var appIcon = AppIconChoice.black
     let coordinator: RecordingCoordinator
 
     enum Section: String, CaseIterable, Hashable {
@@ -86,6 +87,15 @@ struct SettingsWindow: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: appearance) { appearance.apply() }
+            Picker("App icon", selection: $appIcon) {
+                ForEach(AppIconChoice.allCases, id: \.self) { choice in
+                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: appIcon) { appIcon.apply() }
+            Text("The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature.")
+                .font(Type.detail).foregroundStyle(.secondary)
         }
         SwiftUI.Section("Language") {
             Picker("Interface", selection: Binding(

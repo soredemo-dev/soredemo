@@ -1129,6 +1129,44 @@ func firstPartySourceFiles() throws -> [URL] {
         """)
 }
 
+/// **Every inspector list is drawn the inspector's way.**
+///
+/// `inspectorList()` — a plain list on the panel's own ground — was written on 2026-08-23 and
+/// never called: every tab went on using `.listStyle(.sidebar)`, which paints the system's
+/// vibrancy and selection colour and **holds each row to one line**, so the inspector's
+/// explanatory sentences were cut off mid-word ("A colour or a gradient has noth…"), seen on the
+/// running editor 2026-10-25. Checked as its consequence: no sidebar-styled list in the editor's
+/// or the inspector's files.
+@Test func everyInspectorListIsDrawnTheInspectorsWay() throws {
+    let files = try appSourceFiles().filter {
+        let path = pathRelativeToRepositoryRoot($0)
+        return path.hasPrefix("Soredemo/Inspector/") || path.hasPrefix("Soredemo/Editor/")
+    }
+    try #require(files.count >= 20, "the editor's and inspector's files are not where this scan names them")
+    let sidebars = try codeLinesNaming("listStyle(.sidebar)", in: files)
+    #expect(sidebars.isEmpty, """
+        \(sidebars.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Use `.inspectorList()`.
+        """)
+}
+
+/// **The background's five sources fit, in every language.**
+///
+/// The source picker was a five-segment control in an inspector a little over 300 points wide:
+/// in English the fifth segment — None, the transparent background — was drawn off the edge and
+/// could not be pressed, seen on the running editor 2026-10-25, and every longer language cut
+/// more. A menu holds any number of choices in any language. Checked in the one file it lives in.
+@Test func theBackgroundSourceIsAMenuNotSegments() throws {
+    let files = try appSourceFiles()
+        .filter { pathRelativeToRepositoryRoot($0) == "Soredemo/Inspector/WallpaperGallery.swift" }
+    try #require(files.count == 1, "WallpaperGallery.swift is not where this scan names it")
+    let segmented = try codeLinesNaming("pickerStyle(.segmented)", in: files)
+    #expect(segmented.isEmpty, """
+        \(segmented.map { "\($0.location): \($0.text)" }.joined(separator: "\n"))
+        Five sources do not fit as segments in the inspector; keep the picker a menu.
+        """)
+}
+
 /// **The full-screen presentation options are complete, or AppKit throws.**
 ///
 /// `autoHideToolbar` must be accompanied by `autoHideMenuBar`, and `autoHideMenuBar` by

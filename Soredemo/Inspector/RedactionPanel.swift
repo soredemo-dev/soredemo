@@ -88,7 +88,7 @@ struct RedactionPanel: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .inspectorList()
     }
 
     @ViewBuilder private var rows: some View {

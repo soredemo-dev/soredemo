@@ -790,3 +790,7 @@
 "Recording finished" = "녹화 완료";
 "Record what is chosen (%@)" = "선택한 대상 녹화(%@)";
 "A connected device is recorded, not photographed" = "연결된 기기는 녹화만 할 수 있고 스크린샷은 찍을 수 없습니다";
+"App icon" = "앱 아이콘";
+"Black" = "검정";
+"Vermilion" = "주홍";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo가 열려 있는 동안 Dock에 표시됩니다. Finder와 Launchpad에서는 검은 다루마가 유지됩니다. macOS는 서명을 손상하지 않고 앱 자체의 아이콘을 바꿀 수 없습니다.";

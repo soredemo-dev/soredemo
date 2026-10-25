@@ -790,3 +790,7 @@
 "Recording finished" = "Enregistrement terminé";
 "Record what is chosen (%@)" = "Enregistrer ce qui est choisi (%@)";
 "A connected device is recorded, not photographed" = "Un appareil connecté s’enregistre, il ne se photographie pas";
+"App icon" = "Icône de l’app";
+"Black" = "Noir";
+"Vermilion" = "Vermillon";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Le Dock l’affiche tant que Soredemo est ouvert. Le Finder et le Launchpad gardent le daruma noir : macOS ne peut pas changer l’icône propre d’une app sans briser sa signature.";

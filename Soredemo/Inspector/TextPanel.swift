@@ -98,7 +98,7 @@ struct TextPanel: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .inspectorList()
     }
 
     @ViewBuilder private var items: some View {

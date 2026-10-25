@@ -170,9 +170,12 @@ of your twelve demos no longer match the app."
 
 1. **Steps as a type** — a step is a click with its element, its span and its key; edits that are
    keyed to seconds get a step key beside them. Needed by every idea above; the zoom's key already
-   is one. **The log does not name the application a click went to** — the ancestor chain stops
-   at the window — so replay needs one more recorded field: the frontmost application's bundle
+   is one. **The log names the application a click went to only by its display name** — the
+   ancestor walk reaches the `AXApplication` root and records its title, which changes with the
+   language and the version — so replay needs one more recorded field: the application's bundle
    identifier at each click, which is not content and passes the privacy rules as they stand.
+   (This said "the ancestor chain stops at the window" until 2026-10-25; it does not.
+   `2026-10-25-which-application-each-click-went-to.md`.)
 2. **The step lane and the guide export** (ideas 3 and 2) — visible value with no new capture.
 3. **The walkthrough export** (idea 2) — designed; build it on steps.
 4. **Element lookup and replay** (idea 1) — read-only lookup first (does each step's element still

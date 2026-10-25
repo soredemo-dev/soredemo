@@ -105,7 +105,7 @@ struct ChaptersPanel: View {
             }
             suggestionSections
         }
-        .listStyle(.sidebar)
+        .inspectorList()
     }
 
     // MARK: - chapters

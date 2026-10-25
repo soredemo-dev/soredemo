@@ -128,7 +128,7 @@ struct CaptionsPanel: View {
                     Section { Text(verbatim: status).font(Type.detail).foregroundStyle(.secondary) }
                 }
             }
-            .listStyle(.sidebar)
+            .inspectorList()
             // **Not while somebody is typing in it, and the reason was already written down.**
             // `focused`'s own comment says a list that scrolled itself while somebody was
             // typing would move the field out from under them — and the guard to match it was

@@ -124,6 +124,10 @@ final class SoredemoAppDelegate: NSObject, NSApplicationDelegate {
         // that pays for the one launch in a thousand where it is not.
         DesktopIcons.restore()
 
+        // The Dock's icon, if a person chose the vermilion one. Here, after launch has finished,
+        // because launching sets the bundle's own icon and would cover a choice made earlier.
+        AppIconChoice.applyStored()
+
         // **Watching from launch, not from when the menu opens, and that ordering is measured.**
         // A phone announces itself ONCE, through `AVCaptureDeviceWasConnected`, seconds after
         // the CoreMediaIO switch is thrown — and `DiscoverySession` does not list it at all, so

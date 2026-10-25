@@ -693,7 +693,7 @@ struct StageWindow: View {
                     Section("Audio") { AudioControls(editor: editor, preview: preview, files: files) }
                     Section("Animated GIF") { GIFControls(editor: editor) }
                 }
-                .listStyle(.sidebar)
+                .inspectorList()
             case .selection:
                 List {
                     Section("Zoom amount") {
@@ -704,7 +704,7 @@ struct StageWindow: View {
                                               playhead: playhead)
                     }
                 }
-                .listStyle(.sidebar)
+                .inspectorList()
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes

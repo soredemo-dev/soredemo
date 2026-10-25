@@ -58,6 +58,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [2026-08-19-recorder-parity](2026-08-19-recorder-parity.md) | what the recorder must match, by owner decision |
 | [what-a-filter-excludes](what-a-filter-excludes.md) | what a capture filter leaves out |
 | [2026-10-25-a-window-title-is-content](2026-10-25-a-window-title-is-content.md) | why the accessibility walk does not read a window's or a web page's title |
+| [2026-10-25-which-application-each-click-went-to](2026-10-25-which-application-each-click-went-to.md) | each click's application recorded as its bundle identifier, validated on decode |
 | [three-tracks-one-clock](three-tracks-one-clock.md) | video, system audio and microphone on one clock |
 | [surviving-a-stopped-stream](surviving-a-stopped-stream.md) | when ScreenCaptureKit stops a stream mid-take |
 | [2026-08-20-window-capture-repair](2026-08-20-window-capture-repair.md) | window capture: four defects, one root |
@@ -115,6 +116,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [2026-10-25-the-menu-bar-counts-down-and-paints-the-eye](2026-10-25-the-menu-bar-counts-down-and-paints-the-eye.md) | the menu bar's countdown, and the second eye painted when a take finishes |
 | [2026-10-25-the-panel-and-a-daruma-that-answers](2026-10-25-the-panel-and-a-daruma-that-answers.md) | research and proposal: the menu bar panel, red kept for recording, a daruma that responds |
 | [2026-10-25-the-notch-says-what-the-panel-says](2026-10-25-the-notch-says-what-the-panel-says.md) | the notch's recorder in the panel's grammar: choose, then Record or Screenshot |
+| [2026-10-25-a-vermilion-icon](2026-10-25-a-vermilion-icon.md) | the vermilion daruma as a Dock icon a person can choose, and why Finder keeps the black one |
 | [2026-09-25-tilting-the-card](2026-09-25-tilting-the-card.md) | tilting the card |
 | [2026-09-22-the-preview-composited-at-export-resolution](2026-09-22-the-preview-composited-at-export-resolution.md) | the preview composited at export resolution |
 | [2026-10-24-a-replaced-picture-is-drawn](2026-10-24-a-replaced-picture-is-drawn.md) | a picture replaced under its own name |

@@ -25,6 +25,8 @@ let catalog = resources.appending(path: "Assets.xcassets")
 let sumi = CGColor(srgbRed: 0x16 / 255, green: 0x17 / 255, blue: 0x1b / 255, alpha: 1)
 let washi = CGColor(srgbRed: 0xf4 / 255, green: 0xf3 / 255, blue: 0xef / 255, alpha: 1)
 let record = CGColor(srgbRed: 0xfa / 255, green: 0x3d / 255, blue: 0x4a / 255, alpha: 1)
+/// The vermilion daruma's body (the brand kit's shu-nuri), for the icon a person can choose.
+let shuNuri = CGColor(srgbRed: 0xe8 / 255, green: 0x45 / 255, blue: 0x2c / 255, alpha: 1)
 let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
 /// The body of the dark-background mark (the brand kit's `soredemo-logomark-dark.svg`).
 let paper = CGColor(srgbRed: 0xf4 / 255, green: 0xf4 / 255, blue: 0xf5 / 255, alpha: 1)
@@ -277,6 +279,22 @@ MainActor.assumeIsolated {
         }
     }
     try! "{\n  \"images\" : [\n\(entries.joined(separator: ",\n"))\n  ],\n  \"info\" : { \"author\" : \"xcode\", \"version\" : 1 }\n}\n"
+        .write(to: folder.appending(path: "Contents.json"), atomically: true, encoding: .utf8)
+}
+
+// The vermilion icon, for Settings → App icon: drawn as the fallback bitmaps are — washi on the
+// icon grid's shape, with its shadow — because `NSApplication.applicationIconImage` is shown as
+// given, not masked by the system.
+MainActor.assumeIsolated {
+    let folder = catalog.appending(path: "AppIconVermilion.imageset")
+    try? FileManager.default.removeItem(at: folder)
+    var images: [(String, String, Bool)] = []
+    for (scale, px) in [(1, 512), (2, 1024)] {
+        let file = "app-icon-vermilion-\(px).png"
+        write(appIcon(pixels: px, body: shuNuri), to: folder.appending(path: file))
+        images.append((file, "\(scale)x", false))
+    }
+    try! imageset("AppIconVermilion", template: false, images: images)
         .write(to: folder.appending(path: "Contents.json"), atomically: true, encoding: .utf8)
 }
 

@@ -806,3 +806,7 @@
 "Recording finished" = "錄製完成";
 "Record what is chosen (%@)" = "錄製所選內容（%@）";
 "A connected device is recorded, not photographed" = "已連接的裝置只能錄製，不能截圖";
+"App icon" = "App 圖示";
+"Black" = "墨黑";
+"Vermilion" = "朱紅";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo 開著時，Dock 會顯示它。Finder 與啟動台仍是黑色達摩：macOS 無法在不破壞簽章的情況下更改 App 自己的圖示。";

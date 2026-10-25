@@ -116,6 +116,7 @@ xcrun swiftc \
   Soredemo/App/UpdateCheck.swift \
   Soredemo/App/Clipboard.swift \
   Soredemo/App/Appearance.swift \
+  Soredemo/App/AppIcon.swift \
   Soredemo/App/EditorCloseGuard.swift \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \

@@ -174,7 +174,7 @@ struct FramingReviewInspector: View {
     /// `FramingReviewSections` directly and supplies the playhead it is showing.
     var body: some View {
         List { FramingReviewSections(model: model, onChange: onChange, playhead: Nanoseconds(0)) }
-            .listStyle(.sidebar)
+            .inspectorList()
     }
 
     @ViewBuilder var summary: some View {

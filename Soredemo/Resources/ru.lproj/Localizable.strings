@@ -790,3 +790,7 @@
 "Recording finished" = "Запись завершена";
 "Record what is chosen (%@)" = "Записать выбранное (%@)";
 "A connected device is recorded, not photographed" = "Подключённое устройство можно записать, но не сфотографировать";
+"App icon" = "Значок приложения";
+"Black" = "Чёрный";
+"Vermilion" = "Киноварь";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Dock показывает его, пока Soredemo открыт. Finder и Launchpad оставляют чёрного даруму: macOS не может изменить собственный значок приложения, не нарушив его подпись.";
