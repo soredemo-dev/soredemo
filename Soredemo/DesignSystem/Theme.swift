@@ -144,10 +144,18 @@ struct InspectorTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 12, weight: .medium))
+            // **Named under the icon** (2026-10-25): seven unlabelled icons were learnt one hover
+            // at a time. The name is the tab's own title, the same word the panel's header shows.
+            VStack(spacing: 2) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 12, weight: .medium))
+                Text(LocalizedStringKey(tab.title))
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
                 .foregroundStyle(isSelected ? tab.tint : Theme.Ink.secondary)
-                .frame(width: 30, height: 28)
+                .frame(width: 48, height: 40)
                 .background {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(isSelected ? Theme.Fill.pressed

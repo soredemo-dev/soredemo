@@ -794,3 +794,11 @@
 "Black" = "Noir";
 "Vermilion" = "Vermillon";
 "The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Le Dock l’affiche tant que Soredemo est ouvert. Le Finder et le Launchpad gardent le daruma noir : macOS ne peut pas changer l’icône propre d’une app sans briser sa signature.";
+"Time" = "Durée";
+"Known after this Mac's first export in this format." = "Connue après le premier export de ce Mac dans ce format.";
+"a few seconds" = "quelques secondes";
+"about %lld seconds" = "environ %lld secondes";
+"about a minute" = "environ une minute";
+"about %lld minutes" = "environ %lld minutes";
+"about an hour" = "environ une heure";
+"about %lld hours" = "environ %lld heures";

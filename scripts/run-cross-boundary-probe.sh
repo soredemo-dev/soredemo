@@ -179,6 +179,8 @@ xcrun swiftc \
   Soredemo/Export/ExportQueue.swift \
   Soredemo/Export/GuideExport.swift \
   Soredemo/Export/CodecVerdicts.swift \
+  Soredemo/Export/ExportSpeedMemory.swift \
+  Soredemo/Export/ExportSheet.swift \
   Soredemo/Recording/RegionPickerOverlay.swift \
   Soredemo/Editor/FramingReview.swift \
   Soredemo/Inspector/StageStylePicker.swift \

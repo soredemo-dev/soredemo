@@ -60,6 +60,8 @@ struct StageWindow: View {
     @State private var editRevision = 0
     @State private var isReviewShown = true
     @State private var inspectorTab = InspectorTab.project
+    /// The export's settings, shown by the Export button before the save panel.
+    @State private var isExportSheetShown = false
     /// Whether the window is given over to captions. See `CaptionEditor` for why an hour of
     /// caption work is not inspector work.
     @State private var isCaptionEditorShown = false
@@ -91,7 +93,9 @@ struct StageWindow: View {
 
         var title: String {
             switch self {
-            case .project: "Project"
+            // "Look": the tab holds what changes the picture; the file's settings moved to the
+            // export sheet (2026-10-25).
+            case .project: "Look"
             case .selection: "Zooms"
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
             // "Overlays" was already a poor name for a tab whose contents were captions.
@@ -442,7 +446,7 @@ struct StageWindow: View {
             // **A vertical rail, not a row of tabs across the top.** The reason shows as soon
             // as there are more than three sections: a horizontal strip competes
             // with the panel's own width, which is the dimension a 300-point inspector has none
-            // of to spare. A rail costs 40 points of width once and nothing per section.
+            // of to spare. A rail costs 56 points of width once and nothing per section.
             HStack(spacing: 0) {
                 inspectorRail
                 Divider().overlay(Theme.Line.hairline)
@@ -501,7 +505,7 @@ struct StageWindow: View {
                 } label: {
                     Text("Export…")
                 } primaryAction: {
-                    startExport()
+                    isExportSheetShown = true
                 }
                 .disabled(preview.player == nil)
             }
@@ -549,6 +553,10 @@ struct StageWindow: View {
                     Label("Review", systemImage: "sidebar.right")
                 }
             }
+        }
+        .sheet(isPresented: $isExportSheetShown) {
+            ExportSheet(editor: editor, onExportFinalCutXML: { exportFinalCutXML() },
+                        onExport: { startExport() })
         }
         .alert("Project", isPresented: Binding(
             get: { editor.projectStatus != nil }, set: { if !$0 { editor.projectStatus = nil } })
@@ -638,12 +646,12 @@ struct StageWindow: View {
     /// "what is this thing I just clicked" is asked constantly. A flat
     /// list mixes them, so the answer to the second is always somewhere below the answer to the
     /// first.
-    /// The inspector's section rail — a column of icons on the panel's edge.
+    /// The inspector's section rail — a column of named icons on the panel's edge.
     ///
     /// **A rail, not a row of tabs across the top.** The reason shows as soon as there are more
     /// than three sections: a horizontal strip competes with the panel's own width, which is the
     /// dimension a
-    /// 300-point inspector has none of to spare. A rail costs 40 points once and nothing per
+    /// 300-point inspector has none of to spare. A rail costs 56 points once and nothing per
     /// section added after.
     @ViewBuilder var inspectorRail: some View {
         VStack(spacing: Space.tight) {
@@ -655,7 +663,7 @@ struct StageWindow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, Space.snug)
-        .frame(width: 40)
+        .frame(width: 56)
         .background(Theme.Surface.base)
     }
 
@@ -674,10 +682,9 @@ struct StageWindow: View {
             switch inspectorTab {
             case .project:
                 List {
-                    Section("Output") {
-                        OutputControls(editor: editor, onExportFinalCutXML: { exportFinalCutXML() })
-                    }
-                    Section("Look") {
+                    // **The picture first.** The file's settings stood above it until 2026-10-25
+                    // and now open from the Export button (`ExportSheet`).
+                    Section {
                         StageStylePicker(model: editor.stageStyle, onChange: { reviewRevision += 1 },
                                          packageURL: ProjectStore.packageURL(forMediaAt: mediaURL))
                     }
@@ -691,7 +698,6 @@ struct StageWindow: View {
                                          onChange: { reviewRevision += 1 }).cursorControls
                     }
                     Section("Audio") { AudioControls(editor: editor, preview: preview, files: files) }
-                    Section("Animated GIF") { GIFControls(editor: editor) }
                 }
                 .inspectorList()
             case .selection:
@@ -970,7 +976,12 @@ struct StageWindow: View {
         let placedChapters = editor.exportChapters(through: edit)
         let size = editor.outputSize
         let isGIF = destination.pathExtension.lowercased() == "gif"
-        let queued = ExportQueue.shared.enqueue(destination: destination) { report in
+        // What the job renders, so a finished one teaches this Mac's rate (`ExportSpeedMemory`).
+        // Not for a GIF: it scales to its own edge, so `size` is not what it draws.
+        let seconds = Double((edit.outputDuration.rawValue)) / 1_000_000_000
+        let measure = isGIF ? nil : (frames: Int((seconds * Double(frames)).rounded()),
+                                     width: size.width, height: size.height, codec: chosenCodec.rawValue)
+        let queued = ExportQueue.shared.enqueue(destination: destination, measure: measure) { report in
             guard let asset else { return "There is nothing loaded to export." }
             StageCompositor.apply(settings)
             return await Self.runExport(asset: asset, to: destination, isGIF: isGIF,

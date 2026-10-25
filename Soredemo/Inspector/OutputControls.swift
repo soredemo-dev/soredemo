@@ -3,12 +3,12 @@ import Compositing
 import Timeline
 import Variants
 
-/// The export's shape, size, format and quality, with an estimate of the file.
+/// The export's shape, size, format and quality, with an estimate of the file — in the export
+/// sheet since 2026-10-25.
 ///
 /// Moved out of `StageWindow` — step 1 of `docs/design/2026-10-23-splitting-the-stage-window.md`.
 struct OutputControls: View {
     @Bindable var editor: EditorViewModel
-    let onExportFinalCutXML: () -> Void
 
     var body: some View {
         // The recording's own shape first when it is not already one of the three — see
@@ -119,9 +119,15 @@ struct OutputControls: View {
         }
         LabeledContent("About", value: StageWindow.fileSize(editor.estimatedExportBytes))
             .font(Type.detail).foregroundStyle(.secondary)
+    }
+}
 
-        Divider()
+/// The cut as a Final Cut Pro XML file — its own section in the export sheet.
+struct FinalCutXMLControls: View {
+    @Bindable var editor: EditorViewModel
+    let onExportFinalCutXML: () -> Void
 
+    var body: some View {
         // **A separate button, not a third entry in the save panel's format popup.** Every
         // control above this — resolution, codec, quality, the size estimate — describes a
         // rendered picture, and none of them applies to a cut list. Folding it into the same

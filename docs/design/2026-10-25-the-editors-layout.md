@@ -55,3 +55,23 @@ answers "what file will this make" before "what does it look like".
 
 Each is its own change with its own test and its own look, in that order; 1 and 4 change what a
 person can learn from the editor, 2, 3 and 5 change how much effort it takes.
+
+## Built: item 1, and the rail's names (2026-10-26)
+
+- **The export sheet.** Export opens a sheet — the file's shape, size, rate, format and quality,
+  the size estimate and beside it **the time**, then Animated GIF, then Final Cut XML — and its
+  Export… button opens the save panel. The inspector's first tab is now **Look**, the picture's
+  own settings first.
+- **The time is this Mac's, measured.** `ExportSpeedMemory` keeps the pixel rate of the last
+  finished export of each format, recorded by `ExportQueue` when a job finishes (not when it is
+  cancelled — `runExport` swallows the cancellation, and a cancelled job also used to be relabelled
+  "Done"; both fixed, `aCancelledJobStaysCancelledAndTeachesNoRate`, red on the old ending).
+  Before the first export in a format the sheet says it will know then, rather than quoting the
+  M1 Pro's 441 million pixels a second to a Mac that is not one.
+- **The rail names its tabs** under each icon; 56 points wide instead of 40.
+- `--open-video <path>` opens the editor with a picture in it, for looking at the editor itself.
+
+Looked at: the editor opened with `--open-video` (the Look tab and the named rail), and the sheet
+drawn in light and dark through an offscreen window — `ImageRenderer` draws a `Form` as blank,
+which is the renderer's limit, not the sheet's.
+

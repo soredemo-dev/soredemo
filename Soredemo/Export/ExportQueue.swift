@@ -31,7 +31,10 @@ final class ExportQueue {
     /// the same reason: an identifier a test cannot predict is a test that has to work around it.
     private var nextID = 1
 
-    private init() {}
+    /// Where a finished job's rate goes. Passed in so a test keeps its own, never a person's.
+    private let speeds: ExportSpeedMemory
+
+    init(speeds: ExportSpeedMemory = .shared) { self.speeds = speeds }
 
     var isBusy: Bool { jobs.contains { !$0.status.isFinished } }
 
@@ -47,8 +50,13 @@ final class ExportQueue {
     }
 
     /// Adds a job. Returns `nil` when the destination is already spoken for.
+    ///
+    /// `measure` names what the job renders — frames, size and codec — so a job that finishes
+    /// teaches `ExportSpeedMemory` this Mac's rate; `nil` for a job whose size is not its
+    /// output's (a GIF scales to its own edge).
     @discardableResult
     func enqueue(destination: URL,
+                 measure: (frames: Int, width: Int, height: Int, codec: String)? = nil,
                  run: @escaping @MainActor (@escaping @MainActor (ExportProgress) -> Void)
                      async -> String?) -> Int? {
         guard !isReserved(destination) else { return nil }
@@ -69,9 +77,19 @@ final class ExportQueue {
                 }
             }
             self?.update(id) {
-                $0.status = failure == nil ? .finished : .failed
+                // **A cancelled job returns no failure too** — `runExport` swallows the
+                // cancellation — and the frames it did not write must not become this Mac's rate.
+                // It also kept its "Cancelled" from being overwritten with "Done", which it was.
+                let wasCancelled = $0.status == .cancelled
+                $0.status = wasCancelled ? .cancelled : (failure == nil ? .finished : .failed)
                 $0.failure = failure
                 $0.progress = nil
+                if failure == nil, !wasCancelled, let measure, let startedAt = $0.startedAt {
+                    let now = Double(Minting.continuousNow().rawValue) / 1_000_000_000
+                    self?.speeds.remember(frames: measure.frames, width: measure.width,
+                                                      height: measure.height, seconds: now - startedAt,
+                                                      codec: measure.codec)
+                }
             }
         }
         startNext()

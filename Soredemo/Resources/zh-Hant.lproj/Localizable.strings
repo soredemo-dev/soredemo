@@ -810,3 +810,11 @@
 "Black" = "墨黑";
 "Vermilion" = "朱紅";
 "The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo 開著時，Dock 會顯示它。Finder 與啟動台仍是黑色達摩：macOS 無法在不破壞簽章的情況下更改 App 自己的圖示。";
+"Time" = "時間";
+"Known after this Mac's first export in this format." = "這台 Mac 第一次用這個格式匯出後就會知道。";
+"a few seconds" = "幾秒";
+"about %lld seconds" = "約 %lld 秒";
+"about a minute" = "約一分鐘";
+"about %lld minutes" = "約 %lld 分鐘";
+"about an hour" = "約一小時";
+"about %lld hours" = "約 %lld 小時";

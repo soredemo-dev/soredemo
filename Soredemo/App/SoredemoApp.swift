@@ -151,6 +151,14 @@ struct SoredemoApp: App {
             return
         }
 
+        // **`--open-video <path>`: the editor with a picture in it**, for looking at the editor
+        // itself. `--open-project` needs a package, and a fixture package that opens nothing
+        // showed an empty editor to every check that used it. A person can use it too.
+        if let index = arguments.firstIndex(of: "--open-video"), index + 1 < arguments.count {
+            recordingCoordinator.openVideo(at: URL(fileURLWithPath: arguments[index + 1]))
+            return
+        }
+
         guard let index = arguments.firstIndex(of: "--open-project"),
               index + 1 < arguments.count else { return }
         let packageURL = URL(fileURLWithPath: arguments[index + 1])
