@@ -186,13 +186,15 @@ private struct CountdownView: View {
             // **It rocks on each count, as a daruma does when it is nudged** — tips one way on its
             // round base, swings back past upright, and settles. Keyed on the count, so each
             // second is one nudge; still under Reduce Motion.
+            // The closures are `Sendable`, so Reduce Motion is read here, on the main actor, and
+            // handed in as a plain number.
             .keyframeAnimator(initialValue: 0.0, trigger: state.remaining) { content, angle in
-                content.rotationEffect(.degrees(reduceMotion ? 0 : angle), anchor: .bottom)
-            } keyframes: { _ in
+                content.rotationEffect(.degrees(angle), anchor: .bottom)
+            } keyframes: { [rock = reduceMotion ? 0.0 : 1.0] _ in
                 KeyframeTrack {
-                    CubicKeyframe(-7, duration: 0.18)
-                    CubicKeyframe(5, duration: 0.24)
-                    CubicKeyframe(-2.5, duration: 0.2)
+                    CubicKeyframe(-7 * rock, duration: 0.18)
+                    CubicKeyframe(5 * rock, duration: 0.24)
+                    CubicKeyframe(-2.5 * rock, duration: 0.2)
                     CubicKeyframe(0, duration: 0.22)
                 }
             }

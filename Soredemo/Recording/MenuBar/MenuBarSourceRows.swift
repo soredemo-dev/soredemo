@@ -33,12 +33,10 @@ struct MenuBarMicrophoneRow: View {
             Divider()
             Button("Microphone Modes\u{2026}") { CameraEffects.showMicrophoneModes() }
             Divider()
-            Button {
-                coordinator.preferences.capturesSystemAudio.toggle()
-            } label: {
-                Label("Record system audio",
-                      systemImage: coordinator.preferences.capturesSystemAudio ? "checkmark" : "")
-            }
+            // A toggle, so the menu draws its own checkmark — see `MenuBarCountdownRow`.
+            Toggle("Record system audio", isOn: Binding(
+                get: { coordinator.preferences.capturesSystemAudio },
+                set: { coordinator.preferences.capturesSystemAudio = $0 }))
         } accessory: {
             if !coordinator.preferences.capturesSystemAudio {
                 Image(systemName: "speaker.slash.fill")

@@ -9,11 +9,13 @@ struct MenuBarCountdownRow: View {
         let seconds = preferences.countdownSeconds
         MenuBarRow(icon: seconds == 0 ? "timer.square" : "timer", iconIsOff: seconds == 0,
                    title: "Countdown", value: seconds == 0 ? Text("Off") : Text("\(seconds)s")) {
+            // **A toggle per choice, so the menu draws its own checkmark.** A label with
+            // `Image(systemName: "")` for the unchosen ones logged "No symbol named ''" for every
+            // item each time the menu opened (seen in the owner's console, 2026-10-26).
             ForEach(RecordingPreferences.countdownChoices, id: \.self) { value in
-                Button { preferences.countdownSeconds = value } label: {
-                    Label { value == 0 ? Text("Off") : Text("\(value)s") } icon: {
-                        Image(systemName: value == seconds ? "checkmark" : "")
-                    }
+                Toggle(isOn: Binding(get: { value == seconds },
+                                     set: { if $0 { preferences.countdownSeconds = value } })) {
+                    value == 0 ? Text("Off") : Text("\(value)s")
                 }
             }
         }

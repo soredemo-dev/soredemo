@@ -119,6 +119,21 @@ struct WindowConfigurator: NSViewRepresentable {
 /// **After the window has become key, not at `makeNSView`**: AppKit restores an autosaved frame
 /// after the hierarchy is assembled, so a frame set earlier is one the restore overwrites.
 @MainActor private func openFullScreen(_ window: NSWindow) -> [any NSObjectProtocol] {
+    // **Filling the screen does not need the key window; only the full-screen toggle does.**
+    // After a recording the app is not frontmost, and a window that never became key was left
+    // at its default 900 × 492 by the reveal deadline — no growth, no fade (seen by the owner,
+    // 2026-10-25). So that path runs a turn after the window is attached, key or not — and a
+    // turn later even when it is key: run inside `updateNSView`, its layout pass was reentrant
+    // ("NSHostingView is being laid out reentrantly", the owner's console, 2026-10-26).
+    if !WindowConfigurator.opensFullScreen {
+        DispatchQueue.main.async { [weak window] in
+            MainActor.assumeIsolated {
+                guard let window else { return }
+                enterFullScreenOrGrow(window)
+            }
+        }
+        return []
+    }
     // **The notification can already have happened, and that was the intermittency.**
     //
     // `configure()` runs from `viewDidMoveToWindow` and from `updateNSView`; whether either has
@@ -133,19 +148,6 @@ struct WindowConfigurator: NSViewRepresentable {
     // is only for the case where it is not yet true.
     if window.isKeyWindow {
         enterFullScreenOrGrow(window)
-        return []
-    }
-    // **Filling the screen does not need the key window; only the full-screen toggle does.**
-    // After a recording the app is not frontmost, and a window that never became key was left
-    // at its default 900 × 492 by the reveal deadline — no growth, no fade (seen by the owner,
-    // 2026-10-25). So that path runs a turn after the window is attached, key or not.
-    if !WindowConfigurator.opensFullScreen {
-        DispatchQueue.main.async { [weak window] in
-            MainActor.assumeIsolated {
-                guard let window else { return }
-                enterFullScreenOrGrow(window)
-            }
-        }
         return []
     }
 
