@@ -40,7 +40,7 @@ struct TimelineEditor: View {
                     }
                 }
                 if !steps.isEmpty {
-                    TimelineLane("Steps", "list.number", height: 14) {
+                    TimelineLane("Steps", "list.number", height: 22) {
                         TimelineStepMarks(model: model, steps: steps)
                     }
                 }

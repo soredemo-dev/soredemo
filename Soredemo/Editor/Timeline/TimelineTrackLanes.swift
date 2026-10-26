@@ -168,44 +168,101 @@ struct TimelineChapterMarks: View {
     }
 }
 
-/// A numbered mark per step with the element's label beside it; tapping one puts the playhead
-/// there. The chapter lane's arrangement — a step is a moment with a name — clipped rather than
-/// wrapped, because the label is the interface's own and the full one is in its tooltip.
+/// Where each step's chip goes on the lane: from its start to the next visible step's, so no
+/// label lies under another — they all ran to the lane's end until 2026-10-25 and overlapped.
+struct StepChip: Equatable {
+    let number: Int
+    let x: Double
+    let width: Double
+    /// Room for the label beside the number; below it the chip is the number alone and the label
+    /// is in its tooltip.
+    let showsLabel: Bool
+
+    static let gap = 2.0
+    static let labelWidth = 36.0
+
+    /// Pure. Steps outside the window (fractions outside 0…1) are not drawn and do not end the
+    /// chip before them; the last visible one runs to the lane's end.
+    static func layout(_ steps: [(number: Int, fraction: Double)], width: Double) -> [StepChip] {
+        let visible = steps.filter { $0.fraction >= 0 && $0.fraction <= 1 }
+            .sorted { $0.fraction < $1.fraction }
+        return visible.enumerated().map { index, step in
+            let x = step.fraction * width
+            let end = index + 1 < visible.count ? visible[index + 1].fraction * width : width
+            let chipWidth = max(end - x - gap, 0)
+            return StepChip(number: step.number, x: x, width: chipWidth, showsLabel: chipWidth >= labelWidth)
+        }
+    }
+
+    /// The step the playhead is in: the last one that has begun, or `nil` before the first.
+    static func current(_ steps: [StepMark], playhead: Nanoseconds) -> Int? {
+        steps.filter { $0.start.rawValue <= playhead.rawValue }
+            .max { $0.start.rawValue < $1.start.rawValue }?.number
+    }
+}
+
+/// The recording's steps as chips, each from its start to the next: a number in a disc and the
+/// element's label. **The step the playhead is in is drawn in ink**, the rest quietly — the way a
+/// checklist shows where it has got to — so scrubbing reads as walking through the steps.
+/// Tapping one puts the playhead there.
 struct TimelineStepMarks: View {
     let model: TimelineEditorModel
     let steps: [StepMark]
 
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width
+            let width = Double(geometry.size.width)
+            let byNumber = Dictionary(steps.map { ($0.number, $0) }, uniquingKeysWith: { first, _ in first })
+            let chips = StepChip.layout(steps.map { ($0.number, model.window.fraction(of: $0.start)) },
+                                        width: width)
+            let current = StepChip.current(steps, playhead: model.playhead)
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
-                ForEach(steps, id: \.number) { step in
-                    let fraction = model.window.fraction(of: step.start)
-                    if fraction >= 0, fraction <= 1 {
-                        HStack(spacing: 2) {
-                            Text(verbatim: "\(step.number)")
-                                .font(.system(size: 8, weight: .bold).monospacedDigit())
-                                .foregroundStyle(Theme.Ink.onLane)
-                                .padding(.horizontal, 3)
-                                .background(Capsule().fill(Theme.Lane.chapter))
-                            // The interface's own label, drawn as it is — translating "Export"
-                            // would rename somebody else's button.
-                            Text(verbatim: step.label)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(Theme.Ink.secondary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: max(24, (1 - fraction) * width), alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentShape(Rectangle())
-                        .offset(x: fraction * width)
-                        .onTapGesture { model.movePlayhead(to: step.start) }
-                        .help(Text(verbatim: "\(step.number). \(step.label)"))
+                ForEach(chips, id: \.number) { chip in
+                    if let step = byNumber[chip.number] {
+                        chipView(step, chip: chip, isCurrent: step.number == current)
+                            .offset(x: chip.x)
+                            // The current step over its neighbours, so its name shows even when
+                            // its own span is too short for it.
+                            .zIndex(step.number == current ? 1 : 0)
                     }
                 }
             }
         }
+    }
+
+    private func chipView(_ step: StepMark, chip: StepChip, isCurrent: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(verbatim: "\(step.number)")
+                .font(.system(size: 10, weight: .bold).monospacedDigit())
+                .foregroundStyle(isCurrent ? Theme.Ink.onAccent : Theme.Ink.primary)
+                .frame(minWidth: 16, minHeight: 16)
+                .background(Circle().fill(isCurrent ? Theme.accent : Theme.Fill.pressed))
+            if chip.showsLabel || isCurrent {
+                // The interface's own label, drawn as it is — translating "Export" would rename
+                // somebody else's button.
+                Text(verbatim: step.label)
+                    .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? Theme.Ink.primary : Theme.Ink.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .padding(.horizontal, 3)
+        .frame(minWidth: max(chip.width, 18), maxWidth: isCurrent ? nil : max(chip.width, 18),
+               minHeight: 20, maxHeight: 20, alignment: .leading)
+        .fixedSize(horizontal: isCurrent, vertical: false)
+        .background {
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.Surface.panel)
+                RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.accent.opacity(0.14))
+            }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture { model.movePlayhead(to: step.start) }
+        .help(Text(verbatim: "\(step.number). \(step.label)"))
+        .animation(.easeOut(duration: 0.15), value: isCurrent)
     }
 }
 
