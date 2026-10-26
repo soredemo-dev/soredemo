@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 import Geometry
-@preconcurrency import ScreenCaptureKit
+@unsafe @preconcurrency import ScreenCaptureKit
 
 extension CaptureSource {
     /// **How a source is framed into a buffer** — size, crop, fit, anchor, cursor and window

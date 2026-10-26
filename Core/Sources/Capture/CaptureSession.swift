@@ -2218,7 +2218,8 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             guard let scStream = unsafe stream,
                   let buffer = unsafe clipBuffer as? ClipBuffer else { return nil }
             unsafe clipBuffer = nil
-            let said = String(
+            // `unsafe`: `String(format:)` takes C variadic arguments.
+            let said = unsafe String(
                 format: "delivered %.1f fps against %.0f asked for; the rolling clip buffer was "
                       + "dropped so the recording could keep its frame rate", delivered, wanted)
             unsafe _diagnostics.clipBufferDropped = said
