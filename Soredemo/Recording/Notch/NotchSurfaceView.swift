@@ -108,10 +108,13 @@ struct NotchSurfaceView: View {
                     NotchSoundWing(coordinator: coordinator)
                 })
                 if expanded {
-                    NotchTakeControls(coordinator: coordinator)
-                        .padding(.horizontal, Space.regular)
-                        .padding(.bottom, Space.snug)
-                        .transition(.opacity)
+                    VStack(spacing: Space.tight) {
+                        NotchLiveSteps(steps: coordinator.liveSteps)
+                        NotchTakeControls(coordinator: coordinator)
+                    }
+                    .padding(.horizontal, Space.regular)
+                    .padding(.bottom, Space.snug)
+                    .transition(.opacity)
                 }
             }
         }
@@ -175,5 +178,39 @@ private struct NotchDaruma: View {
 
 private enum Brand {
     static let kinColor = Palette.Brand.kin.color
+}
+
+/// The take's last presses, newest last and in full ink, the earlier ones fading — the checklist
+/// of the owner's Grok reference, said in the recording's own steps. Before the first press it
+/// says where they will appear.
+private struct NotchLiveSteps: View {
+    let steps: [String]
+
+    var body: some View {
+        HStack(spacing: Space.snug) {
+            if steps.isEmpty {
+                Text("Steps appear here as you click.")
+                    .foregroundStyle(.white.opacity(0.45))
+            } else {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, label in
+                    let isNewest = index == steps.count - 1
+                    if index > 0 {
+                        Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.3))
+                    }
+                    // The interface's own label, drawn as it is.
+                    Text(verbatim: label)
+                        .fontWeight(isNewest ? .semibold : .regular)
+                        .foregroundStyle(.white.opacity(isNewest ? 1 : 0.5 + 0.2 * Double(index)))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 11))
+        .frame(height: 18)
+        .animation(.easeOut(duration: 0.2), value: steps)
+    }
 }
 

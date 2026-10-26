@@ -4,6 +4,7 @@ import Foundation
 // `Capture` since Phase 3A-4 — the session, the source, permissions and `Minting`.
 import Capture
 import Compositing
+import Framing
 import Geometry
 import Observation
 import Project
@@ -49,6 +50,8 @@ final class RecordingCoordinator {
     private(set) var isPaused = false
     /// The menu bar daruma's second eye, painted when a take produces a file.
     let paintedEye = PaintedEye()
+    /// The take's last few presses, newest last — `LiveSteps`. Emptied when a take starts.
+    private(set) var liveSteps: [String] = []
     /// Between the countdown ending and the capture running: `newSession.start()` is awaited.
     private(set) var isStartingCapture = false
     /// Seconds since recording started, not counting time paused. Driven by a timer the bar
@@ -644,6 +647,16 @@ final class RecordingCoordinator {
         // the bar a person drags mid-recording is precisely the window this is about.
         newSession.setOwnWindows(OwnWindowReporter.current())
         observeOwnWindows(for: newSession)
+        // The last few presses, for the expanded notch — named as the recording's own steps are.
+        liveSteps = []
+        newSession.setOnAXChain { [weak self] record in
+            guard let hit = record.hit,
+                  let named = RecordedSteps.label(of: hit, ancestors: record.ancestors) else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                self.liveSteps = LiveSteps.appending(named.label, to: self.liveSteps)
+            }
+        }
         // **The camera starts BEFORE the countdown, not after.** A camera takes a moment to
         // wake and expose; started with the capture, its first second is a dark frame settling.
         // The countdown is exactly the pause that hides it — which is a second reason to have

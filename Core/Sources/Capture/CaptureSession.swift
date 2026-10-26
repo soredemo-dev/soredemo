@@ -584,6 +584,14 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
         lock.withLock { unsafe axObserver }?.setOwnWindows(exclusion)
     }
     private nonisolated(unsafe) var ownWindows: OwnWindowExclusion = .nothing
+
+    /// Told each click's accessibility chain as it is answered, on the AX queue — after the record
+    /// is written, and whether or not it could be. The app lists the last few presses in the
+    /// notch while a take runs. Guarded by `lock`.
+    public nonisolated func setOnAXChain(_ handler: (@Sendable (AXChainRecord) -> Void)?) {
+        lock.withLock { unsafe onAXChain = handler }
+    }
+    private nonisolated(unsafe) var onAXChain: (@Sendable (AXChainRecord) -> Void)?
     /// What `setUpObservation()` found when starting the tap and asking for
     /// Accessibility. Read once for the whole session, not per segment.
     private nonisolated(unsafe) var observationBlindness: [ObservationBlindness] = []
@@ -1389,6 +1397,7 @@ public final class CaptureSession: NSObject, SCStreamDelegate, SCStreamOutput, @
             guard event.phase == .down, let ax = lock.withLock({ unsafe axObserver }) else { return }
             ax.enqueue(event) { [weak self] record in
                 self?.appendObservation(record, to: writer, whileFinalizing: finalizing)
+                self?.lock.withLock { unsafe self?.onAXChain }?(record)
             }
         case .key(let sample):
             appendObservation(sample, to: writer, whileFinalizing: finalizing)

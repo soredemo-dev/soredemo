@@ -804,3 +804,4 @@
 "about %lld minutes" = "約%lld分";
 "about an hour" = "約1時間";
 "about %lld hours" = "約%lld時間";
+"Steps appear here as you click." = "クリックするとここに手順が表示されます。";

@@ -802,3 +802,4 @@
 "about %lld minutes" = "약 %lld분";
 "about an hour" = "약 1시간";
 "about %lld hours" = "약 %lld시간";
+"Steps appear here as you click." = "클릭하면 여기에 단계가 표시됩니다.";

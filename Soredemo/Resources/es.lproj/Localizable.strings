@@ -804,3 +804,4 @@
 "about %lld minutes" = "unos %lld minutos";
 "about an hour" = "alrededor de una hora";
 "about %lld hours" = "unas %lld horas";
+"Steps appear here as you click." = "Los pasos aparecen aquí a medida que haces clic.";

@@ -82,7 +82,8 @@ enum NotchSurfaceLayout {
     static let openMinimumWidth: Double = 460
     static let openDepth: Double = 96
     static let expandedMinimumWidth: Double = 400
-    static let expandedDepth: Double = 44
+    /// The take's controls and, above them, the row of its last presses (`LiveSteps`).
+    static let expandedDepth: Double = 62
 
     static func rect(for state: NotchSurfaceState, notch: PointRect, screen: PointRect) -> PointRect {
         let winged = notch.width + 2 * wingShare * notch.height

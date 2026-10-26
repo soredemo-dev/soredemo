@@ -89,7 +89,7 @@ public enum RecordedSteps {
 
     /// The hit's own title, or the nearest ancestor's below the window — the text inside a
     /// button is an untitled `AXStaticText`, and its button has the label.
-    static func label(of hit: AXElementRecord,
+    public static func label(of hit: AXElementRecord,
                       ancestors: [AXElementRecord]) -> (label: String, role: String?)? {
         for element in [hit] + ancestors {
             if let role = element.role, rolesThatAreNotLabels.contains(role) { return nil }

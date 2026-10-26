@@ -802,3 +802,4 @@
 "about %lld minutes" = "около %lld мин";
 "about an hour" = "около часа";
 "about %lld hours" = "около %lld ч";
+"Steps appear here as you click." = "Шаги появляются здесь по мере нажатий.";

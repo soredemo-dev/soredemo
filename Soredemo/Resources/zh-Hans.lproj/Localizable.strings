@@ -804,3 +804,4 @@
 "about %lld minutes" = "约 %lld 分钟";
 "about an hour" = "约一小时";
 "about %lld hours" = "约 %lld 小时";
+"Steps appear here as you click." = "点击的步骤会出现在这里。";
