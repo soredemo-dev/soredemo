@@ -67,7 +67,7 @@ enum ChapterSamples {
         guard status == noErr, let block else {
             throw MP4Exporter.ExportError.chaptersUnwritable("block for chapter \(chapter.id): \(status)")
         }
-        status = unsafe bytes.withUnsafeBytes { raw in
+        status = bytes.withUnsafeBytes { raw in
             unsafe CMBlockBufferReplaceDataBytes(with: raw.baseAddress!, blockBuffer: block,
                                                  offsetIntoDestination: 0, dataLength: bytes.count)
         }

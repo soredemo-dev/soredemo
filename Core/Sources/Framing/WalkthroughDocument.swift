@@ -45,7 +45,8 @@ public enum WalkthroughDocument {
                 ? "<img src=\"\(pictures[index])\" alt=\"\(alt)\">" : ""
             // The box is numbers formatted here; the label reaches the button only escaped.
             let hotspot = step.highlight.map {
-                String(format: "<button class=\"hotspot\" aria-label=\"%@\" style=\"left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%\"></button>",
+                // `unsafe`: `String(format:)` takes C variadic arguments.
+                unsafe String(format: "<button class=\"hotspot\" aria-label=\"%@\" style=\"left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%\"></button>",
                        spoken[index], $0.x * 100, $0.y * 100, $0.width * 100, $0.height * 100)
             } ?? ""
             let back = index > 0 ? "<button class=\"back\">\(StepGuide.htmlEscaped(words.back))</button>" : ""

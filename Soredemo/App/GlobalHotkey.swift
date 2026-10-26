@@ -63,7 +63,7 @@ final class GlobalHotkey {
         let id = nextID
         nextID += 1
 
-        var hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
+        let hotKeyID = EventHotKeyID(signature: Self.signature, id: id)
         var reference: EventHotKeyRef?
         // **`GetApplicationEventTarget()`, matching Apple's own sample**, and paired with an
         // application-target handler below. `GetEventDispatcherTarget()` is the other spelling

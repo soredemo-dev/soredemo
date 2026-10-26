@@ -59,10 +59,10 @@ enum ChapterSuggester {
         var found: [RawChapterSuggestion] = []
         for (index, window) in windows.enumerated() {
             try Task.checkCancellation()
-            await progress(index, windows.count)
+            progress(index, windows.count)
             found += try await answers(for: window, in: transcript, after: found.last?.title)
         }
-        await progress(windows.count, windows.count)
+        progress(windows.count, windows.count)
         return found
     }
 

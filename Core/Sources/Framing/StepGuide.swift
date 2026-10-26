@@ -96,7 +96,8 @@ public enum StepGuide {
             let alt = htmlEscaped(phrases.pictureAlt.replacingOccurrences(of: "{number}", with: "\(number)"))
             // The box is numbers this function formats — no text from anywhere reaches a style.
             let box = steps[index].highlight.map {
-                String(format: "<span class=\"box\" style=\"left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%\"></span>",
+                // `unsafe`: `String(format:)` takes C variadic arguments.
+                unsafe String(format: "<span class=\"box\" style=\"left:%.2f%%;top:%.2f%%;width:%.2f%%;height:%.2f%%\"></span>",
                        $0.x * 100, $0.y * 100, $0.width * 100, $0.height * 100)
             } ?? ""
             items += "<li><p>\(sentence)</p><div class=\"shot\"><img src=\"\(pictureName(for: number))\" alt=\"\(alt)\">\(box)</div></li>\n"

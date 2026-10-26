@@ -25,6 +25,9 @@ final class ScrubAudio {
     private var lastSample: Int?
 
     private var asset: AVURLAsset?
+    /// The recording's audio tracks, loaded once when it is opened — `tracks(withMediaType:)`,
+    /// which this read on every window, is deprecated for the asynchronous load.
+    private var audioTracks: [AVAssetTrack] = []
     private var sampleRate = 48_000.0
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -45,7 +48,15 @@ final class ScrubAudio {
     /// channel is half the reading for an answer nobody is judging the stereo image of.
     func open(_ url: URL) {
         stop()
-        asset = AVURLAsset(url: url)
+        let opened = AVURLAsset(url: url)
+        asset = opened
+        audioTracks = []
+        Task { [weak self] in
+            let tracks = (try? await opened.loadTracks(withMediaType: .audio)) ?? []
+            // Only for the recording still open: a second open while this loads replaces it.
+            guard let self, self.asset === opened else { return }
+            self.audioTracks = tracks
+        }
         windowSamples = []
         lastSample = nil
         format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
@@ -115,7 +126,8 @@ final class ScrubAudio {
     /// video track; `AVAudioFile` opens audio files and this is not one.
     private func read(from asset: AVURLAsset, start: Int, length: Int) -> [Float]? {
         guard let reader = try? AVAssetReader(asset: asset) else { return nil }
-        let tracks = asset.tracks(withMediaType: .audio)
+        // Before the tracks have loaded there is nothing to read, and a scrub is silent.
+        let tracks = audioTracks
         guard !tracks.isEmpty else { return nil }
         let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
