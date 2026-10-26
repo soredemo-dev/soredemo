@@ -37,15 +37,21 @@ enum NotchSurfaceState: Equatable {
     case glance
     case open
     case live(expanded: Bool)
+    /// A take has just ended: the daruma with both eyes painted, for a moment, then `.settled`
+    /// puts the notch back. Each state its own face and light — the owner's Grok reference.
+    case finished
 
     enum Event: Equatable {
         case pointerEntered, pointerLeft, clicked, clickedOutside, escape
         case recordingBegan, recordingEnded
+        case settled
     }
 
     func handling(_ event: Event) -> NotchSurfaceState {
         switch (self, event) {
-        case (.live, .recordingEnded): .dormant
+        case (.live, .recordingEnded): .finished
+        case (.finished, .settled): .dormant
+        case (.finished, .clicked): .open
         // **Nothing but the pointer and the end of the take moves a live surface.** It is the
         // only thing on screen saying a recording is running.
         case (.live, .pointerEntered): .live(expanded: true)
@@ -82,7 +88,7 @@ enum NotchSurfaceLayout {
         let winged = notch.width + 2 * wingShare * notch.height
         let (width, height): (Double, Double) = switch state {
         case .dormant: (notch.width, notch.height)
-        case .glance, .live(expanded: false): (winged, notch.height)
+        case .glance, .live(expanded: false), .finished: (winged, notch.height)
         case .open: (max(winged, openMinimumWidth), notch.height + openDepth)
         case .live(expanded: true): (max(winged, expandedMinimumWidth), notch.height + expandedDepth)
         }
@@ -114,6 +120,8 @@ enum NotchSurfacePointer {
         let onSurface = isInside(x: x, y: y, of: surface, grownBy: margin)
         return switch state {
         case .dormant, .live(expanded: false): onNotch ? .pointerEntered : nil
+        // Showing a finished take: the pointer neither cuts it short nor turns it into a glance.
+        case .finished: nil
         case .glance, .live(expanded: true): onSurface ? nil : .pointerLeft
         // Open closes on a click outside or escape: its menus take the pointer outside it.
         case .open: nil

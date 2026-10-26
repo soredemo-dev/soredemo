@@ -74,7 +74,16 @@ final class NotchSurfacePresenter {
     }
 
     func recordingBegan() { model?.send(.recordingBegan) }
-    func recordingEnded() { model?.send(.recordingEnded) }
+    /// How long a finished take shows before the notch settles: the menu bar's painted eye is
+    /// held as long, so the two say "done" together.
+    static let finishedSeconds = 2.6
+
+    func recordingEnded() {
+        model?.send(.recordingEnded)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.finishedSeconds) { [weak self] in
+            MainActor.assumeIsolated { self?.model?.send(.settled) }
+        }
+    }
 
     /// One pointer event. Returns whether it was consumed: a click that opened the surface must
     /// not ALSO reach whatever is under the notch's wings in the menu bar.

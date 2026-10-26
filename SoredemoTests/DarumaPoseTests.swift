@@ -120,6 +120,21 @@ import Testing
         #expect(DarumaPose.resting.countRing == nil, "nothing counted is no ring")
     }
 
+    /// **The notch's daruma has a face per state**, after the owner's Grok reference: resting
+    /// when it is offered, its record eye filled while a take runs and empty while it is paused,
+    /// and both eyes painted when the take is done — the daruma's own custom for a wish granted.
+    @Test func theNotchsDarumaHasAFacePerState() {
+        #expect(DarumaPose.notch(.glance, isPaused: false) == .resting)
+        #expect(DarumaPose.notch(.open, isPaused: false) == .resting)
+        #expect(DarumaPose.notch(.live(expanded: false), isPaused: false).recordFill == 1)
+        #expect(DarumaPose.notch(.live(expanded: true), isPaused: false).recordFill == 1)
+        #expect(DarumaPose.notch(.live(expanded: false), isPaused: true).recordFill == 0)
+        let done = DarumaPose.notch(.finished, isPaused: false)
+        #expect(done.recordFill == 1 && done.waitingPainted)
+        #expect(!DarumaPose.notch(.live(expanded: false), isPaused: false).waitingPainted,
+                "the second eye is painted when the take is done, not while it runs")
+    }
+
     /// Moving from one card to the next may report the new card's entry before the old one's exit;
     /// the late exit must not clear the glance the new card just took.
     @Test func aLateExitDoesNotClearTheNextCardsGlance() {

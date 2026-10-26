@@ -59,6 +59,15 @@ struct NotchSurfaceView: View {
         // monitors, not by views here: see `NotchSurfacePointer` for why hover could not do it.
         case .dormant:
             Color.clear
+        // **A take that has just ended says so**, with the daruma's second eye painted in, and
+        // settles back on its own (`NotchSurfacePresenter.finishedSeconds`).
+        case .finished:
+            wings(left: {
+                NotchDaruma(pose: DarumaPose.notch(.finished, isPaused: false), glow: Brand.kinColor)
+            }, right: {
+                Text("Saved").opacity(0.8)
+            })
+            .transition(.opacity)
         case .glance:
             glanceRow.transition(.opacity)
         case .open:
@@ -72,11 +81,7 @@ struct NotchSurfaceView: View {
                 wings(left: {
                     // **The mark, where the take-or-picture switch was.** The choice moved to the
                     // act — Record or Screenshot below — as it did in the panel.
-                    Image("LogomarkTemplate")
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
+                    NotchDaruma(pose: .resting, glow: nil)
                         .accessibilityLabel(Text("Soredemo"))
                 }, right: {
                     Text(verbatim: GlobalHotkey.toggleRecordingSpelling).opacity(0.6)
@@ -90,7 +95,12 @@ struct NotchSurfaceView: View {
             VStack(spacing: 0) {
                 wings(left: {
                     HStack(spacing: Space.tight + 2) {
-                        PulsingDot(isPaused: coordinator.isPaused)
+                        // The daruma, its record eye lit while the take runs, in a breathing red
+                        // glow — the pulsing dot's job, said by the character.
+                        NotchDaruma(pose: DarumaPose.notch(model.state, isPaused: coordinator.isPaused),
+                                    glow: coordinator.isPaused ? Brand.kinColor : Color(Signal.record),
+                                    breathes: !coordinator.isPaused)
+                            .accessibilityLabel(coordinator.isPaused ? Text("Paused") : Text("Recording"))
                         Text(verbatim: ElapsedTime.text(coordinator.elapsed))
                             .font(.system(size: 12, weight: .medium).monospacedDigit())
                     }
@@ -110,7 +120,7 @@ struct NotchSurfaceView: View {
     private var glanceRow: some View {
         wings(left: {
             HStack(spacing: Space.tight) {
-                Image(systemName: "record.circle.fill").foregroundStyle(Signal.record)
+                NotchDaruma(pose: .resting, glow: nil)
                 Text("Record").lineLimit(1).minimumScaleFactor(0.7)
             }
         }, right: {
@@ -131,3 +141,39 @@ struct NotchSurfaceView: View {
         .frame(height: model.notch.height)
     }
 }
+
+/// The daruma in the notch's wing: the colour mark on the black surface, with a soft glow in its
+/// state's colour behind it — red while recording, breathing; gold when paused or done; none when
+/// it is only being offered. Each state its own face and light, as in the owner's Grok reference.
+private struct NotchDaruma: View {
+    let pose: DarumaPose
+    let glow: Color?
+    var breathes = false
+    @AppStorage(AppIconChoice.defaultsKey) private var icon = AppIconChoice.black
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        DarumaView(pose: pose, icon: icon)
+            .frame(width: 20, height: 20)
+            .background {
+                if let glow {
+                    Circle()
+                        .fill(RadialGradient(colors: [glow.opacity(0.75), glow.opacity(0)],
+                                             center: .center, startRadius: 2, endRadius: 18))
+                        .frame(width: 36, height: 36)
+                        .opacity(breathes && !reduceMotion && dim ? 0.45 : 1)
+                        .animation(breathes && !reduceMotion
+                                   ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true) : nil,
+                                   value: dim)
+                        .onAppear { dim = true }
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: pose)
+    }
+}
+
+private enum Brand {
+    static let kinColor = Palette.Brand.kin.color
+}
+

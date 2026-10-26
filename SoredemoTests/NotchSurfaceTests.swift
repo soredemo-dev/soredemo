@@ -54,7 +54,7 @@ nonisolated private let plainMacs: [Mac] = [
 ]
 
 private let everyState: [NotchSurfaceState] = [
-    .dormant, .glance, .open, .live(expanded: false), .live(expanded: true),
+    .dormant, .glance, .open, .live(expanded: false), .live(expanded: true), .finished,
 ]
 
 // MARK: - which screens have a notch
@@ -104,8 +104,24 @@ func aScreenWithoutAuxiliaryAreasHasNoNotch(name: String) throws {
     for state in [NotchSurfaceState.dormant, .glance, .open] {
         #expect(state.handling(.recordingBegan) == .live(expanded: false), "from \(state)")
     }
-    #expect(NotchSurfaceState.live(expanded: true).handling(.recordingEnded) == .dormant)
-    #expect(NotchSurfaceState.live(expanded: false).handling(.recordingEnded) == .dormant)
+    #expect(NotchSurfaceState.live(expanded: true).handling(.recordingEnded) == .finished)
+    #expect(NotchSurfaceState.live(expanded: false).handling(.recordingEnded) == .finished)
+}
+
+/// **A take ends by saying so** (2026-10-26, after the Grok reference the owner sent: each state
+/// has its own face and its own light). The notch shows the finished daruma, both eyes painted,
+/// and settles back on its own; a new take or a click is not held up by it.
+@Test func aFinishedTakeShowsThenSettlesAndNeverHoldsUpTheNext() {
+    #expect(NotchSurfaceState.finished.handling(.settled) == .dormant)
+    #expect(NotchSurfaceState.finished.handling(.recordingBegan) == .live(expanded: false))
+    #expect(NotchSurfaceState.finished.handling(.clicked) == .open)
+    // The pointer passing over does not cut it short or turn it into a glance.
+    #expect(NotchSurfaceState.finished.handling(.pointerEntered) == .finished)
+    #expect(NotchSurfaceState.finished.handling(.pointerLeft) == .finished)
+    // Settling means nothing to any other state.
+    for state in [NotchSurfaceState.dormant, .glance, .open, .live(expanded: true)] {
+        #expect(state.handling(.settled) == state, "from \(state)")
+    }
 }
 
 /// During a take the pointer only reveals the controls; a click, a click outside or escape must

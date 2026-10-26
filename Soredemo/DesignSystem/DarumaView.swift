@@ -40,6 +40,17 @@ struct DarumaPose: Equatable, Sendable {
         DarumaPose(recordFill: remaining <= 1 ? 1 - ringRemaining : 0, countRing: ringRemaining)
     }
 
+    /// The notch's daruma, per state — a face for each, after the owner's Grok reference: resting
+    /// when the recorder is offered, the record eye filled while a take runs and empty while it
+    /// is paused, both eyes painted when it is done.
+    static func notch(_ state: NotchSurfaceState, isPaused: Bool) -> DarumaPose {
+        switch state {
+        case .dormant, .glance, .open: .resting
+        case .live: DarumaPose(recordFill: isPaused ? 0 : 1)
+        case .finished: DarumaPose(recordFill: 1, waitingPainted: true)
+        }
+    }
+
     /// The permissions page: one eye per permission a recording needs. The record eye fills when
     /// Screen Recording is granted; the waiting eye is painted when Accessibility is. Both granted
     /// is the finished daruma.

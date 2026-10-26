@@ -50,7 +50,7 @@ final class NotchSurfaceModel {
     var bottomRadius: Double {
         switch state {
         case .dormant: notch.height * 0.3
-        case .glance, .live(expanded: false): notch.height * 0.45
+        case .glance, .live(expanded: false), .finished: notch.height * 0.45
         case .open, .live(expanded: true): 22
         }
     }
