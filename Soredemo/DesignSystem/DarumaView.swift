@@ -115,16 +115,14 @@ struct DarumaView: View, Animatable {
     var breath = 0.0
     @Environment(\.colorScheme) private var scheme
 
-    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
-        get {
-            AnimatablePair(AnimatablePair(pose.yaw, pose.pitch), AnimatablePair(pose.openness, pose.countRing ?? 0))
-        }
+    /// The gaze and the eyes' openness ease; the count's ring does not — it is a clock, and a
+    /// spring behind it left the countdown's ring unfinished as the panel went.
+    var animatableData: AnimatablePair<AnimatablePair<Double, Double>, Double> {
+        get { AnimatablePair(AnimatablePair(pose.yaw, pose.pitch), pose.openness) }
         set {
             pose.yaw = newValue.first.first
             pose.pitch = newValue.first.second
-            pose.openness = newValue.second.first
-            // Only a ring that exists is moved: interpolating toward `nil` is not a ring at zero.
-            if pose.countRing != nil { pose.countRing = newValue.second.second }
+            pose.openness = newValue.second
         }
     }
 

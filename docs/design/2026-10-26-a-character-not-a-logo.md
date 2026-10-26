@@ -111,3 +111,15 @@ take the same placement scaled to its full canvas, flat, for the system to light
 
 `AppIconChoice` is those three; Settings shows each as a thumbnail beside the picker, labelled with
 the face picker's own words.
+
+## The countdown's ring finishes (2026-10-27)
+
+The owner saw the ring round the record eye stop short in the last fraction of a second. Two
+causes, both measured in the code rather than guessed: the ring was set a tenth at a time to the
+tenth's **start** (1.0 … 0.1), so it never reached empty before the panel went; and the face's
+spring (`LivingDaruma`, 0.32 s) eased it, so it trailed the time besides. Now the panel reads the
+ring from the clock each frame — what is left of the second that began at `secondBegan` — the ring
+is no longer in `DarumaView`'s animatable data, and the panel holds one frame (50 ms) of the closed
+ring before it goes. The menu bar keeps its tenths: at 18 points a tenth is not visible. Tested
+in `CountdownRingTests`, each test red under its own mutation (the tenths' ring, no finish, the
+ring eased with the face).

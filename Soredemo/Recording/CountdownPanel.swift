@@ -3,6 +3,7 @@ import Capture
 import Geometry
 import ScreenCaptureKit
 import SwiftUI
+import Timeline
 
 /// The three seconds between choosing what to record and the recording starting.
 ///
@@ -50,6 +51,7 @@ final class CountdownPresenter {
         for value in stride(from: seconds, through: 1, by: -1) {
             guard !state.isCancelled else { return false }
             state.remaining = value
+            state.secondBegan = Minting.continuousNow()
             // Woken in slices so ⎋ is answered within a tenth of a second rather than at the
             // next whole one. A person who has seen the wrong window has already decided.
             for tenth in 0..<10 {
@@ -58,6 +60,11 @@ final class CountdownPresenter {
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
+        // **One frame of the closed ring before the panel goes.** The panel draws at most every
+        // thirtieth of a second, so the last frame it drew can be a sliver short; finished, the
+        // ring is empty whatever the clock, and 50 ms is one frame and a margin.
+        state.isFinished = true
+        try? await Task.sleep(for: .milliseconds(50))
         return !state.isCancelled
     }
 
@@ -138,6 +145,19 @@ final class CountdownState {
     var tenthsGone = 0
     /// The share of the current second still to run: the menu bar's ring, drained in tenths.
     var ringRemaining: Double { Double(10 - tenthsGone) / 10 }
+    /// When the current second began, on the app's clock (`Minting`), for the panel's ring.
+    var secondBegan = Nanoseconds(0)
+    /// Set when the last second has run, before the panel goes.
+    var isFinished = false
+
+    /// The panel's ring at `now`: what is left of the second that began at `secondBegan`, empty
+    /// at its end and after. From the clock rather than from `tenthsGone`, which names a tenth's
+    /// start and so never reaches empty — the ring stopped a tenth short as the panel went.
+    func panelRing(at now: Nanoseconds) -> Double {
+        guard !isFinished else { return 0 }
+        let gone = Double((now - secondBegan).rawValue) / 1_000_000_000
+        return min(1, max(0, 1 - gone))
+    }
 
     init(total: Int, subject: String) {
         self.remaining = total
@@ -175,12 +195,15 @@ private struct CountdownView: View {
     var body: some View {
         VStack(spacing: Space.regular) {
             ZStack {
-                LivingDaruma(pose: .counting(remaining: state.remaining, ringRemaining: state.ringRemaining),
-                             followsPointer: true, rimmed: true)
-                    .environment(\.colorScheme, .light)
-                    .shadow(color: .black.opacity(0.45), radius: 26)
-                    // A tenth at a time, linear, so the ring drains rather than steps.
-                    .animation(reduceMotion ? nil : .linear(duration: 0.1), value: state.tenthsGone)
+                // The ring is read from the clock each frame — not animated, so nothing eases it
+                // behind the time (a tenth at a time under Reduce Motion).
+                TimelineView(.animation(minimumInterval: reduceMotion ? 0.1 : 1.0 / 30)) { _ in
+                    LivingDaruma(pose: .counting(remaining: state.remaining,
+                                                 ringRemaining: state.panelRing(at: Minting.continuousNow())),
+                                 followsPointer: true, rimmed: true)
+                }
+                .environment(\.colorScheme, .light)
+                .shadow(color: .black.opacity(0.45), radius: 26)
 
                 Text(verbatim: "\(state.remaining)")
                     .font(.system(size: 54, weight: .bold, design: .rounded).monospacedDigit())
