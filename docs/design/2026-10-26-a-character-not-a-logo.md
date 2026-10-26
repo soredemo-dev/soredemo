@@ -105,7 +105,8 @@ take the same placement scaled to its full canvas, flat, for the system to light
   composition and asked for the record eye back — it is what the app is, and the daruma's first
   painted eye.
 - **Face window** (the bundle's): an ink pill and the record eye.
-- **Eyes on the body**: the record eye in the app's washi ring, or red is lost on vermilion.
+- **Eyes on the body**: the record eye in the app's washi ring, or red is lost on vermilion. Shown
+  beside no ring, a thin washi ring and an ink ring, the owner kept this one.
 - **Ink**: the face window's, on washi.
 
 `AppIconChoice` is those three; Settings shows each as a thumbnail beside the picker, labelled with
