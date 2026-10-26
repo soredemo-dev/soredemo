@@ -25,8 +25,19 @@ extension DarumaFace {
 
     /// The countdown: a ring round the right eye drains each second, and the last second lights
     /// the eye — painted as the recording begins.
+    /// Poked: its open eyes squeezed shut. A lit record eye stays lit and a smile stays a smile.
+    func squeezed() -> DarumaPose {
+        var pose = self
+        if [.open, .sad].contains(pose.left) { pose.left = .closed }
+        if [.open, .sad].contains(pose.right) { pose.right = .closed }
+        return pose
+    }
+
     static func counting(remaining: Int, ringRemaining: Double) -> DarumaPose {
-        DarumaPose(openness: 1.15, right: remaining <= 1 ? .record : .open, countRing: ringRemaining)
+        // The brush runs over the last 0.4 of the last second (`docs/design/2026-10-27-…-paints.md`).
+        let paint = min(1, max(0, (0.4 - ringRemaining) / 0.4))
+        return DarumaPose(openness: 1.15, right: remaining <= 1 ? .record : .open, countRing: ringRemaining,
+                          recordPaint: remaining <= 1 ? paint : 1)
     }
 
     /// The notch, per state: resting when offered; the record eye lit while a take runs; drowsy
@@ -223,19 +234,35 @@ struct DarumaView: View, Animatable {
             let red = Color(Signal.record)
             for eye in f.eyes {
                 if eye.kind == .record {
+                    // **Painted, as a daruma's eye is**: while the countdown's brush runs, the ink eye
+                    // goes at once and a band of red sweeps round like a clock hand, clipped to the eye.
+                    let paint = min(max(pose.recordPaint, 0), 1)
+                    if paint < 0.12, let open = f.eyes.first(where: { $0.kind != .record }) {
+                        var ink = eye
+                        (ink.kind, ink.height) = (.open, open.height)
+                        context.fill(Self.eyePath(ink, m), with: .color(tones.eye.color.opacity(1 - paint / 0.12)))
+                    }
                     // The lit eye glows a little, as the record light does.
                     let r = eye.width * 0.8 * m.unit
                     let halo = Path(CGGeometryBridge.ellipse(centreX: m.x(eye.x), centreY: m.y(eye.y),
                                                              radiusX: r * 1.6, radiusY: r * 1.6, tilt: 0))
-                    context.fill(halo, with: .color(red.opacity(0.22)))
+                    context.fill(halo, with: .color(red.opacity(0.22 * paint)))
                     // On the body there is no white window behind it, and red on vermilion is
                     // lost: a washi ring holds the record eye apart from any body.
                     if !pose.faceWindow {
                         let ring = Path(CGGeometryBridge.ellipse(centreX: m.x(eye.x), centreY: m.y(eye.y),
                                                                  radiusX: r * 1.3, radiusY: r * 1.3, tilt: 0))
-                        context.fill(ring, with: .color(Palette.Brand.washi.color))
+                        context.fill(ring, with: .color(Palette.Brand.washi.color.opacity(paint)))
                     }
-                    context.fill(Self.eyePath(eye, m), with: .color(red))
+                    if paint < 1 {
+                        let brush = CGGeometryBridge.brushSweep(centreX: m.x(eye.x), centreY: m.y(eye.y), radius: r, painted: paint)
+                        context.drawLayer { layer in
+                            layer.clip(to: Self.eyePath(eye, m))
+                            layer.stroke(Path(brush), with: .color(red), style: StrokeStyle(lineWidth: r * 1.02, lineCap: .butt))
+                        }
+                    } else {
+                        context.fill(Self.eyePath(eye, m), with: .color(red))
+                    }
                 } else {
                     context.fill(Self.eyePath(eye, m), with: .color(tones.eye.color))
                 }
@@ -282,13 +309,17 @@ enum DarumaLife {
 /// The character alive: it blinks, breathes, and — where it is asked to — looks at the pointer
 /// when nothing else tells it where to look. Its colour is the person's choice unless the caller
 /// gives one. Under Reduce Motion it is still: no blink, no breath, eyes that move without
-/// travelling.
+/// travelling. `pokeable`, a click tips it and it rocks back upright (`DarumaRock`) — under Reduce
+/// Motion it only squeezes its eyes. `docs/design/2026-10-27-the-daruma-tips-flies-and-paints.md`.
 struct LivingDaruma: View {
     var pose: DarumaPose = .resting
     var style: DarumaView.Style = .colour
     var colour: DarumaColour?
     var followsPointer = false
     var rimmed = false
+    var pokeable = false
+    @State private var poke: (rock: DarumaRock, at: Nanoseconds)?
+    @State private var width = 0.0
     @AppStorage(DarumaColour.defaultsKey) private var chosen = DarumaColour.vermilion
     @AppStorage(DarumaFaceStyle.defaultsKey) private var faceStyle = DarumaFaceStyle.window
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -297,14 +328,29 @@ struct LivingDaruma: View {
     var body: some View {
         // The timeline only says WHEN to redraw; the time itself is minted, as the app's every
         // clock reading is (`Minting`, rule 3).
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { _ in
-            let t = Double(Minting.continuousNow().rawValue) / 1_000_000_000
-            DarumaView(pose: shown(), colour: colour ?? chosen, style: style, rimmed: rimmed,
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion && poke == nil)) { _ in
+            let now = Minting.continuousNow(), t = Double(now.rawValue) / 1_000_000_000
+            let since = poke.map { Double((now - $0.at).rawValue) / 1_000_000_000 } ?? -1
+            let face = poke?.rock.isSqueezing(at: since) == true ? shown().squeezed() : shown()
+            DarumaView(pose: face, colour: colour ?? chosen, style: style, rimmed: rimmed,
                        blink: reduceMotion ? 1 : DarumaLife.blink(at: t),
                        breath: reduceMotion ? 0 : DarumaLife.breath(at: t))
-                .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78), value: shown())
+                .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78), value: face)
+                // On its round base, the bottom of the body (93 of the box's 100 units).
+                .rotationEffect(.degrees(reduceMotion ? 0 : poke?.rock.angle(at: since) ?? 0),
+                                anchor: UnitPoint(x: 0.5, y: 0.93))
         }
         .background(ScreenPlaceReader(place: place))
+        .onGeometryChange(for: Double.self) { Double($0.size.width) } action: { width = $0 }
+        // Simultaneous, so a caller's own tap (Settings' preview chooses the colour) still fires.
+        .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+            let at = Minting.continuousNow()
+            poke = (DarumaRock(touchedAt: Double(tap.location.x), width: width), at)
+            Task {
+                try? await Task.sleep(for: .seconds(2.4))
+                if poke?.at == at { poke = nil }
+            }
+        }, including: pokeable ? .all : .subviews)
     }
 
     /// The pose, its gaze taken from the pointer when it is asked to follow and the pose itself

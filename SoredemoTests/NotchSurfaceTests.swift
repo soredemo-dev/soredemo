@@ -259,3 +259,17 @@ private let surface = PointRect(x: 600, y: 20, width: 300, height: 40)
     #expect(NotchSurfacePointer.isInside(x: 750, y: 65, of: surface, grownBy: 5))
     #expect(!NotchSurfacePointer.isInside(x: 594, y: 40, of: surface, grownBy: 5))
 }
+
+/// Where the countdown's daruma lands: the live take's mark, in the left wing — the wing's inset
+/// and half the mark in from the surface's left edge, level with the middle of the notch, and
+/// clear of the notch itself. `docs/design/2026-10-27-the-daruma-tips-flies-and-paints.md`.
+@Test(arguments: notchedMacs.map(\.name))
+func theLiveMarkSitsInTheLeftWingLevelWithTheNotch(name: String) throws {
+    let mac = try #require(notchedMacs.first { $0.name == name })
+    let notch = try #require(mac.metrics.notch)
+    let live = NotchSurfaceLayout.rect(for: .live(expanded: false), notch: notch, screen: mac.metrics.frame)
+    let mark = NotchSurfaceLayout.liveMarkCentre(notch: notch, screen: mac.metrics.frame)
+    #expect(abs(mark.x - (live.x + NotchSurfaceLayout.wingInset + NotchSurfaceLayout.markSize / 2)) < 0.01)
+    #expect(abs(mark.y - (notch.y + notch.height / 2)) < 0.01)
+    #expect(mark.x + NotchSurfaceLayout.markSize / 2 < notch.x, "under the camera housing on \(name)")
+}

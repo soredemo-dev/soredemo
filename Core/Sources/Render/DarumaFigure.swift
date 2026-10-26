@@ -21,10 +21,15 @@ public struct DarumaFace: Equatable, Sendable {
     public var countRing: Double?
     /// The daruma's face window, or the eyes straight on the body — the person's choice.
     public var faceWindow: Bool
+    /// 0 … 1: how much of a `record` eye the brush has painted — the countdown paints it in;
+    /// every other lit eye is lit whole.
+    public var recordPaint: Double
 
     public init(yaw: Double = 0, pitch: Double = 0, openness: Double = 1,
-                left: Eye = .open, right: Eye = .open, countRing: Double? = nil, faceWindow: Bool = true) {
+                left: Eye = .open, right: Eye = .open, countRing: Double? = nil, faceWindow: Bool = true,
+                recordPaint: Double = 1) {
         self.faceWindow = faceWindow
+        self.recordPaint = recordPaint
         self.yaw = yaw
         self.pitch = pitch
         self.openness = openness

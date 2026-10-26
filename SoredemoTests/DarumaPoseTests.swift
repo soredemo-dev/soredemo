@@ -49,6 +49,23 @@ import Testing
         #expect(done.left == .happy && done.right == .happy)
     }
 
+    /// The record eye is painted in over the last second's final 0.4, finishing as the ring
+    /// closes; before that it is an ink eye, and an earlier second paints nothing.
+    @Test func theLastSecondPaintsTheRecordEyeAsTheRingCloses() {
+        #expect(DarumaPose.counting(remaining: 1, ringRemaining: 0.8).recordPaint == 0)
+        #expect(abs(DarumaPose.counting(remaining: 1, ringRemaining: 0.2).recordPaint - 0.5) < 1e-9)
+        #expect(DarumaPose.counting(remaining: 1, ringRemaining: 0).recordPaint == 1)
+        #expect(DarumaPose.counting(remaining: 2, ringRemaining: 0.1).right == .open)
+        #expect(DarumaPose.resting.recordPaint == 1, "an eye lit any other way is lit whole")
+    }
+
+    /// Poked, it squeezes its eyes shut — but a lit record eye stays lit, and a smile stays.
+    @Test func aSqueezeClosesOpenEyesAndLeavesTheRecordEyeLit() {
+        let squeezed = DarumaPose(right: .record).squeezed()
+        #expect(squeezed.left == .closed && squeezed.right == .record)
+        #expect(DarumaPose(left: .happy, right: .sad).squeezed() == DarumaPose(left: .happy, right: .closed))
+    }
+
     // MARK: - the drawing
 
     /// The small mark is ink and paper in the right places: body ink, face paper, eyes ink —

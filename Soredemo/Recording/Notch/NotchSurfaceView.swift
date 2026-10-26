@@ -141,7 +141,7 @@ struct NotchSurfaceView: View {
         }
         .font(.system(size: 12))
         .foregroundStyle(.white)
-        .padding(.horizontal, Space.regular)
+        .padding(.horizontal, NotchSurfaceLayout.wingInset)
         .frame(height: model.notch.height)
     }
 }
@@ -159,7 +159,7 @@ private struct NotchDaruma: View {
     var body: some View {
         // Alive: it blinks, and looks at the pointer when the state gives it nowhere to look.
         LivingDaruma(pose: pose, followsPointer: true)
-            .frame(width: 20, height: 20)
+            .frame(width: NotchSurfaceLayout.markSize, height: NotchSurfaceLayout.markSize)
             .background {
                 if let glow {
                     Circle()

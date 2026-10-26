@@ -144,6 +144,7 @@ xcrun swiftc \
   Soredemo/Project/ImportedRecording.swift \
   Soredemo/DesignSystem/SystemCursorShape.swift \
   Soredemo/Recording/CountdownPanel.swift \
+  Soredemo/Recording/CountdownFlight.swift \
   Soredemo/Recording/RecordingBar/RecordingBarPanel.swift \
   Soredemo/Recording/RecordingBar/WindowDragger.swift \
   Soredemo/Recording/RecordingBar/RecordingBarPresenter.swift \

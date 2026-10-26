@@ -262,6 +262,20 @@ public enum CGGeometryBridge {
         return path
     }
 
+    /// The brush that paints the record eye, in top-left points: one clockwise sweep from twelve
+    /// o'clock at half of `radius`, so a stroke as wide as `radius` covers the disc when drawn
+    /// whole — the eye fills like a clock hand, as the countdown's ring drains. `painted` (0 … 1)
+    /// is how far round the brush has gone. Empty for 0.
+    public nonisolated static func brushSweep(centreX: Double, centreY: Double, radius: Double, painted: Double = 1) -> CGPath {
+        let path = CGMutablePath(), share = min(max(painted, 0), 1)
+        guard share > 0 else { return path }
+        // Clockwise on screen is an increasing angle in top-left points (`countdownArc`).
+        let start = -Double.pi / 2
+        path.addArc(center: CGPoint(x: centreX, y: centreY), radius: radius / 2,
+                    startAngle: start, endAngle: start + 2 * .pi * share, clockwise: false)
+        return path
+    }
+
     /// A video track's DISPLAYED size in whole pixels, transform applied.
     ///
     /// **`naturalSize` alone is the encoded size and is not what anybody sees.** A recording made

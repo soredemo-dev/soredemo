@@ -85,6 +85,17 @@ enum NotchSurfaceLayout {
     /// The take's controls and, above them, the row of its last presses (`LiveSteps`).
     static let expandedDepth: Double = 62
 
+    /// The daruma in a wing, and the wing's inset from the surface's edge (`NotchSurfaceView`).
+    static let markSize: Double = 20
+    static let wingInset = Space.regular
+
+    /// Where a live take's daruma sits, in the screen's top-left points: in the left wing, level
+    /// with the middle of the notch — where the countdown's flies to.
+    static func liveMarkCentre(notch: PointRect, screen: PointRect) -> (x: Double, y: Double) {
+        let live = rect(for: .live(expanded: false), notch: notch, screen: screen)
+        return (live.x + wingInset + markSize / 2, notch.y + notch.height / 2)
+    }
+
     static func rect(for state: NotchSurfaceState, notch: PointRect, screen: PointRect) -> PointRect {
         let winged = notch.width + 2 * wingShare * notch.height
         let (width, height): (Double, Double) = switch state {

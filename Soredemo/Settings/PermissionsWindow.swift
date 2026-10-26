@@ -104,7 +104,7 @@ struct PermissionsWindow: View {
             // wakes as the page is done. It watches the pointer while it waits.
             LivingDaruma(pose: .permissions(screenRecording: statuses[.screenRecording] == .granted,
                                             accessibility: statuses[.accessibility] == .granted),
-                         followsPointer: true)
+                         followsPointer: true, pokeable: true)
                 .frame(width: 56, height: 56)
                 .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.75),
                            value: statuses)

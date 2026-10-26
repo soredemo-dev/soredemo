@@ -74,6 +74,14 @@ final class NotchSurfacePresenter {
     }
 
     func recordingBegan() { model?.send(.recordingBegan) }
+
+    /// The live take's daruma on screen, global points y up — where the countdown's lands. `nil`
+    /// when the notch does not host the take.
+    func liveMarkOnScreen() -> (x: Double, y: Double)? {
+        guard let model, panel != nil else { return nil }
+        let mark = NotchSurfaceLayout.liveMarkCentre(notch: model.notch, screen: model.screen)
+        return (screenFrame.x + mark.x, screenFrame.y + screenFrame.height - mark.y)
+    }
     /// How long a finished take shows before the notch settles: the menu bar's painted eye is
     /// held as long, so the two say "done" together.
     static let finishedSeconds = 2.6

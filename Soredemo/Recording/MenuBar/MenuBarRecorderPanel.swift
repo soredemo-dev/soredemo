@@ -107,7 +107,7 @@ private struct MenuBarHeader: View {
             // thing beside a label, drawing the eye to the app's own name. Drawn rather than
             // baked so its eye can look toward the card under the pointer — the mark saying what
             // the next press will capture. Under Reduce Motion the eye moves without travelling.
-            LivingDaruma(pose: .looking(at: glance.target), style: .template)
+            LivingDaruma(pose: .looking(at: glance.target), style: .template, pokeable: true)
                 .frame(width: 18, height: 18)
                 .foregroundStyle(.primary)
                 .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.7),

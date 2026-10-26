@@ -123,7 +123,7 @@ struct SettingsWindow: View {
             .pickerStyle(.segmented)
             HStack(spacing: Space.regular) {
                 ForEach(DarumaColour.allCases, id: \.self) { choice in
-                    LivingDaruma(colour: choice, followsPointer: true)
+                    LivingDaruma(colour: choice, followsPointer: true, pokeable: true)
                         .frame(width: 36, height: 36)
                         .opacity(choice == darumaColour ? 1 : 0.45)
                         .onTapGesture { darumaColour = choice }

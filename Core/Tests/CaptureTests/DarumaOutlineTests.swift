@@ -63,3 +63,19 @@ import Testing
     #expect(arc.contains(CGPoint(x: 50, y: 45)), "the curve's midpoint")
     #expect(!arc.contains(CGPoint(x: 50, y: 50)), "inside the curve, off the band")
 }
+
+/// The brush that paints the record eye: one clockwise sweep from twelve o'clock, so a stroke as
+/// wide as the radius covers the disc when drawn whole. Off the origin, so an outline that ignored
+/// the centre lands elsewhere.
+@Test func theBrushSweepsTheEyeClockwiseFromTwelve() {
+    let path = CGGeometryBridge.brushSweep(centreX: 40, centreY: 60, radius: 10)
+    let stroke = path.copy(strokingWithWidth: 10, lineCap: .round, lineJoin: .round, miterLimit: 1)
+    let missed = stride(from: -9.5, through: 9.5, by: 0.5).flatMap { dx in
+        stride(from: -9.5, through: 9.5, by: 0.5).map { (dx, $0) }
+    }.filter { hypot($0.0, $0.1) <= 9.5 && !stroke.contains(CGPoint(x: 40 + $0.0, y: 60 + $0.1)) }
+    #expect(missed.isEmpty, "unpainted: \(missed.prefix(5))")
+    // A quarter painted, the brush is at three o'clock — clockwise, not at nine.
+    let quarter = CGGeometryBridge.brushSweep(centreX: 40, centreY: 60, radius: 10, painted: 0.25).currentPoint
+    #expect(abs(quarter.x - 45) < 0.01 && abs(quarter.y - 60) < 0.01, "\(quarter)")
+    #expect(CGGeometryBridge.brushSweep(centreX: 40, centreY: 60, radius: 10, painted: 0).isEmpty)
+}

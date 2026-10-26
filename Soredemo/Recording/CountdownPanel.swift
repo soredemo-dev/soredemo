@@ -65,7 +65,9 @@ final class CountdownPresenter {
         // ring is empty whatever the clock, and 50 ms is one frame and a margin.
         state.isFinished = true
         try? await Task.sleep(for: .milliseconds(50))
-        return !state.isCancelled
+        guard !state.isCancelled else { return false }
+        fly(state)
+        return true
     }
 
     private func show(_ state: CountdownState) {
@@ -110,6 +112,18 @@ final class CountdownPresenter {
         self.panel = panel
     }
 
+    /// The daruma leaves for the notch's live mark as the panel goes — ordered front before the
+    /// panel is taken down, at the same place, so it is one character. Under Reduce Motion it
+    /// only goes. `docs/design/2026-10-27-the-daruma-tips-flies-and-paints.md`.
+    private func fly(_ state: CountdownState) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+              let panel, let screen = panel.screen, let mark = state.markFrame else { return }
+        let window = CGGeometryBridge.pointRect(from: panel.frame)
+        let from = (x: window.x + mark.x + mark.width / 2, y: window.y + window.height - (mark.y + mark.height / 2))
+        CountdownFlightPresenter.fly(from: from, to: NotchSurfacePresenter.shared.liveMarkOnScreen(), on: screen,
+                                     size: CountdownView.mark, endScale: NotchSurfaceLayout.markSize / CountdownView.mark)
+    }
+
     private func hide() {
         panel?.orderOut(nil)
         panel = nil
@@ -149,6 +163,8 @@ final class CountdownState {
     var secondBegan = Nanoseconds(0)
     /// Set when the last second has run, before the panel goes.
     var isFinished = false
+    /// The daruma's frame in the panel's window, top-left points — where its flight leaves from.
+    var markFrame: PointRect?
 
     /// The panel's ring at `now`: what is left of the second that began at `secondBegan`, empty
     /// at its end and after. From the clock rather than from `tenthsGone`, which names a tenth's
@@ -182,7 +198,7 @@ private struct CountdownView: View {
 
     static let width: Double = 280
     static let height: Double = 300
-    private static let mark: Double = 196
+    static let mark: Double = 196
 
     /// **The daruma counts, and the count is written on its belly** — where a real one carries
     /// its characters in gold. The record eye's ring drains with each second, as the menu bar's
@@ -216,6 +232,9 @@ private struct CountdownView: View {
                     .transition(reduceMotion ? .opacity : .scale(scale: 1.35).combined(with: .opacity))
             }
             .frame(width: Self.mark, height: Self.mark)
+            .onGeometryChange(for: PointRect.self) { CGGeometryBridge.pointRect(from: $0.frame(in: .global)) } action: {
+                state.markFrame = $0
+            }
             // **It rocks on each count, as a daruma does when it is nudged** — tips one way on its
             // round base, swings back past upright, and settles. Keyed on the count, so each
             // second is one nudge; still under Reduce Motion.
