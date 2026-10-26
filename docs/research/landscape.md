@@ -69,7 +69,7 @@ the observation log (below).
 | Mask sensitive text automatically | Screen Studio 4 | ○ — manual redaction; Soredemo can do better (the log knows a click on a secure field) |
 | Teleprompter | ScreenKite, Prequel, CursorClip | ○ |
 | Export presets by platform | open recorders | ◐ — three by destination (web, person, editor), not by platform |
-| Export shows size AND time estimate | a Rust recorder 0.6 | ◐ — size, not time |
+| Export shows size AND time estimate | a Rust recorder 0.6 | ● — both, the time from this Mac's measured encoder rate (2026-10-26, `ca4a19a`) |
 | Export stages and "show in Finder" | most | ● show in Finder; ◐ stages |
 | Faster export | Screen Studio 4 (3×) | not measured against them |
 | Share link | Loom, Screen Studio (beta) | **○ by rule** — nothing leaves the machine without a person sending it |

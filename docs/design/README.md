@@ -125,6 +125,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | [2026-10-25-the-editors-layout](2026-10-25-the-editors-layout.md) | proposal: the picture's settings first and the file's in the export sheet, one bar fewer, labelled tools, an empty lane that says why |
 | [2026-10-26-a-character-not-a-logo](2026-10-26-a-character-not-a-logo.md) | research and direction after the owner's Grok reference: a parametric daruma with pill eyes, a glow per state, tucked/emerging/expanding in the notch |
 | [2026-10-27-the-daruma-tips-flies-and-paints](2026-10-27-the-daruma-tips-flies-and-paints.md) | poked, the daruma rocks back upright; the countdown's flies into the notch; its record eye is painted with a brush |
+| [2026-10-27-what-to-improve-next](2026-10-27-what-to-improve-next.md) | the next round, ranked: ship a release, a first run that ends in a take, empty states, the Look tab grouped, zoom shaped on the timeline |
 | [2026-09-25-tilting-the-card](2026-09-25-tilting-the-card.md) | tilting the card |
 | [2026-09-22-the-preview-composited-at-export-resolution](2026-09-22-the-preview-composited-at-export-resolution.md) | the preview composited at export resolution |
 | [2026-10-24-a-replaced-picture-is-drawn](2026-10-24-a-replaced-picture-is-drawn.md) | a picture replaced under its own name |
