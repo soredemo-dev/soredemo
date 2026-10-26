@@ -47,14 +47,23 @@ private func eyeSVG(_ e: DarumaFigure.EyeMark, ink: String, red: String) -> Stri
 }
 
 /// The character in its 100-unit box, as an SVG group.
-private func characterGroup(_ face: DarumaFace, _ tone: Tone, shine: Bool = true) -> String {
+/// `bodyFill` and `faceFill` replace the flat colours — the app icon's shading, by gradient id —
+/// and `redPill` draws the record eye as the other eye's pill, in red, as the icon does.
+private func characterGroup(_ face: DarumaFace, _ tone: Tone, shine: Bool = true,
+                            bodyFill: String? = nil, faceFill: String? = nil, redPill: Bool = false) -> String {
     let f = DarumaFigure.make(face)
-    var g = "<path d=\"\(bodyPath(f))\" fill=\"\(tone.body)\"/>"
+    var g = "<path d=\"\(bodyPath(f))\" fill=\"\(bodyFill ?? tone.body)\"/>"
     if shine { g += "<ellipse cx=\"40\" cy=\"22\" rx=\"11\" ry=\"5\" fill=\"#FFFFFF\" opacity=\"0.18\" transform=\"rotate(-12 40 22)\"/>" }
     if face.faceWindow {
-        g += "<ellipse cx=\"\(n(f.face.x))\" cy=\"\(n(f.face.y))\" rx=\"\(n(f.face.rx))\" ry=\"\(n(f.face.ry))\" fill=\"\(tone.face)\" transform=\"rotate(\(n(f.face.tilt)) \(n(f.face.x)) \(n(f.face.y)))\"/>"
+        g += "<ellipse cx=\"\(n(f.face.x))\" cy=\"\(n(f.face.y))\" rx=\"\(n(f.face.rx))\" ry=\"\(n(f.face.ry))\" fill=\"\(faceFill ?? tone.face)\" transform=\"rotate(\(n(f.face.tilt)) \(n(f.face.x)) \(n(f.face.y)))\"/>"
     }
     for eye in f.eyes {
+        if redPill, eye.kind == .record, let other = f.eyes.first(where: { $0.kind == .open }) {
+            var pill = eye
+            (pill.kind, pill.width, pill.height) = (.open, other.width, other.height)
+            g += eyeSVG(pill, ink: shu, red: shu)
+            continue
+        }
         // On the body the record eye has a washi ring, or red on vermilion is lost — as the app.
         if eye.kind == .record, !face.faceWindow {
             g += "<circle cx=\"\(n(eye.x))\" cy=\"\(n(eye.y))\" r=\"\(n(eye.width * 0.8 * 1.3))\" fill=\"\(washi)\"/>"
@@ -85,24 +94,40 @@ private func svg(_ size: Int, _ content: String, viewBox: String = "0 0 100 100"
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(size)\" height=\"\(size)\" viewBox=\"\(viewBox)\">\(bg)\(content)</svg>\n"
 }
 
-/// Where the character sits in Icon Composer's 1024 canvas, which the system masks: centred on its
-/// body (50, 52), its height 75% of the canvas, clear of the mask's corners.
-private let iconPlace = "translate(512 522) scale(9.3) translate(-50 -52)"
-/// The icon's grounds: a deep sumi lifted toward the top, and washi for the ink daruma.
-private let iconGroundDark = ("#2A2B32", "#121317"), iconGroundLight = ("#FBFAF7", "#E9E6DE")
+/// The app icon's shading per body colour — lit from the upper left, as Grok Bot's — light, body,
+/// shadow; and the ground, the dark corner the body does not cover.
+private let iconShade = ["shu": ("#FF7A5C", "#E8452C", "#9E2412"), "ink": ("#5A5B63", "#24252B", "#08080A")]
+private let iconGround = ["shu": "#17181C", "ink": "#ECE9E2"]
 
-/// A 1024 icon: Apple's macOS tile (824 square, radius 185, centred) on its ground, a soft contact
-/// shadow — lighter on a light ground — and the character, its height 78% of the tile.
-private func appIcon(_ character: String, ground: (String, String)) -> String {
-    let defs = "<defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"\(ground.0)\"/><stop offset=\"1\" stop-color=\"\(ground.1)\"/></linearGradient>"
-        + "<filter id=\"s\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\"><feGaussianBlur stdDeviation=\"1.6\"/></filter>"
-        + "<filter id=\"t\" x=\"-10%\" y=\"-10%\" width=\"120%\" height=\"130%\"><feDropShadow dx=\"0\" dy=\"10\" stdDeviation=\"12\" flood-opacity=\"0.3\"/></filter></defs>"
-    let back = "<rect x=\"100\" y=\"100\" width=\"824\" height=\"824\" rx=\"185\" fill=\"url(#g)\" filter=\"url(#t)\"/>"
-    let place = "translate(512 520) scale(7.8) translate(-50 -52)"
-    let depth = ground == iconGroundLight ? "0.16" : "0.35"
-    let shadow = "<ellipse cx=\"50\" cy=\"93.5\" rx=\"30\" ry=\"3.2\" fill=\"#000000\" opacity=\"\(depth)\" filter=\"url(#s)\"/>"
-    return svg(1024, defs + back + "<g transform=\"\(place)\">\(shadow)\(character)</g>", viewBox: "0 0 1024 1024")
+/// A 1024 icon after the owner's reference, Grok Bot's: the body too big for the tile, coming in
+/// from the lower left and cut by its edge, turned toward the upper right where it looks; shaded
+/// as a ball; the ground only in the corner it leaves. `tile` clips to Apple's macOS tile (824
+/// square, radius 185, centred) for the fallback set and the Dock; otherwise the canvas bleeds
+/// for Icon Composer, which masks it. `place` is the character's centre, turn and scale.
+private func appIcon(_ face: DarumaFace, _ tone: Tone, tile: Bool,
+                     place: (x: Double, y: Double, turn: Double, scale: Double) = iconPlacement) -> String {
+    let shade = iconShade[tone.name] ?? (tone.body, tone.body, tone.body)
+    let ground = iconGround[tone.name] ?? sumi
+    let defs = "<defs><clipPath id=\"c\"><rect x=\"100\" y=\"100\" width=\"824\" height=\"824\" rx=\"185\"/></clipPath>"
+        + "<radialGradient id=\"b\" cx=\"0.34\" cy=\"0.26\" r=\"0.85\"><stop offset=\"0\" stop-color=\"\(shade.0)\"/><stop offset=\"0.5\" stop-color=\"\(shade.1)\"/><stop offset=\"1\" stop-color=\"\(shade.2)\"/></radialGradient>"
+        + "<radialGradient id=\"f\" cx=\"0.35\" cy=\"0.25\" r=\"0.9\"><stop offset=\"0\" stop-color=\"#FFFFFF\"/><stop offset=\"1\" stop-color=\"#DCD8CF\"/></radialGradient>"
+        + "<filter id=\"r\" x=\"-20%\" y=\"-20%\" width=\"140%\" height=\"140%\"><feGaussianBlur stdDeviation=\"0.9\"/></filter></defs>"
+    let f = DarumaFigure.make(face)
+    // The rim: the body's edge lit faintly, as a ball against a dark ground.
+    let rim = "<path d=\"\(bodyPath(f))\" fill=\"none\" stroke=\"#FFFFFF\" stroke-opacity=\"0.28\" stroke-width=\"1.4\" filter=\"url(#r)\"/>"
+    let character = characterGroup(face, tone, shine: false, bodyFill: "url(#b)", faceFill: "url(#f)", redPill: true) + rim
+    let turned = "<g transform=\"translate(\(n(place.x)) \(n(place.y))) rotate(\(n(place.turn))) scale(\(n(place.scale))) translate(-50 -52)\">\(character)</g>"
+    let content = tile
+        ? "<g clip-path=\"url(#c)\"><rect x=\"100\" y=\"100\" width=\"824\" height=\"824\" fill=\"\(ground)\"/>\(turned)</g>"
+        : "<rect width=\"1024\" height=\"1024\" fill=\"\(ground)\"/>\(turned)"
+    return svg(1024, defs + content, viewBox: "0 0 1024 1024")
 }
+private let iconPlacement = (x: 440.0, y: 760.0, turn: 28.0, scale: 11.5)
+/// The same in Icon Composer's canvas, whose whole 1024 the system masks: the tile's 824 scaled up.
+private let bleed = 1024.0 / 824
+private let iconPlace = "translate(\(n((iconPlacement.x - 100) * bleed)) \(n((iconPlacement.y - 100) * bleed))) rotate(\(n(iconPlacement.turn))) scale(\(n(iconPlacement.scale * bleed))) translate(-50 -52)"
+/// The icon's face: looking up and to the right, out of the tile.
+private let iconFace = DarumaFace(yaw: 0.3, pitch: -0.6, right: .record)
 
 private let looking = DarumaFace(yaw: 0.45, pitch: 0.2)
 private let recording = DarumaFace(right: .record)
@@ -137,21 +162,25 @@ private let recording = DarumaFace(right: .record)
     // on the body and the ink daruma are the alternatives a person can choose (AppIconChoice).
     // On the macOS tile, for the fallback set, the Dock and Settings' thumbnails; Icon
     // Composer's layers below are the bundle's icon on macOS 26.
-    let icons: [(String, DarumaFace, Tone)] = [("", recording, vermilion),
-                                               ("-bare", DarumaFace(right: .record, faceWindow: false), vermilion),
-                                               ("-ink", recording, ink)]
-    for (suffix, face, tone) in icons {
-        let ground = tone.name == "ink" ? iconGroundLight : iconGroundDark
-        try write("svg/soredemo-app-icon\(suffix).svg", appIcon(characterGroup(face, tone), ground: ground))
+    // On the body both eyes are ink pills: a red one is lost on vermilion, as the app's washi ring
+    // says — and two pills are the reference's face.
+    let bare = DarumaFace(yaw: iconFace.yaw, pitch: iconFace.pitch, faceWindow: false)
+    for (suffix, face, tone) in [("", iconFace, vermilion), ("-bare", bare, vermilion), ("-ink", iconFace, ink)] {
+        try write("svg/soredemo-app-icon\(suffix).svg", appIcon(face, tone, tile: true))
     }
     // The app icon's layers for Icon Composer: the body with its window, and the eyes — two
-    // groups so the system can give the eyes their own depth. Same placement as the square icon.
+    // groups so the system can give the eyes their own depth. The tile's placement, on the bleed.
     let place = iconPlace
-    let figure = DarumaFigure.make(recording)
+    let figure = DarumaFigure.make(iconFace)
     var bodyLayer = "<path d=\"\(bodyPath(figure))\" fill=\"\(shuNuri)\"/>"
-    bodyLayer += "<ellipse cx=\"\(n(figure.face.x))\" cy=\"\(n(figure.face.y))\" rx=\"\(n(figure.face.rx))\" ry=\"\(n(figure.face.ry))\" fill=\"#FFFFFF\"/>"
+    bodyLayer += "<ellipse cx=\"\(n(figure.face.x))\" cy=\"\(n(figure.face.y))\" rx=\"\(n(figure.face.rx))\" ry=\"\(n(figure.face.ry))\" fill=\"#FFFFFF\" transform=\"rotate(\(n(figure.face.tilt)) \(n(figure.face.x)) \(n(figure.face.y)))\"/>"
     try write("icon/body.svg", svg(1024, "<g transform=\"\(place)\">\(bodyLayer)</g>", viewBox: "0 0 1024 1024"))
-    let eyesLayer = figure.eyes.map { eyeSVG($0, ink: sumi, red: shu) }.joined()
+    let eyesLayer = figure.eyes.map { eye in
+        guard eye.kind == .record, let other = figure.eyes.first(where: { $0.kind == .open }) else { return eyeSVG(eye, ink: sumi, red: shu) }
+        var pill = eye
+        (pill.kind, pill.width, pill.height) = (.open, other.width, other.height)
+        return eyeSVG(pill, ink: shu, red: shu)
+    }.joined()
     try write("icon/eyes.svg", svg(1024, "<g transform=\"\(place)\">\(eyesLayer)</g>", viewBox: "0 0 1024 1024"))
     // The menu bar's template: one colour, the body 88% of an 18-point canvas, as `DarumaMark`.
     let unit = 18 * 0.88 / 82

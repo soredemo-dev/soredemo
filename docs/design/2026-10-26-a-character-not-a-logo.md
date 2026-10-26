@@ -90,9 +90,21 @@ every colour designed; for the face window to turn with the gaze; and for the ey
 ## The app icon, after Grok Bot's (2026-10-26)
 
 The owner asked for the icon to follow Grok Bot's, and for the eyes-on-the-body face to be an icon a
-person can choose. What that reference does: one flat character, nearly filling the tile, on one
-deep ground, no frame or scene. So: the vermilion daruma at 78% of Apple's 824 macOS tile on a sumi
-ground lifted toward the top, a soft contact shadow under it; Icon Composer's layers the same on a
-sumi fill, at 75% of the canvas so the mask's corners stay clear. `AppIconChoice` is three: the face
-window (the bundle's), the eyes on the body, and the ink daruma on washi — Settings shows each as a
-thumbnail beside the picker, and the labels are the face picker's own words.
+person can choose. A first pass read the reference from its small avatars — a flat character
+filling a tile — and the owner corrected it with the real icon: **the body too big for the tile,
+coming in from the lower left and cut by its edge, turned toward the upper right where its tilted
+pill eyes look, shaded as a lit ball, the dark ground showing only in the corner it leaves.**
+
+So, built that way (`appIcon` in the generator): the daruma at 11.5× in Apple's 824 macOS tile,
+turned 28°, looking up and right; a radial shade lit from the upper left and a faint rim; the
+ground sumi, or washi for the ink daruma, whose dark body is lost on sumi. Icon Composer's layers
+take the same placement scaled to its full canvas, flat, for the system to light.
+
+- **Face window** (the bundle's): ink eye and the record eye as a **red pill**, the other eye's
+  shape — a disc read as a dot beside a tilted pill.
+- **Eyes on the body**: two ink pills. A red eye is lost on vermilion — the reason the app rings it
+  in washi — and two pills are the reference's face.
+- **Ink**: the face window's, on washi.
+
+`AppIconChoice` is those three; Settings shows each as a thumbnail beside the picker, labelled with
+the face picker's own words.
