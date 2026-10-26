@@ -5,8 +5,9 @@ import Geometry
 /// expression, and the countdown's ring. Numbers only — the app's reasons for each pose live
 /// beside the app's states (`DarumaPose` there).
 public struct DarumaFace: Equatable, Sendable {
-    /// One eye's expression. `record` is the right eye lit in the record red — the painted eye.
-    public enum Eye: Equatable, Sendable { case open, closed, happy, sad, record }
+    /// One eye's expression. `record` is the right eye lit in the record red — the painted eye;
+    /// `pause` is half the pause symbol, an upright bar.
+    public enum Eye: Equatable, Sendable { case open, closed, happy, sad, record, pause }
 
     /// −1 … 1: where it looks, left to right.
     public var yaw: Double
@@ -132,6 +133,9 @@ public struct DarumaFigure: Equatable, Sendable {
             // A line eye's width is its arc's whole span, a little wider than a pill so it reads —
             // and no wider, or a smile's two arcs meet in the middle (seen 2026-10-26).
             case .closed, .happy: height = 3.4 * size; width *= 1.2
+            // **The pause symbol, not a face**: upright wherever it looks, and unblinking — a bar
+            // that tipped or flattened would stop reading as ⏸. Narrowed as it turns, as an eye is.
+            case .pause: (width, height, tilt) = (8.4 * size * w * max(0.55, cos(ax)), 15 * size * h * max(0.8, cos(ay)), 0)
             }
             return EyeMark(x: x, y: y, width: width, height: max(height, 1.2), tilt: tilt, kind: eye)
         }

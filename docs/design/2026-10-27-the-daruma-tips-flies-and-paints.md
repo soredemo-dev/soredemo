@@ -56,3 +56,13 @@ keeps its switch.
 mark, and the ink eye fading under it the whole way mixed with the red into brown.
 A round-capped sweep read as a bean, and an ink eye fading over a third of the sweep was still
 brown; the band is butt-capped — a clean wedge — and the ink eye goes in the first eighth.
+
+## 4. Paused, its eyes are the pause symbol (2026-10-27)
+
+The owner asked for pause eyes. Paused had been drowsy — eyes at 0.3 open — which read as tired,
+not as stopped. Now both eyes are `Eye.pause`: an upright bar with rounded corners, a little taller
+and wider than an open eye, so the face is ⏸ — in the notch, the menu bar and the brand kit's
+"paused" expression. **Upright wherever it looks and unblinking**, because a bar that tipped with
+the face or flattened in a blink would stop reading as the symbol; it narrows as it turns, as an eye
+does, so on the body at the widest gazes it stays on the body
+(`pausedTheEyesAreTwoUprightBars`, red with the face's tilt and with a blink applied).

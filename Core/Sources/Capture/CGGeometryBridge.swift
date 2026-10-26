@@ -262,6 +262,13 @@ public enum CGGeometryBridge {
         return path
     }
 
+    /// An upright bar with rounded corners about its centre, in top-left points: half the pause
+    /// symbol the paused daruma's eyes make.
+    public nonisolated static func bar(centreX: Double, centreY: Double, width: Double, height: Double, corner: Double) -> CGPath {
+        CGPath(roundedRect: CGRect(x: centreX - width / 2, y: centreY - height / 2, width: width, height: height),
+               cornerWidth: corner, cornerHeight: corner, transform: nil)
+    }
+
     /// The brush that paints the record eye, in top-left points: one clockwise sweep from twelve
     /// o'clock at half of `radius`, so a stroke as wide as `radius` covers the disc when drawn
     /// whole — the eye fills like a clock hand, as the countdown's ring drains. `painted` (0 … 1)

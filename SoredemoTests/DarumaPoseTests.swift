@@ -38,13 +38,14 @@ import Testing
         #expect(DarumaPose.resting.countRing == nil, "nothing counted is no ring")
     }
 
-    /// A face per notch state: offered, it rests; recording, the record eye is lit; paused, it is
-    /// drowsy; done, it smiles with both eyes — the second eye painted.
+    /// A face per notch state: offered, it rests; recording, the record eye is lit; paused,
+    /// its eyes are the pause symbol; done, it smiles with both eyes — the second eye painted.
     @Test func theNotchsDarumaHasAFacePerState() {
         #expect(DarumaPose.notch(.glance, isPaused: false) == .resting)
         #expect(DarumaPose.notch(.live(expanded: true), isPaused: false).right == .record)
         let paused = DarumaPose.notch(.live(expanded: false), isPaused: true)
-        #expect(paused.right != .record && paused.openness < 0.5)
+        #expect(paused.left == .pause && paused.right == .pause, "paused, its eyes are the pause symbol")
+        #expect(DarumaMark.pose(for: .paused).left == .pause && DarumaMark.pose(for: .paused).right == .pause)
         let done = DarumaPose.notch(.finished, isPaused: false)
         #expect(done.left == .happy && done.right == .happy)
     }

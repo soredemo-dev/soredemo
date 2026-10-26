@@ -36,6 +36,8 @@ private func eyeSVG(_ e: DarumaFigure.EyeMark, ink: String, red: String) -> Stri
     case .open, .sad:
         let r = min(e.width, e.height) / 2
         return "<rect x=\"\(n(e.x - e.width / 2))\" y=\"\(n(e.y - e.height / 2))\" width=\"\(n(e.width))\" height=\"\(n(e.height))\" rx=\"\(n(r))\" fill=\"\(ink)\" transform=\"rotate(\(n(e.tilt)) \(n(e.x)) \(n(e.y)))\"/>"
+    case .pause:
+        return "<rect x=\"\(n(e.x - e.width / 2))\" y=\"\(n(e.y - e.height / 2))\" width=\"\(n(e.width))\" height=\"\(n(e.height))\" rx=\"\(n(e.width * 0.3))\" fill=\"\(ink)\"/>"
     case .record:
         return "<circle cx=\"\(n(e.x))\" cy=\"\(n(e.y))\" r=\"\(n(e.width * 0.8))\" fill=\"\(red)\"/>"
 
@@ -145,7 +147,7 @@ private let recording = DarumaFace(right: .record)
     try write("svg/soredemo-character-white.svg", svg(100, oneColourGroup(.resting, "#FFFFFF")))
     // Expressions, in the default colour.
     let faces: [(String, DarumaFace)] = [("resting", .resting), ("looking", looking), ("recording", recording),
-                                         ("paused", DarumaFace(openness: 0.3)), ("done", DarumaFace(left: .happy, right: .happy)),
+                                         ("paused", DarumaFace(left: .pause, right: .pause)), ("done", DarumaFace(left: .happy, right: .happy)),
                                          ("asleep", DarumaFace(left: .closed, right: .closed)), ("sad", DarumaFace(left: .sad, right: .sad))]
     for (name, face) in faces {
         try write("svg/expressions/soredemo-character-\(name).svg", svg(100, characterGroup(face, vermilion)))

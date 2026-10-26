@@ -18,7 +18,7 @@ import SwiftUI
 ///
 /// **The mark is the daruma character, drawn** — the same figure the panel, the notch and the
 /// countdown draw, at 18 points (`DarumaMark`). Idle it looks ahead; counting down a red ring
-/// drains round its right eye; recording that eye is lit red; paused it is drowsy; when a take
+/// drains round its right eye; recording that eye is lit red; paused its eyes are ⏸; when a take
 /// finishes it smiles with both eyes for a moment. `MenuBarMark` decides which. The ink-only
 /// states are template images, so the system tints them; the two with red are not.
 struct MenuBarRecorderLabel: View {

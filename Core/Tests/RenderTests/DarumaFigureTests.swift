@@ -91,3 +91,21 @@ private let gazes: [(Double, Double)] = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0
     let disc = lit.eyes[1].width * 0.8
     #expect(lit.eyes[1].x - disc > lit.eyes[0].x + lit.eyes[0].width / 2 + 2, "the record eye reaches the other")
 }
+
+/// Paused, both eyes are the pause symbol: two upright bars, taller than an open eye, that stay
+/// upright and do not blink wherever it looks — and stay in the face and on the body.
+@Test func pausedTheEyesAreTwoUprightBars() {
+    let open = DarumaFigure.make(.resting).eyes[0]
+    for (yaw, pitch) in gazes {
+        for window in [true, false] {
+            let f = DarumaFigure.make(DarumaFace(yaw: yaw, pitch: pitch, left: .pause, right: .pause, faceWindow: window), blink: 0.1)
+            for eye in f.eyes {
+                #expect(eye.tilt == 0, "a bar tips at gaze \(yaw), \(pitch)")
+                let off = eye.outline().filter { window ? !f.face.contains(x: $0.x, y: $0.y, margin: 1) : !f.bodyContains(x: $0.x, y: $0.y, margin: 3) }
+                #expect(off.isEmpty, "a bar leaves the \(window ? "face" : "body") at gaze \(yaw), \(pitch)")
+            }
+        }
+    }
+    let bar = DarumaFigure.make(DarumaFace(left: .pause, right: .pause), blink: 0.1).eyes[0]
+    #expect(bar.height > open.height && bar.width > open.width, "taller and wider than an open eye, and unblinking")
+}

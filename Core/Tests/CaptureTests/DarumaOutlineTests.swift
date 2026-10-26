@@ -79,3 +79,11 @@ import Testing
     #expect(abs(quarter.x - 45) < 0.01 && abs(quarter.y - 60) < 0.01, "\(quarter)")
     #expect(CGGeometryBridge.brushSweep(centreX: 40, centreY: 60, radius: 10, painted: 0).isEmpty)
 }
+
+/// A pause bar: an upright rectangle with rounded corners, centred where it is put — off the origin.
+@Test func aBarIsAnUprightRoundedRectangleAboutItsCentre() {
+    let bar = CGGeometryBridge.bar(centreX: 40, centreY: 60, width: 6, height: 16, corner: 1.5)
+    let box = bar.boundingBoxOfPath
+    #expect(abs(box.midX - 40) < 0.01 && abs(box.midY - 60) < 0.01 && abs(box.width - 6) < 0.01 && abs(box.height - 16) < 0.01, "\(box)")
+    #expect(bar.contains(CGPoint(x: 40, y: 67.5)) && !bar.contains(CGPoint(x: 37.05, y: 52.05)), "square-ish, its corners rounded")
+}

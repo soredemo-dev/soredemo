@@ -40,12 +40,12 @@ extension DarumaFace {
                           recordPaint: remaining <= 1 ? paint : 1)
     }
 
-    /// The notch, per state: resting when offered; the record eye lit while a take runs; drowsy
-    /// while it is paused; both eyes smiling when it is done.
+    /// The notch, per state: resting when offered; the record eye lit while a take runs; the
+    /// pause symbol for eyes while it is paused; both eyes smiling when it is done.
     static func notch(_ state: NotchSurfaceState, isPaused: Bool) -> DarumaPose {
         switch state {
         case .dormant, .glance, .open: .resting
-        case .live: isPaused ? DarumaPose(openness: 0.3) : DarumaPose(openness: 0.9, right: .record)
+        case .live: isPaused ? DarumaPose(left: .pause, right: .pause) : DarumaPose(openness: 0.9, right: .record)
         case .finished: DarumaPose(left: .happy, right: .happy)
         }
     }
@@ -187,6 +187,8 @@ struct DarumaView: View, Animatable {
         switch e.kind {
         case .open, .sad:
             return Path(CGGeometryBridge.pill(centreX: x, centreY: y, width: e.width * u, height: e.height * u, tilt: e.tilt))
+        case .pause:
+            return Path(CGGeometryBridge.bar(centreX: x, centreY: y, width: e.width * u, height: e.height * u, corner: e.width * 0.3 * u))
         case .record:
             let r = e.width * 0.8 * u
             return Path(CGGeometryBridge.ellipse(centreX: x, centreY: y, radiusX: r, radiusY: r, tilt: 0))

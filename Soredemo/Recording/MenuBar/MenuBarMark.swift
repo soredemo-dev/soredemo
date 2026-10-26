@@ -73,7 +73,7 @@ enum DarumaMark {
     static func pose(for state: MenuBarMark) -> DarumaPose {
         switch state {
         case .idle: .resting
-        case .paused: DarumaPose(openness: 0.3)
+        case .paused: DarumaPose(left: .pause, right: .pause)
         case .finished: DarumaPose(left: .happy, right: .happy)
         case .recording: DarumaPose(right: .record)
         case .countingDown(let ring): DarumaPose(countRing: ring)
