@@ -100,10 +100,12 @@ turned 28°, looking up and right; a radial shade lit from the upper left and a 
 ground sumi, or washi for the ink daruma, whose dark body is lost on sumi. Icon Composer's layers
 take the same placement scaled to its full canvas, flat, for the system to light.
 
-- **Face window** (the bundle's): ink eye and the record eye as a **red pill**, the other eye's
-  shape — a disc read as a dot beside a tilted pill.
-- **Eyes on the body**: two ink pills. A red eye is lost on vermilion — the reason the app rings it
-  in washi — and two pills are the reference's face.
+- **Every icon keeps the record eye**, a red disc. A pass drew it as a red pill to match the other
+  eye, and the eyes-on-body icon as two ink pills, the reference's face; the owner kept the
+  composition and asked for the record eye back — it is what the app is, and the daruma's first
+  painted eye.
+- **Face window** (the bundle's): an ink pill and the record eye.
+- **Eyes on the body**: the record eye in the app's washi ring, or red is lost on vermilion.
 - **Ink**: the face window's, on washi.
 
 `AppIconChoice` is those three; Settings shows each as a thumbnail beside the picker, labelled with

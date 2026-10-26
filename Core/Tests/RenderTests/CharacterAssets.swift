@@ -47,10 +47,9 @@ private func eyeSVG(_ e: DarumaFigure.EyeMark, ink: String, red: String) -> Stri
 }
 
 /// The character in its 100-unit box, as an SVG group.
-/// `bodyFill` and `faceFill` replace the flat colours — the app icon's shading, by gradient id —
-/// and `redPill` draws the record eye as the other eye's pill, in red, as the icon does.
+/// `bodyFill` and `faceFill` replace the flat colours — the app icon's shading, by gradient id.
 private func characterGroup(_ face: DarumaFace, _ tone: Tone, shine: Bool = true,
-                            bodyFill: String? = nil, faceFill: String? = nil, redPill: Bool = false) -> String {
+                            bodyFill: String? = nil, faceFill: String? = nil) -> String {
     let f = DarumaFigure.make(face)
     var g = "<path d=\"\(bodyPath(f))\" fill=\"\(bodyFill ?? tone.body)\"/>"
     if shine { g += "<ellipse cx=\"40\" cy=\"22\" rx=\"11\" ry=\"5\" fill=\"#FFFFFF\" opacity=\"0.18\" transform=\"rotate(-12 40 22)\"/>" }
@@ -58,12 +57,6 @@ private func characterGroup(_ face: DarumaFace, _ tone: Tone, shine: Bool = true
         g += "<ellipse cx=\"\(n(f.face.x))\" cy=\"\(n(f.face.y))\" rx=\"\(n(f.face.rx))\" ry=\"\(n(f.face.ry))\" fill=\"\(faceFill ?? tone.face)\" transform=\"rotate(\(n(f.face.tilt)) \(n(f.face.x)) \(n(f.face.y)))\"/>"
     }
     for eye in f.eyes {
-        if redPill, eye.kind == .record, let other = f.eyes.first(where: { $0.kind == .open }) {
-            var pill = eye
-            (pill.kind, pill.width, pill.height) = (.open, other.width, other.height)
-            g += eyeSVG(pill, ink: shu, red: shu)
-            continue
-        }
         // On the body the record eye has a washi ring, or red on vermilion is lost — as the app.
         if eye.kind == .record, !face.faceWindow {
             g += "<circle cx=\"\(n(eye.x))\" cy=\"\(n(eye.y))\" r=\"\(n(eye.width * 0.8 * 1.3))\" fill=\"\(washi)\"/>"
@@ -115,7 +108,7 @@ private func appIcon(_ face: DarumaFace, _ tone: Tone, tile: Bool,
     let f = DarumaFigure.make(face)
     // The rim: the body's edge lit faintly, as a ball against a dark ground.
     let rim = "<path d=\"\(bodyPath(f))\" fill=\"none\" stroke=\"#FFFFFF\" stroke-opacity=\"0.28\" stroke-width=\"1.4\" filter=\"url(#r)\"/>"
-    let character = characterGroup(face, tone, shine: false, bodyFill: "url(#b)", faceFill: "url(#f)", redPill: true) + rim
+    let character = characterGroup(face, tone, shine: false, bodyFill: "url(#b)", faceFill: "url(#f)") + rim
     let turned = "<g transform=\"translate(\(n(place.x)) \(n(place.y))) rotate(\(n(place.turn))) scale(\(n(place.scale))) translate(-50 -52)\">\(character)</g>"
     let content = tile
         ? "<g clip-path=\"url(#c)\"><rect x=\"100\" y=\"100\" width=\"824\" height=\"824\" fill=\"\(ground)\"/>\(turned)</g>"
@@ -162,9 +155,9 @@ private let recording = DarumaFace(right: .record)
     // on the body and the ink daruma are the alternatives a person can choose (AppIconChoice).
     // On the macOS tile, for the fallback set, the Dock and Settings' thumbnails; Icon
     // Composer's layers below are the bundle's icon on macOS 26.
-    // On the body both eyes are ink pills: a red one is lost on vermilion, as the app's washi ring
-    // says — and two pills are the reference's face.
-    let bare = DarumaFace(yaw: iconFace.yaw, pitch: iconFace.pitch, faceWindow: false)
+    // Every icon keeps the record eye — the owner: the eye is the recording. On the body it has
+    // the app's washi ring, or red is lost on vermilion.
+    let bare = DarumaFace(yaw: iconFace.yaw, pitch: iconFace.pitch, right: .record, faceWindow: false)
     for (suffix, face, tone) in [("", iconFace, vermilion), ("-bare", bare, vermilion), ("-ink", iconFace, ink)] {
         try write("svg/soredemo-app-icon\(suffix).svg", appIcon(face, tone, tile: true))
     }
@@ -175,12 +168,7 @@ private let recording = DarumaFace(right: .record)
     var bodyLayer = "<path d=\"\(bodyPath(figure))\" fill=\"\(shuNuri)\"/>"
     bodyLayer += "<ellipse cx=\"\(n(figure.face.x))\" cy=\"\(n(figure.face.y))\" rx=\"\(n(figure.face.rx))\" ry=\"\(n(figure.face.ry))\" fill=\"#FFFFFF\" transform=\"rotate(\(n(figure.face.tilt)) \(n(figure.face.x)) \(n(figure.face.y)))\"/>"
     try write("icon/body.svg", svg(1024, "<g transform=\"\(place)\">\(bodyLayer)</g>", viewBox: "0 0 1024 1024"))
-    let eyesLayer = figure.eyes.map { eye in
-        guard eye.kind == .record, let other = figure.eyes.first(where: { $0.kind == .open }) else { return eyeSVG(eye, ink: sumi, red: shu) }
-        var pill = eye
-        (pill.kind, pill.width, pill.height) = (.open, other.width, other.height)
-        return eyeSVG(pill, ink: shu, red: shu)
-    }.joined()
+    let eyesLayer = figure.eyes.map { eyeSVG($0, ink: sumi, red: shu) }.joined()
     try write("icon/eyes.svg", svg(1024, "<g transform=\"\(place)\">\(eyesLayer)</g>", viewBox: "0 0 1024 1024"))
     // The menu bar's template: one colour, the body 88% of an 18-point canvas, as `DarumaMark`.
     let unit = 18 * 0.88 / 82
