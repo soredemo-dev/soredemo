@@ -1,0 +1,60 @@
+# A character, not a logo
+
+2026-10-26. The owner sent a screen recording of Grok Bot — a face that lives in the Mac's
+notch, the iPhone's island and a widget — and asked for a mascot that cute, and that smooth to
+interact with: "the daruma cannot be designed like Grok Bot." This is the research and the design
+direction; the choice of body is the owner's, and the prototype is for making it.
+
+## What the reference does, read off the recording and its makers' own account
+
+- **One character in code, every state morphing into every other.** Its head of design built the
+  icon in code so each state, shape and expression could morph smoothly
+  ([X](https://x.com/i/trending/2087312709960270330)).
+- **Three behaviours in the notch:** tucked while it works, emerging when something needs the
+  person, expanding into a small workspace when they want more — plus a corner peek and a cursor
+  companion ([the design guide](https://x.ai/bot/guides/designing-grok-bot-with-grok-bot)).
+- **Tuned by feel, on the real asset:** springs, distance, scale and easing adjusted live; "hold
+  the look down-left longer", "bounce is too exaggerated"; transitions compared at 280 and 340 ms.
+- **Read off the recording:** pill eyes that blink and look; a glow tinted by state — blue working,
+  red failed, green done; a list of the current task's steps with the current one emphasised;
+  coloured chips for work in parallel; an error face with closed eyes and a retry button.
+
+## What makes such a character feel alive, from those who build them
+
+A base layer that is never frozen — breath, a small bob; gaze mapped from the pointer and blended
+rather than snapped; hover and click as short interrupts that hand back to idle without a reset;
+the app saying *what happened* and the character deciding *how it reacts*
+([Rive characters](https://dev.to/uianimation/want-duolingo-style-interactive-animation-in-your-app-stop-using-lottie-heres-how-with-rive-5247),
+[a mascot that does something](https://dev.to/mascotengine/your-saas-mascot-should-do-more-than-just-sit-there-38oe)).
+
+## Why the daruma as drawn today is not that
+
+It is a logo with poses: a fixed outline, a ring and a dashed ring for eyes, a glance of three
+units. Nothing in it morphs, its eyes have no expression beyond filling, and it has no idle life.
+The brand meaning is worth keeping — the painted eye is the record button, and painting the
+second eye is "done" — but the drawing has to become a character to carry it.
+
+## The direction (prototype: two versions, scratchpad, shown to the owner)
+
+1. **One parametric body.** The brand kit's egg, generated from width, height and crown roundness,
+   so every state is the same curve with other numbers and springs carry it between them.
+2. **Pill eyes are the personality.** Blink at random intervals; follow the pointer on a spring;
+   widen when the pointer comes near (curious), narrow while recording (focused), half-close when
+   paused, arc when done, droop on an error. **While recording the right eye is a glowing red
+   disc** — the painted eye, kept.
+3. **A glow per state:** red breathing while recording, gold paused and done, blue when it needs
+   the person, red with a sink and a shake on an error.
+4. **Behaviours:** tucked in the notch's wing while idle and while recording; emerges below the
+   notch and springs into place for the countdown, for "needs a permission", for done and for an
+   error; the notch expands into the take's last steps on hover (built: `LiveSteps`); optionally
+   a cursor companion during the countdown.
+5. **Bodies to choose between:** vermilion or sumi (both the brand kit's); a round "mochi" and a
+   face-only glass orb were drawn too, and are further from the daruma.
+
+Reduce Motion: the eyes move without travelling, the glow does not breathe, no hop, no shake.
+
+## Open
+
+The body, and whether the character replaces the menu bar's template mark (it would need a
+template-ink version at 18 points) or lives only in the notch, the countdown, the permissions page
+and the empty editor.
