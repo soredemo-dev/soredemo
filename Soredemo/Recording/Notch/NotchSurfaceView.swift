@@ -1,5 +1,6 @@
 import Capture
 import Geometry
+import Render
 import SwiftUI
 
 /// The surface's black: a notch assistant's outward-curling top corners, bottom corners that open as it
@@ -152,12 +153,12 @@ private struct NotchDaruma: View {
     let pose: DarumaPose
     let glow: Color?
     var breathes = false
-    @AppStorage(AppIconChoice.defaultsKey) private var icon = AppIconChoice.black
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dim = false
 
     var body: some View {
-        DarumaView(pose: pose, icon: icon)
+        // Alive: it blinks, and looks at the pointer when the state gives it nowhere to look.
+        LivingDaruma(pose: pose, followsPointer: true)
             .frame(width: 20, height: 20)
             .background {
                 if let glow {

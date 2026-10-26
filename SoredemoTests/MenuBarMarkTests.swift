@@ -80,35 +80,39 @@ import Testing
         #expect(eye.isPainted, "the first paint's timer wiped the second paint")
     }
 
-    /// **Two places hold one geometry**: the script baked the eye into `LogomarkCountdownEye`, and
-    /// the code draws the ring around where it thinks the eye is. The centre of the asset's ink is
-    /// measured and compared — at a canvas size that is not the asset's own, so the scaling is in
-    /// the comparison.
-    @Test func theRingIsDrawnRoundTheEyeTheScriptBaked() throws {
-        let asset = try #require(NSImage(named: "LogomarkCountdownEye"))
-        let side = 72
-        let rep = try #require(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
-            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-            bytesPerRow: 0, bitsPerPixel: 0))
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        asset.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
-        NSGraphicsContext.restoreGraphicsState()
-
-        var weight = 0.0, sumX = 0.0, sumY = 0.0
-        for y in 0..<side {
-            for x in 0..<side {
-                let alpha = Double(rep.colorAt(x: x, y: y)?.alphaComponent ?? 0)
-                weight += alpha
-                sumX += alpha * (Double(x) + 0.5)
-                sumY += alpha * (Double(y) + 0.5)
-            }
+    /// **The menu bar's daruma is the character, drawn** — the panel's figure at 18 points, not
+    /// an image baked by a script. Ink only while nothing records, so the system tints it; the
+    /// record eye red while a take runs; the countdown's ring red round that eye, and no red at
+    /// all once the ring is spent. Measured in the pixels: red, and on which side of the mark.
+    @Test func theMenuBarDarumaIsInkUntilItRecords() throws {
+        func redPixels(_ image: NSImage) throws -> (count: Int, meanX: Double) {
+            let side = 72
+            let rep = try #require(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: 0, bitsPerPixel: 0))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+            NSGraphicsContext.restoreGraphicsState()
+            var count = 0, sumX = 0.0, ink = 0
+            for y in 0..<side { for x in 0..<side {
+                guard let c = rep.colorAt(x: x, y: y), c.alphaComponent > 0.5 else { continue }
+                ink += 1
+                if c.redComponent > 0.75, c.greenComponent < 0.45 { count += 1; sumX += Double(x) }
+            } }
+            try #require(ink > 50, "the mark drew no ink")
+            return (count, count > 0 ? sumX / Double(count) / Double(side) : 0)
         }
-        try #require(weight > 10, "the asset drew no ink: \(weight)")
-        let eye = MenuBarMarkGeometry.point(x: MenuBarMarkGeometry.eyeX, y: MenuBarMarkGeometry.eyeY,
-                                            side: Double(side))
-        #expect(abs(sumX / weight - eye.x) < 0.5, "ink centre x \(sumX / weight), code's eye x \(eye.x)")
-        #expect(abs(sumY / weight - eye.y) < 0.5, "ink centre y \(sumY / weight), code's eye y \(eye.y)")
+        for state in [MenuBarMark.idle, .paused, .finished] {
+            let image = DarumaMark.image(for: state)
+            #expect(image.isTemplate, "\(state) should be tinted by the system")
+            #expect(try redPixels(image).count == 0, "\(state) drew red")
+        }
+        let recording = try redPixels(DarumaMark.image(for: .recording))
+        #expect(recording.count > 4 && recording.meanX > 0.5, "the record eye is red and on the right: \(recording)")
+        #expect(!DarumaMark.image(for: .recording).isTemplate)
+        #expect(try redPixels(DarumaMark.image(for: .countingDown(ring: 0.6))).count > 4, "the ring is red")
+        #expect(try redPixels(DarumaMark.image(for: .countingDown(ring: 0))).count == 0, "a spent ring draws nothing")
     }
 }

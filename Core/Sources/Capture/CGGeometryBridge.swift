@@ -205,6 +205,49 @@ public enum CGGeometryBridge {
         return path
     }
 
+    /// The daruma character's body, in `box` (top-left points): `DarumaBodyCurve`'s four curves,
+    /// the one statement of the shape. The character morphs by changing its three numbers; the
+    /// curve's structure never changes, so any two shapes interpolate.
+    public nonisolated static func darumaBody(width w: Double, height h: Double, crown: Double, in box: PointRect) -> CGPath {
+        let ux = box.width / 100, uy = box.height / 100
+        func p(_ point: DarumaBodyCurve.Point) -> CGPoint { CGPoint(x: box.x + point.x * ux, y: box.y + point.y * uy) }
+        let (start, segments) = DarumaBodyCurve.outline(width: w, height: h, crown: crown)
+        let path = CGMutablePath()
+        path.move(to: p(start))
+        for segment in segments { path.addCurve(to: p(segment.end), control1: p(segment.control1), control2: p(segment.control2)) }
+        path.closeSubpath()
+        return path
+    }
+
+    /// An ellipse turned by `tilt` degrees about its own centre.
+    public nonisolated static func ellipse(centreX: Double, centreY: Double, radiusX: Double, radiusY: Double, tilt: Double) -> CGPath {
+        var turn = turnedAbout(centreX, centreY, tilt)
+        let rect = CGRect(x: centreX - radiusX, y: centreY - radiusY, width: 2 * radiusX, height: 2 * radiusY)
+        return unsafe CGPath(ellipseIn: rect, transform: &turn)
+    }
+
+    /// A pill — a rounded rectangle whose corner radius is half its shorter side — turned by
+    /// `tilt` degrees about its own centre.
+    public nonisolated static func pill(centreX: Double, centreY: Double, width: Double, height: Double, tilt: Double) -> CGPath {
+        var turn = turnedAbout(centreX, centreY, tilt)
+        let rect = CGRect(x: centreX - width / 2, y: centreY - height / 2, width: width, height: height)
+        let radius = max(min(width, height) / 2 - 0.0001, 0)
+        return unsafe CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: &turn)
+    }
+
+    /// A quadratic arc stroked into a fillable outline with round caps — an eye drawn as a line
+    /// (closed, smiling) that an even-odd fill can still carry.
+    public nonisolated static func strokedArc(fromX: Double, fromY: Double, controlX: Double, controlY: Double, toX: Double, toY: Double, lineWidth: Double) -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: fromX, y: fromY))
+        path.addQuadCurve(to: CGPoint(x: toX, y: toY), control: CGPoint(x: controlX, y: controlY))
+        return path.copy(strokingWithWidth: lineWidth, lineCap: .round, lineJoin: .round, miterLimit: 1)
+    }
+
+    private nonisolated static func turnedAbout(_ x: Double, _ y: Double, _ degrees: Double) -> CGAffineTransform {
+        CGAffineTransform(translationX: x, y: y).rotated(by: degrees * .pi / 180).translatedBy(x: -x, y: -y)
+    }
+
     /// What is left of a countdown's second, as an arc round `(centreX, centreY)` in top-left
     /// points: from twelve o'clock, clockwise, `remaining` of the way round (0 … 1). Empty for 0.
     public nonisolated static func countdownArc(centreX: Double, centreY: Double, radius: Double, remaining: Double) -> CGPath {

@@ -1,5 +1,7 @@
 import AppKit
+import Capture
 import Observation
+import Render
 import SwiftUI
 
 /// What the menu bar's daruma shows, decided in one place from what the recording is doing.
@@ -55,62 +57,62 @@ final class PaintedEye {
     }
 }
 
-/// Where the menu bar mark's parts are on its canvas: the small mark's numbers, in the website's
-/// 100-unit box, with the body filling 88 % of the canvas's height — what
-/// `scripts/make-daruma-marks.swift` bakes into the images. Two places hold one geometry, so
-/// `MenuBarMarkTests` measures the baked eye and compares it with `point`.
-enum MenuBarMarkGeometry {
-    static let inkShare = 0.88
-    static let eyeX = 62.0
-    static let eyeY = 47.0
-    /// The countdown ring: five units outside the eye's radius of 9, as the website draws it.
-    static let ringRadius = 14.0
-    static let ringWidth = 3.0
-
-    /// Units to points on a `side`-point canvas: the body is 84 units tall.
-    static func scale(side: Double) -> Double { side * inkShare / 84 }
-
-    /// A point in the 100-unit box on a `side`-point canvas, y down, the box's centre at the
-    /// canvas's centre.
-    static func point(x: Double, y: Double, side: Double) -> NSPoint {
-        let scale = scale(side: side)
-        return NSPoint(x: side / 2 + (x - 50) * scale, y: side / 2 + (y - 50) * scale)
-    }
-}
-
-/// The counting-down mark: the body in the menu bar's ink, the eye faint in the record red, and a
-/// red ring draining round it — the countdown panel's ring at menu bar size.
+/// The menu bar's daruma: the character's figure at 18 points, drawn rather than baked, so the
+/// menu bar and the panel cannot disagree about what it looks like.
 ///
-/// Drawn rather than baked, for the reason `RecordingMark` is: a template image cannot carry
-/// red. The ring is a new image per tenth, which is what makes the label redraw.
-enum CountdownMark {
-    static func image(ring: Double) -> NSImage {
-        let body = NSImage(named: "LogomarkRecordingBody")
-        let eye = NSImage(named: "LogomarkCountdownEye")
-        let size = body?.size ?? NSSize(width: 18, height: 18)
-        return NSImage(size: size, flipped: true) { rect in
-            guard let body, let eye else { return false }
-            body.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1,
-                      respectFlipped: true, hints: nil)
-            NSColor.labelColor.set()
-            rect.fill(using: .sourceAtop)
-            eye.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1,
-                     respectFlipped: true, hints: nil)
-            // An empty arc with round caps would still draw a dot.
-            guard ring > 0 else { return true }
-            let side = Double(rect.width)
-            let centre = MenuBarMarkGeometry.point(x: MenuBarMarkGeometry.eyeX,
-                                                   y: MenuBarMarkGeometry.eyeY, side: side)
-            let arc = NSBezierPath()
-            // From twelve o'clock, clockwise: in a flipped canvas that is increasing angle.
-            arc.appendArc(withCenter: centre,
-                          radius: MenuBarMarkGeometry.ringRadius * MenuBarMarkGeometry.scale(side: side),
-                          startAngle: -90, endAngle: -90 + 360 * ring, clockwise: false)
-            arc.lineWidth = MenuBarMarkGeometry.ringWidth * MenuBarMarkGeometry.scale(side: side)
-            arc.lineCapStyle = .round
-            NSColor(Signal.record).setStroke()
-            arc.stroke()
+/// **Ink only while nothing records**, as a template image the system tints for the bar it sits
+/// on. **Recording and counting down carry red**, which a template image cannot, so those two are
+/// drawn in the label colour, resolved when the item draws, with the record eye or the ring red.
+/// Still in the menu bar: no blink, no breath — it is beside the clock, and moving there is noise.
+enum DarumaMark {
+    static let side = 18.0
+    /// The body — 82 of the figure's units — takes 88% of the canvas, measured against the
+    /// system's own symbols (2026-10-25).
+    static let inkShare = 0.88
+
+    static func pose(for state: MenuBarMark) -> DarumaPose {
+        switch state {
+        case .idle: .resting
+        case .paused: DarumaPose(openness: 0.3)
+        case .finished: DarumaPose(left: .happy, right: .happy)
+        case .recording: DarumaPose(right: .record)
+        case .countingDown(let ring): DarumaPose(countRing: ring)
+        }
+    }
+
+    static func image(for state: MenuBarMark, faceWindow: Bool = true) -> NSImage {
+        var pose = pose(for: state)
+        pose.faceWindow = faceWindow
+        let figure = DarumaFigure.make(pose)
+        let unit = side * inkShare / 82
+        // The body's middle (50, 52) at the canvas's middle.
+        let mapping = DarumaView.Mapping(unit: unit, left: side / 2 - 50 * unit, top: side / 2 - 52 * unit)
+        let isRecording = pose.right == .record
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            let ink = DarumaView.templatePath(figure, mapping: mapping, omitting: isRecording ? 1 : nil, window: faceWindow)
+            context.addPath(ink.cgPath)
+            context.setFillColor((pose.countRing == nil && !isRecording ? NSColor.black : NSColor.labelColor).cgColor)
+            context.fillPath(using: .evenOdd)
+            let red = NSColor(Signal.record).cgColor
+            let eye = figure.eyes[1]
+            if isRecording {
+                context.addPath(DarumaView.eyePath(eye, mapping).cgPath)
+                context.setFillColor(red)
+                context.fillPath()
+            }
+            if let ring = pose.countRing, ring > 0 {
+                let radius = (max(eye.width, eye.height) / 2 + 3.6) * unit
+                context.addPath(CGGeometryBridge.countdownArc(centreX: mapping.x(eye.x), centreY: mapping.y(eye.y),
+                                                              radius: radius, remaining: ring))
+                context.setStrokeColor(red)
+                context.setLineWidth(3 * unit)
+                context.setLineCap(.round)
+                context.strokePath()
+            }
             return true
         }
+        image.isTemplate = pose.countRing == nil && !isRecording
+        return image
     }
 }

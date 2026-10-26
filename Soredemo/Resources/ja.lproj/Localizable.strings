@@ -795,7 +795,7 @@
 "App icon" = "アプリアイコン";
 "Black" = "黒";
 "Vermilion" = "朱";
-"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo を開いている間、Dock に表示されます。Finder と Launchpad は黒いだるまのままです。macOS ではアプリ自身のアイコンを署名を壊さずに変更できません。";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo を開いている間、Dock に表示されます。Finder と Launchpad は朱色のだるまのままです。macOS ではアプリ自身のアイコンを署名を壊さずに変更できません。";
 "Time" = "時間";
 "Known after this Mac's first export in this format." = "このMacでこの形式を初めて書き出した後にわかります。";
 "a few seconds" = "数秒";
@@ -805,3 +805,8 @@
 "about an hour" = "約1時間";
 "about %lld hours" = "約%lld時間";
 "Steps appear here as you click." = "クリックするとここに手順が表示されます。";
+"Character" = "キャラクター";
+"Match Appearance" = "外観に合わせる";
+"Face" = "顔";
+"Face window" = "だるまの顔窓";
+"Eyes on the body" = "体に目";

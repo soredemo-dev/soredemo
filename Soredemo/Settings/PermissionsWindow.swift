@@ -21,7 +21,6 @@ struct PermissionsWindow: View {
     @State private var cameraStatus = CameraRecorder.authorization
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(AppIconChoice.defaultsKey) private var appIcon = AppIconChoice.black
 
     /// Permissions the product cannot work without — derived from `Degradation`, so a change to
     /// that mapping moves this list rather than leaving two lists to disagree.
@@ -100,12 +99,12 @@ struct PermissionsWindow: View {
 
     @ViewBuilder private var header: some View {
         VStack(spacing: Space.snug) {
-            // **One eye per permission the product needs.** The record eye fills when Screen
-            // Recording is granted and the waiting eye is painted when Accessibility is, so the
-            // mark finishes as the page does — the daruma's own custom, a wish granted.
-            DarumaView(pose: .permissions(screenRecording: statuses[.screenRecording] == .granted,
-                                          accessibility: statuses[.accessibility] == .granted),
-                       icon: appIcon)
+            // **One eye per permission the product needs.** The left eye opens with Accessibility
+            // and the right — the record eye — lights with Screen Recording, so the character
+            // wakes as the page is done. It watches the pointer while it waits.
+            LivingDaruma(pose: .permissions(screenRecording: statuses[.screenRecording] == .granted,
+                                            accessibility: statuses[.accessibility] == .granted),
+                         followsPointer: true)
                 .frame(width: 56, height: 56)
                 .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.75),
                            value: statuses)

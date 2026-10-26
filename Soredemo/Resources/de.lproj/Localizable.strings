@@ -793,7 +793,7 @@
 "App icon" = "App-Symbol";
 "Black" = "Schwarz";
 "Vermilion" = "Zinnoberrot";
-"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Das Dock zeigt es, solange Soredemo geöffnet ist. Finder und Launchpad behalten den schwarzen Daruma: macOS kann das eigene Symbol einer App nicht ändern, ohne ihre Signatur zu brechen.";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature." = "Das Dock zeigt es, solange Soredemo geöffnet ist. Finder und Launchpad behalten den zinnoberroten Daruma: macOS kann das eigene Symbol einer App nicht ändern, ohne ihre Signatur zu brechen.";
 "Time" = "Dauer";
 "Known after this Mac's first export in this format." = "Bekannt nach dem ersten Export dieses Macs in diesem Format.";
 "a few seconds" = "wenige Sekunden";
@@ -803,3 +803,8 @@
 "about an hour" = "etwa eine Stunde";
 "about %lld hours" = "etwa %lld Stunden";
 "Steps appear here as you click." = "Hier erscheinen die Schritte, während du klickst.";
+"Character" = "Figur";
+"Match Appearance" = "Wie Erscheinungsbild";
+"Face" = "Gesicht";
+"Face window" = "Gesichtsfenster";
+"Eyes on the body" = "Augen auf dem Körper";

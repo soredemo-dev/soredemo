@@ -29,3 +29,37 @@ import Testing
             "ends at three o'clock, not nine: \(quarter.currentPoint)")
     #expect(CGGeometryBridge.countdownArc(centreX: 40, centreY: 60, radius: 10, remaining: 0).isEmpty)
 }
+
+/// The character's body: the brand kit's egg from width, height and crown, in a box off the
+/// origin at twice the scale. At 1, 1 it spans the box's own 11…89 by 11…93 units — measured in
+/// the box, so an outline that ignored the offset or the scale lands elsewhere.
+@Test func theCharactersBodyFillsItsBoxFromItsParameters() {
+    let path = CGGeometryBridge.darumaBody(width: 1, height: 1, crown: 1.15,
+                                           in: PointRect(x: 10, y: 20, width: 200, height: 200))
+    let b = path.boundingBoxOfPath
+    #expect(abs(b.minX - (10 + 11 * 2)) < 0.6 && abs(b.maxX - (10 + 89 * 2)) < 0.6, "x \(b.minX)…\(b.maxX)")
+    #expect(abs(b.minY - (20 + 11 * 2)) < 0.6 && abs(b.maxY - (20 + 93 * 2)) < 0.6, "y \(b.minY)…\(b.maxY)")
+    // A wider, shorter body is wider and shorter: the parameters reach the outline.
+    let squat = CGGeometryBridge.darumaBody(width: 1.1, height: 0.9, crown: 1, in: PointRect(x: 10, y: 20, width: 200, height: 200)).boundingBoxOfPath
+    #expect(squat.width > b.width && squat.height < b.height)
+}
+
+/// A pill and an ellipse turned about their own centres: a tall pill turned 90° lies down, its
+/// centre where it was. Off the origin, so a turn about (0, 0) moves it and fails.
+@Test func aTurnedPillAndEllipseTurnAboutTheirCentres() {
+    let upright = CGGeometryBridge.pill(centreX: 60, centreY: 40, width: 6, height: 20, tilt: 0).boundingBoxOfPath
+    let lying = CGGeometryBridge.pill(centreX: 60, centreY: 40, width: 6, height: 20, tilt: 90).boundingBoxOfPath
+    #expect(abs(upright.width - 6) < 0.01 && abs(upright.height - 20) < 0.01)
+    #expect(abs(lying.width - 20) < 0.01 && abs(lying.height - 6) < 0.01)
+    #expect(abs(lying.midX - 60) < 0.01 && abs(lying.midY - 40) < 0.01)
+    let e = CGGeometryBridge.ellipse(centreX: 30, centreY: 70, radiusX: 10, radiusY: 4, tilt: 90).boundingBoxOfPath
+    #expect(abs(e.width - 8) < 0.05 && abs(e.height - 20) < 0.05 && abs(e.midX - 30) < 0.01)
+}
+
+/// A stroked arc is a fillable band: it contains its own midpoint and not a point a line-width
+/// away from it.
+@Test func aStrokedArcIsABandAlongTheCurve() {
+    let arc = CGGeometryBridge.strokedArc(fromX: 40, fromY: 50, controlX: 50, controlY: 40, toX: 60, toY: 50, lineWidth: 3)
+    #expect(arc.contains(CGPoint(x: 50, y: 45)), "the curve's midpoint")
+    #expect(!arc.contains(CGPoint(x: 50, y: 50)), "inside the curve, off the band")
+}

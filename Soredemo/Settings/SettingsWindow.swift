@@ -17,7 +17,9 @@ struct SettingsWindow: View {
     @State private var section = Section.recording
     @State private var languageChanged = false
     @AppStorage(Appearance.defaultsKey) private var appearance = Appearance.system
-    @AppStorage(AppIconChoice.defaultsKey) private var appIcon = AppIconChoice.black
+    @AppStorage(AppIconChoice.defaultsKey) private var appIcon = AppIconChoice.vermilion
+    @AppStorage(DarumaColour.defaultsKey) private var darumaColour = DarumaColour.vermilion
+    @AppStorage(DarumaFaceStyle.defaultsKey) private var darumaFace = DarumaFaceStyle.window
     let coordinator: RecordingCoordinator
 
     enum Section: String, CaseIterable, Hashable {
@@ -94,8 +96,30 @@ struct SettingsWindow: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: appIcon) { appIcon.apply() }
-            Text("The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature.")
+            Text("The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature.")
                 .font(Type.detail).foregroundStyle(.secondary)
+            // **The character's colour, the person's to choose** — or the theme's ink, which is
+            // where it starts. The menu bar's mark is the system's ink whatever is chosen here.
+            Picker("Character", selection: $darumaColour) {
+                ForEach(DarumaColour.allCases, id: \.self) { choice in
+                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
+                }
+            }
+            Picker("Face", selection: $darumaFace) {
+                ForEach(DarumaFaceStyle.allCases, id: \.self) { choice in
+                    Text(LocalizedStringKey(choice.displayName)).tag(choice)
+                }
+            }
+            .pickerStyle(.segmented)
+            HStack(spacing: Space.regular) {
+                ForEach(DarumaColour.allCases, id: \.self) { choice in
+                    LivingDaruma(colour: choice, followsPointer: true)
+                        .frame(width: 36, height: 36)
+                        .opacity(choice == darumaColour ? 1 : 0.45)
+                        .onTapGesture { darumaColour = choice }
+                        .accessibilityHidden(true)
+                }
+            }
         }
         SwiftUI.Section("Language") {
             Picker("Interface", selection: Binding(

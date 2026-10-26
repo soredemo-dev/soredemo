@@ -147,7 +147,17 @@ final class CountdownState {
 
 private struct CountdownView: View {
     let state: CountdownState
-    @AppStorage(AppIconChoice.defaultsKey) private var icon = AppIconChoice.black
+    @AppStorage(DarumaColour.defaultsKey) private var colour = DarumaColour.vermilion
+
+    /// The count's ink on the belly: gold on the dark bodies, as a real daruma's characters are;
+    /// washi on vermilion and sumi on gold or paper, where gold has too little contrast.
+    private var beltInk: Palette.RGB {
+        switch colour {
+        case .vermilion: Palette.Brand.washi
+        case .gold, .paper: Palette.Brand.sumi
+        case .appearance, .ink: Palette.Brand.kin
+        }
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let width: Double = 280
@@ -165,8 +175,8 @@ private struct CountdownView: View {
     var body: some View {
         VStack(spacing: Space.regular) {
             ZStack {
-                DarumaView(pose: .counting(remaining: state.remaining, ringRemaining: state.ringRemaining),
-                           icon: icon, rimmed: true)
+                LivingDaruma(pose: .counting(remaining: state.remaining, ringRemaining: state.ringRemaining),
+                             followsPointer: true, rimmed: true)
                     .environment(\.colorScheme, .light)
                     .shadow(color: .black.opacity(0.45), radius: 26)
                     // A tenth at a time, linear, so the ring drains rather than steps.
@@ -174,7 +184,7 @@ private struct CountdownView: View {
 
                 Text(verbatim: "\(state.remaining)")
                     .font(.system(size: 54, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(icon == .vermilion ? Palette.Brand.washi.color : Palette.Brand.kin.color)
+                    .foregroundStyle(beltInk.color)
                     // The belly, below the face: 79 of the mark's 100 units, 50 being its middle.
                     .offset(y: Self.mark * 0.29)
                     // Keyed on the value so each number gets its own transition rather than the

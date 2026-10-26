@@ -1,119 +1,142 @@
+import AppKit
 import Capture
 import Geometry
+import Render
 import SwiftUI
+import Timeline
 
-/// How the daruma is standing: where its record eye looks, how far each eye is painted, how far
-/// it leans. **A value with no drawing in it**, so every place that moves the mark says why in a
-/// function with a test (`DarumaPoseTests`), and the view only draws what it is given.
-/// `docs/design/2026-10-25-a-daruma-that-answers.md`.
-struct DarumaPose: Equatable, Sendable {
-    /// −1 … 1: the record eye's glance, left to right.
-    var look: Double = 0
-    /// 0 … 1: looking down at something below the mark — the panel's cards.
-    var attending: Double = 0
-    /// 0 … 1: the record eye from a ring to a filled disc.
-    var recordFill: Double = 0
-    /// The second eye painted in — 目入れ — rather than waiting as a dashed ring.
-    var waitingPainted = false
-    /// 0 … 1: the countdown's ring round the record eye, the share of this second still to run.
-    /// `nil` when nothing is being counted — no ring at all, not an empty one.
-    var countRing: Double?
+/// How the daruma is standing: `DarumaFace`'s numbers, with the app's reason for each pose as a
+/// function beside the state it answers (`DarumaPoseTests`). The geometry a pose draws is
+/// `DarumaFigure`, pure, in Core. `docs/design/2026-10-26-a-character-not-a-logo.md`.
+typealias DarumaPose = DarumaFace
 
-    static let resting = DarumaPose()
-
-    /// The panel's header: the eye looks down at the card the pointer is over — Screen on the
-    /// left, Window in the middle, Area on the right — so the mark says what the next press will
-    /// capture. No card under the pointer is no glance.
+extension DarumaFace {
+    /// The panel's header looks down at the card the pointer is over — Screen on the left,
+    /// Window in the middle, Area on the right — so the character says what the next press will
+    /// capture.
     static func looking(at target: CaptureTarget?) -> DarumaPose {
         switch target {
-        case .screen: DarumaPose(look: -1, attending: 1)
-        case .window: DarumaPose(look: 0, attending: 1)
-        case .area: DarumaPose(look: 1, attending: 1)
+        case .screen: DarumaPose(yaw: -0.8, pitch: 0.7)
+        case .window: DarumaPose(yaw: 0, pitch: 0.8)
+        case .area: DarumaPose(yaw: 0.8, pitch: 0.7)
         case nil: .resting
         }
     }
 
-    /// The countdown in the middle of the screen: the menu bar's ring round the record eye —
-    /// what is left of this second — and in the last second the eye fills as the ring drains,
-    /// so it is painted as the recording begins.
+    /// The countdown: a ring round the right eye drains each second, and the last second lights
+    /// the eye — painted as the recording begins.
     static func counting(remaining: Int, ringRemaining: Double) -> DarumaPose {
-        DarumaPose(recordFill: remaining <= 1 ? 1 - ringRemaining : 0, countRing: ringRemaining)
+        DarumaPose(openness: 1.15, right: remaining <= 1 ? .record : .open, countRing: ringRemaining)
     }
 
-    /// The notch's daruma, per state — a face for each, after the owner's Grok reference: resting
-    /// when the recorder is offered, the record eye filled while a take runs and empty while it
-    /// is paused, both eyes painted when it is done.
+    /// The notch, per state: resting when offered; the record eye lit while a take runs; drowsy
+    /// while it is paused; both eyes smiling when it is done.
     static func notch(_ state: NotchSurfaceState, isPaused: Bool) -> DarumaPose {
         switch state {
         case .dormant, .glance, .open: .resting
-        case .live: DarumaPose(recordFill: isPaused ? 0 : 1)
-        case .finished: DarumaPose(recordFill: 1, waitingPainted: true)
+        case .live: isPaused ? DarumaPose(openness: 0.3) : DarumaPose(openness: 0.9, right: .record)
+        case .finished: DarumaPose(left: .happy, right: .happy)
         }
     }
 
-    /// The permissions page: one eye per permission a recording needs. The record eye fills when
-    /// Screen Recording is granted; the waiting eye is painted when Accessibility is. Both granted
-    /// is the finished daruma.
+    /// The permissions page: one eye per permission. The left opens with Accessibility, the
+    /// right — the record eye — lights with Screen Recording; neither is a sleeping daruma.
     static func permissions(screenRecording: Bool, accessibility: Bool) -> DarumaPose {
-        DarumaPose(recordFill: screenRecording ? 1 : 0, waitingPainted: accessibility)
+        DarumaPose(left: accessibility ? .open : .closed, right: screenRecording ? .record : .closed)
     }
 }
 
-/// The mark, drawn. **`icon` is passed in, never read here**: a caller that follows the person's
-/// choice reads `AppIconChoice` itself, so the drawing depends on nothing but its arguments and
-/// the appearance.
+/// The character's face: the daruma's window, or its eyes straight on the body — the person's
+/// choice in Settings, the window by default.
+enum DarumaFaceStyle: String, CaseIterable, Sendable {
+    case window, bare
+    static let defaultsKey = "darumaFaceStyle"
+
+    var displayName: String {
+        switch self {
+        case .window: "Face window"
+        case .bare: "Eyes on the body"
+        }
+    }
+}
+
+/// The colour the character is drawn in — the person's choice in Settings; vermilion, the
+/// traditional daruma's, by default (the owner, 2026-10-26).
+enum DarumaColour: String, CaseIterable, Sendable {
+    case vermilion, ink, paper, gold, appearance
+    static let defaultsKey = "darumaColour"
+
+    var displayName: String {
+        switch self {
+        case .appearance: "Match Appearance"
+        case .vermilion: "Vermilion"
+        case .ink: "Ink"
+        case .paper: "Paper"
+        case .gold: "Gold"
+        }
+    }
+
+    /// Body, face and eye, for a face window or for eyes on the body. Following the appearance it
+    /// is the theme's ink: paper on dark, sumi on light — the accent's rule.
+    ///
+    /// **Each colour is designed for both faces**, not only its body swapped. With a window: a
+    /// white window and sumi eyes, except paper, whose window is sumi and eyes paper. On the body:
+    /// sumi eyes on vermilion, gold and paper — the reference's dark eyes on a coloured body — and
+    /// paper eyes on ink.
+    func tones(dark: Bool, window: Bool = true) -> (body: Palette.RGB, face: Palette.RGB, eye: Palette.RGB) {
+        let sumi = Palette.Brand.sumi, white = Palette.RGB(hex: 0xFFFFFF), paperEye = Palette.RGB(hex: 0xF7F6F2)
+        switch self {
+        case .appearance: return dark ? Self.paper.tones(dark: dark, window: window) : Self.ink.tones(dark: dark, window: window)
+        case .vermilion: return (Palette.Brand.shuNuri, white, sumi)
+        case .ink: return (Palette.RGB(hex: 0x1F2025), white, window ? sumi : paperEye)
+        case .paper: return (Palette.RGB(hex: 0xF4F3EF), Palette.RGB(hex: 0x1B1C21), window ? paperEye : sumi)
+        case .gold: return (Palette.Brand.kin, white, sumi)
+        }
+    }
+}
+
+/// The character, drawn from a figure. **The colour is passed in, never read here**: a caller
+/// that follows the person's choice reads it (`LivingDaruma` does), so a drawing depends on its
+/// arguments and the appearance alone.
 ///
-/// Two styles. **Colour** is the brand kit's large mark — sumi on light, paper on dark, the record
-/// eye in the record red, the waiting eye dashed. **Template** is the menu bar's small mark in the
-/// foreground's ink, face cut out, no red and no dashed eye — for a place beside text, where a
-/// coloured mark would be the loudest thing there and red would claim a recording that is not.
-///
-/// `Animatable` on the glance and the fill, so a change of pose moves rather than jumps when the
-/// caller animates it (and Reduce Motion is the caller's to honour, with the rest of its view).
+/// **Colour** is the flat character with its face window, the record eye red. **Template** is the
+/// same figure as one even-odd path in the foreground's ink — the menu bar, the panel header, the
+/// empty editor — filled as a view rather than in a Canvas, which drew nothing in the menu bar's
+/// vibrant popover (2026-10-25).
 struct DarumaView: View, Animatable {
     enum Style { case colour, template }
 
     var pose: DarumaPose = .resting
-    var icon: AppIconChoice = .black
+    var colour: DarumaColour = .appearance
     var style: Style = .colour
-    /// A washi edge round the body, for a mark drawn over whatever is on screen — over a dark
-    /// one a sumi body has no edge of its own.
+    /// A washi edge round the body, for a mark drawn over whatever is on screen.
     var rimmed = false
+    var blink = 1.0
+    var breath = 0.0
     @Environment(\.colorScheme) private var scheme
-
-    /// The small mark's record eye, in the 100-unit box. **At rest it is the baked mark's, right
-    /// of centre; attending, it travels a row of three looking down** — 40, 52, 64 — because the
-    /// large mark's three-unit glance is half a point at the header's 18 and would not be seen.
-    static func templateEye(_ pose: DarumaPose) -> (x: Double, y: Double) {
-        let a = pose.attending
-        return (62 + a * (52 + pose.look * 12 - 62), 47 + a * 4)
-    }
 
     var animatableData: AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>> {
         get {
-            AnimatablePair(AnimatablePair(pose.look, pose.attending),
-                           AnimatablePair(pose.recordFill, pose.countRing ?? 0))
+            AnimatablePair(AnimatablePair(pose.yaw, pose.pitch), AnimatablePair(pose.openness, pose.countRing ?? 0))
         }
         set {
-            pose.look = newValue.first.first
-            pose.attending = newValue.first.second
-            pose.recordFill = newValue.second.first
+            pose.yaw = newValue.first.first
+            pose.pitch = newValue.first.second
+            pose.openness = newValue.second.first
             // Only a ring that exists is moved: interpolating toward `nil` is not a ring at zero.
             if pose.countRing != nil { pose.countRing = newValue.second.second }
         }
     }
 
     var body: some View {
+        let figure = DarumaFigure.make(pose, blink: blink, breath: breath)
         Group {
             switch style {
-            case .colour: colour
-            // **A path filled as a view, not drawn in a Canvas.** The Canvas's foreground shading
-            // drew nothing in the menu bar's vibrant popover (seen by the owner, 2026-10-25) while
-            // an offscreen render showed it; a filled path takes the foreground style the way the
-            // template image it replaced did.
+            case .colour: colourBody(figure)
             case .template:
                 GeometryReader { proxy in
-                    Self.templatePath(width: Double(proxy.size.width), height: Double(proxy.size.height), pose: pose)
+                    Self.templatePath(figure, mapping: Mapping(width: Double(proxy.size.width), height: Double(proxy.size.height)),
+                                      window: pose.faceWindow)
                         .fill(style: FillStyle(eoFill: true))
                 }
             }
@@ -121,78 +144,202 @@ struct DarumaView: View, Animatable {
         .accessibilityHidden(true)
     }
 
-    /// The small mark as one even-odd path: the body, the face cut out of it, the eye's ring
-    /// inside the face, and the ring's hole closing as it fills. Each lies inside the last, so
-    /// even-odd alternates ink and paper without ever drawing ink twice — the foreground ink is
-    /// translucent, and a disc over its own ring darkened the overlap.
-    static func templatePath(width: Double, height: Double, pose: DarumaPose) -> Path {
-        let unit = min(width, height) / 100
-        let left = (width - 100 * unit) / 2, top = (height - 100 * unit) / 2
-        func box(_ x: Double, _ y: Double, _ w: Double, _ h: Double) -> PointRect {
-            PointRect(x: left + x * unit, y: top + y * unit, width: w * unit, height: h * unit)
+    /// Maps the 100-unit box onto a canvas, centred, its shorter side filled.
+    struct Mapping {
+        let unit: Double, left: Double, top: Double
+        init(width: Double, height: Double) {
+            unit = min(width, height) / 100
+            left = (width - 100 * unit) / 2
+            top = (height - 100 * unit) / 2
         }
-        func circle(_ x: Double, _ y: Double, _ r: Double) -> Path {
-            Path(ellipseIn: CGGeometryBridge.rect(from: box(x - r, y - r, 2 * r, 2 * r)))
+        init(unit: Double, left: Double, top: Double) {
+            self.unit = unit
+            self.left = left
+            self.top = top
         }
-        var path = Path(CGGeometryBridge.darumaOutline(in: box(0, 0, 100, 100)))
-        path.addPath(Path(ellipseIn: CGGeometryBridge.rect(from: box(21, 25, 58, 44))))
-        let eye = templateEye(pose)
-        path.addPath(circle(eye.x, eye.y, 11.3))
-        if pose.recordFill < 1 { path.addPath(circle(eye.x, eye.y, 6.7 * (1 - pose.recordFill))) }
-        if pose.waitingPainted { path.addPath(circle(38, eye.y, 9)) }
+        func x(_ v: Double) -> Double { left + v * unit }
+        func y(_ v: Double) -> Double { top + v * unit }
+    }
+
+    static func bodyPath(_ f: DarumaFigure, _ m: Mapping) -> Path {
+        Path(CGGeometryBridge.darumaBody(width: f.bodyWidth, height: f.bodyHeight, crown: f.crown,
+                                         in: PointRect(x: m.left, y: m.top, width: 100 * m.unit, height: 100 * m.unit)))
+    }
+
+    static func facePath(_ f: DarumaFigure, _ m: Mapping) -> Path {
+        Path(CGGeometryBridge.ellipse(centreX: m.x(f.face.x), centreY: m.y(f.face.y),
+                                      radiusX: f.face.rx * m.unit, radiusY: f.face.ry * m.unit, tilt: f.face.tilt))
+    }
+
+    /// One eye as a fillable shape: a pill, a disc for the record eye, a band along an arc for a
+    /// closed or smiling one.
+    static func eyePath(_ e: DarumaFigure.EyeMark, _ m: Mapping) -> Path {
+        let x = m.x(e.x), y = m.y(e.y), u = m.unit
+        switch e.kind {
+        case .open, .sad:
+            return Path(CGGeometryBridge.pill(centreX: x, centreY: y, width: e.width * u, height: e.height * u, tilt: e.tilt))
+        case .record:
+            let r = e.width * 0.8 * u
+            return Path(CGGeometryBridge.ellipse(centreX: x, centreY: y, radiusX: r, radiusY: r, tilt: 0))
+        case .closed:
+            return Path(CGGeometryBridge.strokedArc(fromX: x - e.width / 2 * u, fromY: y - 0.5 * u, controlX: x, controlY: y + 3 * u,
+                                                    toX: x + e.width / 2 * u, toY: y - 0.5 * u, lineWidth: 2.6 * u))
+        case .happy:
+            return Path(CGGeometryBridge.strokedArc(fromX: x - e.width / 2 * u, fromY: y + 2 * u, controlX: x, controlY: y - 5 * u,
+                                                    toX: x + e.width / 2 * u, toY: y + 2 * u, lineWidth: 3 * u))
+        }
+    }
+
+    /// The small mark as one even-odd path: the body, the face cut out of it, the eyes inside the
+    /// face. Each lies inside the last, so even-odd alternates ink and paper without drawing ink
+    /// twice — the foreground ink is translucent.
+    static func templatePath(_ f: DarumaFigure, width: Double, height: Double) -> Path {
+        templatePath(f, mapping: Mapping(width: width, height: height))
+    }
+
+    /// The same at any mapping, with the eye at `omitting` left out — the menu bar draws the lit
+    /// record eye itself, in red.
+    static func templatePath(_ f: DarumaFigure, mapping m: Mapping, omitting: Int? = nil, window: Bool = true) -> Path {
+        var path = bodyPath(f, m)
+        // With a window the eyes are ink in a hole; without one they are holes in the body.
+        if window { path.addPath(facePath(f, m)) }
+        for (i, eye) in f.eyes.enumerated() where i != omitting { path.addPath(eyePath(eye, m)) }
         return path
     }
 
-    private var colour: some View {
+    private func colourBody(_ f: DarumaFigure) -> some View {
         Canvas { context, size in
-            let unit = min(Double(size.width), Double(size.height)) / 100
-            let left = (Double(size.width) - 100 * unit) / 2, top = (Double(size.height) - 100 * unit) / 2
-            /// A rectangle in the mark's 100-unit box, on this canvas.
-            func box(_ x: Double, _ y: Double, _ width: Double, _ height: Double) -> PointRect {
-                PointRect(x: left + x * unit, y: top + y * unit, width: width * unit, height: height * unit)
-            }
-            func circle(_ x: Double, _ y: Double, _ r: Double) -> Path {
-                Path(ellipseIn: CGGeometryBridge.rect(from: box(x - r, y - r, 2 * r, 2 * r)))
-            }
-            let outline = Path(CGGeometryBridge.darumaOutline(in: box(0, 0, 100, 100)))
-            // The eyes glance together, three units at most — inside the face at any glance.
-            let shift = pose.look * 3, drop = pose.attending * 2
-            let dark = scheme == .dark
-            let ink = dark ? Palette.Brand.paper : Palette.Brand.sumi
-            let body = icon == .vermilion ? Palette.Brand.shuNuri : ink
-            let face = dark ? Palette.Brand.sumi : Palette.RGB(hex: 0xFFFFFF)
-            context.fill(outline, with: .color(body.color))
-            context.fill(Path(ellipseIn: CGGeometryBridge.rect(from: box(25, 26.5, 50, 39))),
-                         with: .color(face.color))
-            let red = Color(Signal.record)
+            let m = Mapping(width: Double(size.width), height: Double(size.height))
+            let tones = colour.tones(dark: scheme == .dark, window: pose.faceWindow)
+            let body = Self.bodyPath(f, m)
+            context.fill(body, with: .color(tones.body.color))
+            // A flat character with one soft highlight on its crown, as light falls on a lacquered
+            // daruma — no gradient, which a Canvas would need a point type for.
+            let shine = Path(CGGeometryBridge.ellipse(centreX: m.x(40), centreY: m.y(22 + (1 - f.bodyHeight) * 82),
+                                                      radiusX: 11 * m.unit, radiusY: 5 * m.unit, tilt: -12))
+            context.fill(shine, with: .color(.white.opacity(0.18)))
             if rimmed {
-                context.stroke(outline, with: .color(Palette.Brand.washi.color), lineWidth: 1.6 * unit)
+                context.stroke(body, with: .color(Palette.Brand.washi.color), lineWidth: 1.6 * m.unit)
             }
-            // **Counting, the eye's own ring is the timer**: a faint track, and in full red what
-            // is left of this second. A second ring round the eye, the menu bar's arrangement,
-            // read as a target at this size and crowded the face's edge (seen 2026-10-25).
-            if let ring = pose.countRing {
-                context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red.opacity(0.3)),
-                               lineWidth: 3.4 * unit)
-                let arc = CGGeometryBridge.countdownArc(centreX: left + (60 + shift) * unit,
-                                                        centreY: top + (46 + drop) * unit,
-                                                        radius: 7.5 * unit, remaining: ring)
-                context.stroke(Path(arc), with: .color(red),
-                               style: StrokeStyle(lineWidth: 3.4 * unit, lineCap: .round))
-            } else {
-                context.stroke(circle(60 + shift, 46 + drop, 7.5), with: .color(red), lineWidth: 3.4 * unit)
+            if pose.faceWindow { context.fill(Self.facePath(f, m), with: .color(tones.face.color)) }
+            let red = Color(Signal.record)
+            for eye in f.eyes {
+                if eye.kind == .record {
+                    // The lit eye glows a little, as the record light does.
+                    let r = eye.width * 0.8 * m.unit
+                    let halo = Path(CGGeometryBridge.ellipse(centreX: m.x(eye.x), centreY: m.y(eye.y),
+                                                             radiusX: r * 1.6, radiusY: r * 1.6, tilt: 0))
+                    context.fill(halo, with: .color(red.opacity(0.22)))
+                    // On the body there is no white window behind it, and red on vermilion is
+                    // lost: a washi ring holds the record eye apart from any body.
+                    if !pose.faceWindow {
+                        let ring = Path(CGGeometryBridge.ellipse(centreX: m.x(eye.x), centreY: m.y(eye.y),
+                                                                 radiusX: r * 1.3, radiusY: r * 1.3, tilt: 0))
+                        context.fill(ring, with: .color(Palette.Brand.washi.color))
+                    }
+                    context.fill(Self.eyePath(eye, m), with: .color(red))
+                } else {
+                    context.fill(Self.eyePath(eye, m), with: .color(tones.eye.color))
+                }
             }
-            if pose.recordFill > 0 {
-                context.fill(circle(60 + shift, 46 + drop, 7.5 * pose.recordFill), with: .color(red))
+            // The countdown's ring round the right eye: a faint track, and what is left of this
+            // second in full red, from twelve o'clock, clockwise.
+            if let ring = pose.countRing, let eye = f.eyes.last {
+                let radius = (max(eye.width, eye.height) / 2 + 3.2) * m.unit
+                let track = Path(CGGeometryBridge.ellipse(centreX: m.x(eye.x), centreY: m.y(eye.y),
+                                                          radiusX: radius, radiusY: radius, tilt: 0))
+                context.stroke(track, with: .color(red.opacity(0.28)), lineWidth: 2.2 * m.unit)
+                let arc = CGGeometryBridge.countdownArc(centreX: m.x(eye.x), centreY: m.y(eye.y), radius: radius, remaining: ring)
+                context.stroke(Path(arc), with: .color(red), style: StrokeStyle(lineWidth: 2.2 * m.unit, lineCap: .round))
             }
-            let waiting = circle(40 + shift, 46 + drop, 7.5)
-            if pose.waitingPainted {
-                context.fill(waiting, with: .color(ink.color))
-            } else {
-                let dash = 2 * Double.pi * 7.5 * unit / 20
-                context.stroke(waiting, with: .color(ink.color),
-                               style: StrokeStyle(lineWidth: 2.6 * unit, dash: [dash, dash]))
-            }
+        }
+    }
+}
+
+/// When the character blinks and how it breathes, as functions of time — **deterministic**, so
+/// the app reads no randomness: each 3.6-second period blinks once at an offset hashed from the
+/// period's index, and one period in five blinks twice.
+enum DarumaLife {
+    static func blink(at t: Double) -> Double {
+        let period = 3.6, n = (t / period).rounded(.down)
+        func hash(_ seed: Double) -> Double { let v = sin(n * seed) * 43_758.5453; return v - v.rounded(.down) }
+        var d = t - (n * period + hash(12.9898) * 2.2)
+        if hash(78.233) < 0.2, d > 0.32 { d -= 0.32 }
+        let x = d / 0.13
+        guard x >= 0, x < 2 else { return 1 }
+        return max(x < 1 ? 1 - x : x - 1, 0.06)
+    }
+
+    static func breath(at t: Double) -> Double { sin(t * 1.8) * 0.012 }
+
+    /// Where to look for a pointer at screen point (`px`, `py`, y up) from a character whose frame
+    /// on screen is `frame` (y up): toward it, harder the farther it is, up to 1.
+    static func gaze(pointerX px: Double, pointerY py: Double, from frame: PointRect) -> (yaw: Double, pitch: Double) {
+        let dx = px - (frame.x + frame.width / 2), dy = (frame.y + frame.height / 2) - py
+        let d = max((dx * dx + dy * dy).squareRoot(), 0.001), k = min(1, d / 320)
+        return (dx / d * k, dy / d * k)
+    }
+}
+
+/// The character alive: it blinks, breathes, and — where it is asked to — looks at the pointer
+/// when nothing else tells it where to look. Its colour is the person's choice unless the caller
+/// gives one. Under Reduce Motion it is still: no blink, no breath, eyes that move without
+/// travelling.
+struct LivingDaruma: View {
+    var pose: DarumaPose = .resting
+    var style: DarumaView.Style = .colour
+    var colour: DarumaColour?
+    var followsPointer = false
+    var rimmed = false
+    @AppStorage(DarumaColour.defaultsKey) private var chosen = DarumaColour.vermilion
+    @AppStorage(DarumaFaceStyle.defaultsKey) private var faceStyle = DarumaFaceStyle.window
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var place = ScreenPlace()
+
+    var body: some View {
+        // The timeline only says WHEN to redraw; the time itself is minted, as the app's every
+        // clock reading is (`Minting`, rule 3).
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { _ in
+            let t = Double(Minting.continuousNow().rawValue) / 1_000_000_000
+            DarumaView(pose: shown(), colour: colour ?? chosen, style: style, rimmed: rimmed,
+                       blink: reduceMotion ? 1 : DarumaLife.blink(at: t),
+                       breath: reduceMotion ? 0 : DarumaLife.breath(at: t))
+                .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.78), value: shown())
+        }
+        .background(ScreenPlaceReader(place: place))
+    }
+
+    /// The pose, its gaze taken from the pointer when it is asked to follow and the pose itself
+    /// looks straight ahead.
+    private func shown() -> DarumaPose {
+        var pose = pose
+        pose.faceWindow = faceStyle == .window
+        guard followsPointer, pose.yaw == 0, pose.pitch == 0, let frame = place.frame else { return pose }
+        let pointer = NSEvent.mouseLocation
+        (pose.yaw, pose.pitch) = DarumaLife.gaze(pointerX: Double(pointer.x), pointerY: Double(pointer.y), from: frame)
+        return pose
+    }
+}
+
+/// Where a view is on screen, kept in an object so reading it does not redraw anything.
+@MainActor final class ScreenPlace { var frame: PointRect? }
+
+/// Writes its own frame on screen (y up) into a `ScreenPlace` whenever it is laid out.
+private struct ScreenPlaceReader: NSViewRepresentable {
+    let place: ScreenPlace
+
+    func makeNSView(context: Context) -> Reader { Reader(place: place) }
+    func updateNSView(_ view: Reader, context: Context) { view.record() }
+
+    final class Reader: NSView {
+        let place: ScreenPlace
+        init(place: ScreenPlace) { self.place = place; super.init(frame: .zero) }
+        required init?(coder: NSCoder) { nil }
+        override func layout() { super.layout(); record() }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); record() }
+        func record() {
+            guard let window else { return }
+            place.frame = CGGeometryBridge.pointRect(from: window.convertToScreen(convert(bounds, to: nil)))
         }
     }
 }

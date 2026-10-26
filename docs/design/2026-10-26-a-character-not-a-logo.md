@@ -58,3 +58,31 @@ Reduce Motion: the eyes move without travelling, the glow does not breathe, no h
 The body, and whether the character replaces the menu bar's template mark (it would need a
 template-ink version at 18 points) or lives only in the notch, the countdown, the permissions page
 and the empty editor.
+
+## Built (2026-10-26)
+
+The owner chose the face window, then asked for both faces as a choice, vermilion by default and
+every colour designed; for the face window to turn with the gaze; and for the eyes to stand apart.
+
+- **One figure, in Core.** `DarumaBodyCurve` (Geometry) is the body's four curves, the one
+  statement of the shape; `DarumaFigure` (Render) is the geometry one face draws — the face window
+  on the body's sphere, the eyes on the face's — pure, and tested in Core where it runs without the
+  app: the face stays on the body and the eyes in the face at ten gazes, wide-eyed; looking aside
+  moves and narrows the whole face (red with the face held still); the eyes stand at least an
+  eye-width apart and a smile's arcs do not meet (red at the first spacing, 0.28, which the owner
+  saw touching); up is shorter than down, because the crown narrows and the face left the body at
+  up-and-aside until it was.
+- **The app draws it** (`DarumaView`): flat colour with one highlight, the face window or eyes on the
+  body, the record eye red with a washi ring where there is no white window behind it; the template
+  as one even-odd path. **`LivingDaruma`** blinks on a hashed schedule (the app reads no randomness),
+  breathes, and looks at the pointer in the notch, the countdown, the permissions page and the
+  empty editor; its clock is `Minting`'s — a first version read `timeIntervalSinceReferenceDate`
+  and the ambient-value scan stopped it.
+- **The menu bar's mark is drawn** from the same figure (`DarumaMark`), template while nothing
+  records, the record eye red while it does, a red ring counting down — tested in its pixels (red
+  with the record eye taken out). The baked images and `make-daruma-marks.swift` are gone.
+- **Settings → Character** chooses the colour — vermilion, ink, paper, gold, or the appearance's
+  ink — and the face. Each colour is designed for both faces: on the body, sumi eyes on vermilion,
+  gold and paper, paper eyes on ink.
+- **The brand kit** in `assets/` and the app's icon are drawn by `scripts/make-character-assets.sh`
+  from the figure, through a Core generator that runs only when asked.

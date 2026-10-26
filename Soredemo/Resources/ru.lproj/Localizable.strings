@@ -793,7 +793,7 @@
 "App icon" = "Значок приложения";
 "Black" = "Чёрный";
 "Vermilion" = "Киноварь";
-"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Dock показывает его, пока Soredemo открыт. Finder и Launchpad оставляют чёрного даруму: macOS не может изменить собственный значок приложения, не нарушив его подпись.";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature." = "Dock показывает его, пока Soredemo открыт. Finder и Launchpad оставляют киноварного даруму: macOS не может изменить собственный значок приложения, не нарушив его подпись.";
 "Time" = "Время";
 "Known after this Mac's first export in this format." = "Станет известно после первого экспорта этого Mac в этом формате.";
 "a few seconds" = "несколько секунд";
@@ -803,3 +803,8 @@
 "about an hour" = "около часа";
 "about %lld hours" = "около %lld ч";
 "Steps appear here as you click." = "Шаги появляются здесь по мере нажатий.";
+"Character" = "Персонаж";
+"Match Appearance" = "Как оформление";
+"Face" = "Лицо";
+"Face window" = "Окно лица";
+"Eyes on the body" = "Глаза на теле";

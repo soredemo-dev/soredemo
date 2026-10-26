@@ -809,7 +809,7 @@
 "App icon" = "App 圖示";
 "Black" = "墨黑";
 "Vermilion" = "朱紅";
-"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo 開著時，Dock 會顯示它。Finder 與啟動台仍是黑色達摩：macOS 無法在不破壞簽章的情況下更改 App 自己的圖示。";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature." = "Soredemo 開著時，Dock 會顯示它。Finder 與啟動台仍是朱紅達摩：macOS 無法在不破壞簽章的情況下更改 App 自己的圖示。";
 "Time" = "時間";
 "Known after this Mac's first export in this format." = "這台 Mac 第一次用這個格式匯出後就會知道。";
 "a few seconds" = "幾秒";
@@ -819,3 +819,8 @@
 "about an hour" = "約一小時";
 "about %lld hours" = "約 %lld 小時";
 "Steps appear here as you click." = "點擊的步驟會出現在這裡。";
+"Character" = "角色";
+"Match Appearance" = "跟隨外觀";
+"Face" = "臉";
+"Face window" = "達摩臉窗";
+"Eyes on the body" = "眼睛在身上";

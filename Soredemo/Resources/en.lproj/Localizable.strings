@@ -809,7 +809,7 @@
 "App icon" = "App icon";
 "Black" = "Black";
 "Vermilion" = "Vermilion";
-"The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature." = "The Dock shows it while Soredemo is open. Finder and Launchpad keep the black daruma: macOS cannot change an app's own icon without breaking its signature.";
+"The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature." = "The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature.";
 "Time" = "Time";
 "Known after this Mac's first export in this format." = "Known after this Mac's first export in this format.";
 "a few seconds" = "a few seconds";
@@ -819,3 +819,8 @@
 "about an hour" = "about an hour";
 "about %lld hours" = "about %lld hours";
 "Steps appear here as you click." = "Steps appear here as you click.";
+"Character" = "Character";
+"Match Appearance" = "Match Appearance";
+"Face" = "Face";
+"Face window" = "Face window";
+"Eyes on the body" = "Eyes on the body";

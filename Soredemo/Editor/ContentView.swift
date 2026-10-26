@@ -49,7 +49,7 @@ struct ContentView: View {
                     Label {
                         Text("Nothing open")
                     } icon: {
-                        DarumaView(style: .template).frame(width: 44, height: 44)
+                        LivingDaruma(style: .template, followsPointer: true).frame(width: 44, height: 44)
                     }
                 } description: {
                     Text("Start a recording from the menu bar.")
