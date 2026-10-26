@@ -1,14 +1,14 @@
 import AppKit
 
-/// Which daruma the Dock shows: the vermilion one the app ships with since 2026-10-26, or the
-/// ink one.
+/// Which daruma the Dock shows: the vermilion one with its face window the app ships with since
+/// 2026-10-26, the vermilion one with its eyes on the body, or the ink one.
 ///
 /// **The Dock only, while Soredemo is open.** macOS has no alternate-icon API for a Mac app, and
 /// changing the icon of the app's own bundle writes into a signed bundle and breaks its signature,
 /// so Finder and Launchpad keep the vermilion daruma; Settings says so beside the choice.
 /// `docs/design/2026-10-25-a-vermilion-icon.md`.
 enum AppIconChoice: String, CaseIterable, Sendable {
-    case black, vermilion
+    case vermilion, bare, black
 
     static let defaultsKey = "appIcon"
 
@@ -20,8 +20,9 @@ enum AppIconChoice: String, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
+        case .vermilion: "Face window"
+        case .bare: "Eyes on the body"
         case .black: "Ink"
-        case .vermilion: "Vermilion"
         }
     }
 
@@ -30,6 +31,16 @@ enum AppIconChoice: String, CaseIterable, Sendable {
     var imageName: String? {
         switch self {
         case .vermilion: nil
+        case .bare: "AppIconBare"
+        case .black: "AppIconInk"
+        }
+    }
+
+    /// Settings' thumbnail of each choice, the face window's included.
+    var previewName: String {
+        switch self {
+        case .vermilion: "AppIconWindow"
+        case .bare: "AppIconBare"
         case .black: "AppIconInk"
         }
     }

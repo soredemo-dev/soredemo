@@ -73,6 +73,7 @@ for expression in assets/svg/expressions/*.svg; do
 done
 render assets/svg/soredemo-app-icon.svg assets/png/soredemo-app-icon-1024.png 1024 1024
 render assets/svg/soredemo-app-icon-ink.svg assets/png/soredemo-app-icon-ink-1024.png 1024 1024
+render assets/svg/soredemo-app-icon-bare.svg assets/png/soredemo-app-icon-bare-1024.png 1024 1024
 render assets/svg/soredemo-menubar-template.svg assets/png/menubar/menubarTemplate.png 18 18
 render assets/svg/soredemo-menubar-template.svg assets/png/menubar/menubarTemplate@2x.png 36 36
 for size in 16 32 48 64 128 256 512; do
@@ -86,8 +87,8 @@ for name in soredemo-wordmark soredemo-japanese-wordmark soredemo-horizontal-loc
   done
 done
 
-# The app's own icon: Icon Composer's two layers, the fallback set's ten sizes, and the ink
-# icon a person can choose instead (AppIconChoice).
+# The app's own icon: Icon Composer's two layers, the fallback set's ten sizes, and one image per
+# icon a person can choose (AppIconChoice) — the face window's for Settings' thumbnail.
 cp "$work/kit/icon/body.svg" "$work/kit/icon/eyes.svg" Soredemo/Resources/AppIcon.icon/Assets/
 set=Soredemo/Resources/Assets.xcassets/AppIcon.appiconset
 for spec in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x 128:icon_128x128 256:icon_128x128@2x \
@@ -95,20 +96,23 @@ for spec in 16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x 128:ic
   render assets/svg/soredemo-app-icon.svg "$set/${spec#*:}.png" ${spec%%:*} ${spec%%:*}
 done
 rm -rf Soredemo/Resources/Assets.xcassets/AppIconVermilion.imageset
-alt=Soredemo/Resources/Assets.xcassets/AppIconInk.imageset
-mkdir -p $alt
-render assets/svg/soredemo-app-icon-ink.svg $alt/app-icon-ink-512.png 512 512
-render assets/svg/soredemo-app-icon-ink.svg $alt/app-icon-ink-1024.png 1024 1024
-cat > $alt/Contents.json <<'JSON'
+for spec in Window: Bare:-bare Ink:-ink; do
+  alt=Soredemo/Resources/Assets.xcassets/AppIcon${spec%%:*}.imageset suffix=${spec#*:}
+  mkdir -p $alt
+  render assets/svg/soredemo-app-icon$suffix.svg $alt/app-icon-512.png 512 512
+  render assets/svg/soredemo-app-icon$suffix.svg $alt/app-icon-1024.png 1024 1024
+  rm -f $alt/app-icon-ink-512.png $alt/app-icon-ink-1024.png
+  cat > $alt/Contents.json <<'JSON'
 {
   "images" : [
-    { "filename" : "app-icon-ink-512.png", "idiom" : "universal", "scale" : "1x" },
-    { "filename" : "app-icon-ink-1024.png", "idiom" : "universal", "scale" : "2x" }
+    { "filename" : "app-icon-512.png", "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "app-icon-1024.png", "idiom" : "universal", "scale" : "2x" }
   ],
   "info" : { "author" : "xcode", "version" : 1 },
   "properties" : { "template-rendering-intent" : "original" }
 }
 JSON
+done
 
 # favicon.ico: the 16–256 PNGs, each stored whole (an ICO may carry PNG images).
 python3 -I - <<'PY'

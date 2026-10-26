@@ -85,6 +85,25 @@ private func svg(_ size: Int, _ content: String, viewBox: String = "0 0 100 100"
     return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(size)\" height=\"\(size)\" viewBox=\"\(viewBox)\">\(bg)\(content)</svg>\n"
 }
 
+/// Where the character sits in Icon Composer's 1024 canvas, which the system masks: centred on its
+/// body (50, 52), its height 75% of the canvas, clear of the mask's corners.
+private let iconPlace = "translate(512 522) scale(9.3) translate(-50 -52)"
+/// The icon's grounds: a deep sumi lifted toward the top, and washi for the ink daruma.
+private let iconGroundDark = ("#2A2B32", "#121317"), iconGroundLight = ("#FBFAF7", "#E9E6DE")
+
+/// A 1024 icon: Apple's macOS tile (824 square, radius 185, centred) on its ground, a soft contact
+/// shadow — lighter on a light ground — and the character, its height 78% of the tile.
+private func appIcon(_ character: String, ground: (String, String)) -> String {
+    let defs = "<defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"\(ground.0)\"/><stop offset=\"1\" stop-color=\"\(ground.1)\"/></linearGradient>"
+        + "<filter id=\"s\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\"><feGaussianBlur stdDeviation=\"1.6\"/></filter>"
+        + "<filter id=\"t\" x=\"-10%\" y=\"-10%\" width=\"120%\" height=\"130%\"><feDropShadow dx=\"0\" dy=\"10\" stdDeviation=\"12\" flood-opacity=\"0.3\"/></filter></defs>"
+    let back = "<rect x=\"100\" y=\"100\" width=\"824\" height=\"824\" rx=\"185\" fill=\"url(#g)\" filter=\"url(#t)\"/>"
+    let place = "translate(512 520) scale(7.8) translate(-50 -52)"
+    let depth = ground == iconGroundLight ? "0.16" : "0.35"
+    let shadow = "<ellipse cx=\"50\" cy=\"93.5\" rx=\"30\" ry=\"3.2\" fill=\"#000000\" opacity=\"\(depth)\" filter=\"url(#s)\"/>"
+    return svg(1024, defs + back + "<g transform=\"\(place)\">\(shadow)\(character)</g>", viewBox: "0 0 1024 1024")
+}
+
 private let looking = DarumaFace(yaw: 0.45, pitch: 0.2)
 private let recording = DarumaFace(right: .record)
 
@@ -113,15 +132,21 @@ private let recording = DarumaFace(right: .record)
     for (name, face) in faces {
         try write("svg/expressions/soredemo-character-\(name).svg", svg(100, characterGroup(face, vermilion)))
     }
-    // The app icon: the vermilion character on washi; the ink one is the alternative a person
-    // can choose. The square the OS masks.
-    let icon = "<g transform=\"translate(512 532) scale(9.0) translate(-50 -52)\">\(characterGroup(recording, vermilion))</g>"
-    try write("svg/soredemo-app-icon.svg", svg(1024, icon, viewBox: "0 0 1024 1024", background: washi))
-    let iconInk = "<g transform=\"translate(512 532) scale(9.0) translate(-50 -52)\">\(characterGroup(recording, ink))</g>"
-    try write("svg/soredemo-app-icon-ink.svg", svg(1024, iconInk, viewBox: "0 0 1024 1024", background: washi))
+    // The app icons, after the owner's reference (Grok Bot's): the character flat and large,
+    // nearly filling the tile, on one deep ground. The face window is the bundle's icon; the eyes
+    // on the body and the ink daruma are the alternatives a person can choose (AppIconChoice).
+    // On the macOS tile, for the fallback set, the Dock and Settings' thumbnails; Icon
+    // Composer's layers below are the bundle's icon on macOS 26.
+    let icons: [(String, DarumaFace, Tone)] = [("", recording, vermilion),
+                                               ("-bare", DarumaFace(right: .record, faceWindow: false), vermilion),
+                                               ("-ink", recording, ink)]
+    for (suffix, face, tone) in icons {
+        let ground = tone.name == "ink" ? iconGroundLight : iconGroundDark
+        try write("svg/soredemo-app-icon\(suffix).svg", appIcon(characterGroup(face, tone), ground: ground))
+    }
     // The app icon's layers for Icon Composer: the body with its window, and the eyes — two
     // groups so the system can give the eyes their own depth. Same placement as the square icon.
-    let place = "translate(512 532) scale(9.0) translate(-50 -52)"
+    let place = iconPlace
     let figure = DarumaFigure.make(recording)
     var bodyLayer = "<path d=\"\(bodyPath(figure))\" fill=\"\(shuNuri)\"/>"
     bodyLayer += "<ellipse cx=\"\(n(figure.face.x))\" cy=\"\(n(figure.face.y))\" rx=\"\(n(figure.face.rx))\" ry=\"\(n(figure.face.ry))\" fill=\"#FFFFFF\"/>"

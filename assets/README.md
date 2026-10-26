@@ -18,7 +18,7 @@ figure and run the script.
 
 | Use | File |
 | --- | --- |
-| App icon (vermilion; the ink one is the alternative) | `svg/soredemo-app-icon.svg`, `png/soredemo-app-icon-1024.png`, `-ink` |
+| App icon — face window (the bundle's), eyes on the body, ink | `svg/soredemo-app-icon.svg`, `-bare`, `-ink`; `png/soredemo-app-icon*-1024.png` |
 | The character | `svg/soredemo-character.svg`, `png/character/soredemo-character-*.png` (32–2048 px) |
 | Every colour, both faces | `svg/colours/soredemo-character-{shu,ink,paper,gold}[-bare].svg` and PNGs |
 | One colour | `svg/soredemo-character-black.svg`, `-white.svg` |

@@ -86,3 +86,13 @@ every colour designed; for the face window to turn with the gaze; and for the ey
   gold and paper, paper eyes on ink.
 - **The brand kit** in `assets/` and the app's icon are drawn by `scripts/make-character-assets.sh`
   from the figure, through a Core generator that runs only when asked.
+
+## The app icon, after Grok Bot's (2026-10-26)
+
+The owner asked for the icon to follow Grok Bot's, and for the eyes-on-the-body face to be an icon a
+person can choose. What that reference does: one flat character, nearly filling the tile, on one
+deep ground, no frame or scene. So: the vermilion daruma at 78% of Apple's 824 macOS tile on a sumi
+ground lifted toward the top, a soft contact shadow under it; Icon Composer's layers the same on a
+sumi fill, at 75% of the canvas so the mask's corners stay clear. `AppIconChoice` is three: the face
+window (the bundle's), the eyes on the body, and the ink daruma on washi — Settings shows each as a
+thumbnail beside the picker, and the labels are the face picker's own words.

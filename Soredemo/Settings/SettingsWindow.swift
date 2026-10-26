@@ -96,6 +96,16 @@ struct SettingsWindow: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: appIcon) { appIcon.apply() }
+            HStack(spacing: Space.regular) {
+                ForEach(AppIconChoice.allCases, id: \.self) { choice in
+                    Image(choice.previewName)
+                        .resizable()
+                        .frame(width: 56, height: 56)
+                        .opacity(choice == appIcon ? 1 : 0.45)
+                        .onTapGesture { appIcon = choice }
+                        .accessibilityHidden(true)
+                }
+            }
             Text("The Dock shows it while Soredemo is open. Finder and Launchpad keep the vermilion daruma: macOS cannot change an app's own icon without breaking its signature.")
                 .font(Type.detail).foregroundStyle(.secondary)
             // **The character's colour, the person's to choose** — or the theme's ink, which is
