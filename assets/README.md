@@ -1,39 +1,40 @@
-# Soredemo Brand Kit v2
+# Soredemo Brand Kit v3 — the daruma, a character
 
-The mark is a **daruma**. It falls over and stands up again, 七転び八起き, which is
-what それでも ("even so") means.
+The mark is a **daruma** — it falls over and stands up again, 七転び八起き, which is what
+それでも ("even so") means — drawn since 2026-10-26 as a **character**: a round body, and pill
+eyes that look, blink and change with what the app is doing. Every file here is drawn by
+`scripts/make-character-assets.sh` from the app's own figure (`Core/Sources/Render/DarumaFigure.swift`),
+so the website's daruma and the app's are one geometry. Do not edit them by hand; change the
+figure and run the script.
 
-- One eye is painted, and it is the **record button**: a red ring on the viewer's
-  right, the eye tradition paints first.
-- The other eye waits as a **dashed ring**. It is painted in when the work is
-  done (目入れ).
-- No eyebrows, no beard, no lettering on the body.
+- **The right eye is the record button.** While a take runs it is lit in the record red — the eye
+  tradition paints first. When the work is done both eyes smile (目入れ).
+- **Two faces**: the daruma's white face window with the eyes in it, or the eyes straight on the
+  body. The window is the default; a person chooses in the app's Settings.
+- **Vermilion by default**, the traditional daruma; ink, paper and gold are designed too, each for
+  both faces.
 
 ## Assets
 
 | Use | File |
 | --- | --- |
-| App icon | `svg/soredemo-app-icon.svg`, `png/soredemo-app-icon-1024.png` (square; let the OS mask it) |
-| Logomark, light background | `svg/soredemo-logomark.svg` |
-| Logomark, dark background | `svg/soredemo-logomark-dark.svg` |
-| Logomark, vermilion (朱紅) | `svg/soredemo-logomark-shu.svg`, `png/logomark/soredemo-logomark-shu-*.png` |
-| App icon, vermilion | `svg/soredemo-app-icon-shu.svg`, `png/soredemo-app-icon-shu-1024.png` |
-| One colour | `svg/soredemo-logomark-black.svg`, `-white.svg` |
+| App icon (vermilion; the ink one is the alternative) | `svg/soredemo-app-icon.svg`, `png/soredemo-app-icon-1024.png`, `-ink` |
+| The character | `svg/soredemo-character.svg`, `png/character/soredemo-character-*.png` (32–2048 px) |
+| Every colour, both faces | `svg/colours/soredemo-character-{shu,ink,paper,gold}[-bare].svg` and PNGs |
+| One colour | `svg/soredemo-character-black.svg`, `-white.svg` |
+| Expressions | `svg/expressions/` — resting, looking, recording, paused, done, asleep, sad |
 | macOS menu bar (template) | `svg/soredemo-menubar-template.svg`, `png/menubar/menubarTemplate.png` / `@2x` |
 | Website header | `svg/soredemo-horizontal-lockup-black.svg` / `-white.svg` |
 | Wordmark | `svg/soredemo-wordmark-*.svg`, `svg/soredemo-japanese-wordmark-*.svg` |
-| Favicon | `favicon/favicon.svg` (follows the browser's dark mode), `favicon/favicon.ico`, `favicon/favicon-*.png` |
-| PNGs of the logomark | `png/logomark/` at 32–2048 px |
-| Palette | `svg/soredemo-color-palette.svg`, `tokens/` (brand and app values) |
+| Favicon | `favicon/favicon.svg`, `favicon/favicon.ico`, `favicon/favicon-*.png` |
+| Preview | `preview/soredemo-brand-preview.png` |
+| Palette | `svg/soredemo-color-palette.svg`, `tokens/` |
 
 ## Sizes
 
-- **32 px and below** use the small optical size: a larger face and eye, and no
-  dashed eye, which is noise at that size. The menu bar template and favicons
-  are drawn this way.
-- **Menu bar**: a template image (alpha only). The face is cut out, so macOS
-  tints it in light and dark menu bars. Recording fills the eye; paused shows
-  two bars.
+- **Menu bar**: a template image (alpha only), the body 88% of an 18-point canvas. With a face
+  window the window is cut out and the eyes are ink in it; without one the eyes are cut out of
+  the body. Recording lights the right eye red; counting down rings it.
 
 ## Colour
 
@@ -42,7 +43,8 @@ what それでも ("even so") means.
   alternative to the black one. The body only: the record eye stays Shu, on the white face.
 - **Washi** `#F4F3EF`: face, background.
 - **Shu** `#FA3D4A`: the record eye only. It is the app's record red.
-- **Kin** `#C8A24A`: only the moment the second eye is painted.
+- **Kin** `#C8A24A`: the gold daruma's body, the count written on the countdown's belly, and the
+  glow when a take is done.
 - **The app's UI** is built from the same four (`Palette.swift`): sumi and washi
   are the panels, **the accent is ink** — washi on the dark theme, sumi on the
   light — and caution is kin's hue. Red is never an interface colour: it is kept
@@ -50,7 +52,8 @@ what それでも ("even so") means.
 
 ## Don't
 
-- Don't add a face, brows, text or effects to the daruma.
+- Don't draw the daruma by hand: run the script, so the app and the kit stay one figure.
 - Don't put the red anywhere but the record eye.
 - Don't swap the eyes: the record eye is on the viewer's right.
+- Don't set the eyes closer than an eye's width apart — they read as one.
 - Keep clear space of about a quarter of the mark's height.

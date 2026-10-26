@@ -30,3 +30,8 @@ the picker. Finder and Launchpad keep the black daruma.
 
 `AppIconChoiceTests`: black is the default and an unknown value is black; vermilion names an image
 the catalog holds (at least 512 points), black names none. Looked at: the Dock with each choice.
+
+**Superseded 2026-10-26.** The vermilion daruma is now the icon the bundle carries and the ink one
+is the alternative (`AppIconChoice.black`, image `AppIconInk`); both are drawn from the character's
+figure by `scripts/make-character-assets.sh`, which replaced `make-daruma-marks.swift` —
+`docs/design/2026-10-26-a-character-not-a-logo.md`.
