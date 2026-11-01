@@ -1,24 +1,71 @@
-# Soredemo
+<p align="center">
+  <img src="assets/png/soredemo-app-icon-1024.png" alt="Soredemo's icon: the daruma, its record eye lit" width="128">
+</p>
 
-**A screen recorder that keeps its reasons.**
+<h1 align="center">Soredemo</h1>
 
-Soredemo records a demo and edits it into something worth watching — the pointer drawn from what
-actually happened, the camera moving to whatever was clicked, and every one of those decisions
-reviewable by the person who made the recording.
+<p align="center">
+  <strong>A screen recorder that keeps its reasons.</strong><br>
+  It lives in your notch, edits your demo from what actually happened — and can tell you why.
+</p>
 
-Every recorder zooms. This one can say why it did not, and let you disagree.
+<p align="center">
+  <sub>七転び、<b>それでも</b>、八起き — down seven times, <i>even so</i>, up the eighth.</sub>
+</p>
 
-`macOS 26` · `Swift 6.4` · `Apple Silicon` · **local by default** · **zero dependencies** · MIT
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-26%2B-111?style=flat-square" alt="macOS 26 or later">
+  <img src="https://img.shields.io/badge/Apple%20Silicon-only-111?style=flat-square" alt="Apple Silicon">
+  <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=flat-square" alt="Swift 6.4">
+  <img src="https://img.shields.io/badge/dependencies-0-2b7a3d?style=flat-square" alt="Zero dependencies">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT licence">
+</p>
 
----
+<p align="center">
+  <a href="#why-soredemo">Why</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#a-tour">A tour</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-it">Build it</a> ·
+  <a href="#for-contributors">Contributing</a>
+</p>
 
-![The editor: the take on a stage, the timeline below it, the look in the inspector](docs/screenshots/editor.png)
+![A real take played into a zoom: 2.75× onto the control that was clicked, its step lit in the timeline, and every zoom's reason listed beside it](docs/screenshots/zoom.png)
 
-## What it looks like
+## Why Soredemo
 
-**It lives in the notch.** Nothing opens until there is something to edit. Point at the notch and
-it offers to record; click and it opens into the recorder; during a take it is the timer, the
-take's last presses, Pause and Stop; when the take ends it says so.
+Every recorder zooms. **This one can say why it did not, and let you disagree.**
+
+- **Derived from what happened, not guessed from pixels.** A recording carries an observation log
+  beside the video — where the pointer was, each click, and the accessibility element under it.
+  The drawn cursor, the zooms and the steps are all worked out from that log.
+- **Every decision is reviewable.** Each zoom names its reason — *framed from the AXButton under
+  the click*, or *fell back to the pointer because the window may have moved* — with **Don't zoom**
+  beside it. Automation proposes; you decide.
+- **It lives in your notch.** Nothing opens until there is something to edit. Point at the notch to
+  record; during a take it is the timer, your last presses, Pause and Stop.
+- **A take leaves as more than a video.** The same recording exports as a step-by-step guide, a
+  click-through walkthrough, or a Final Cut Pro timeline.
+- **Nothing leaves the machine.** No account, no upload, no share button. Transcription runs on the
+  device. See [the publishing rule](#the-rules-that-matter-most).
+- **Native, and small.** Swift and SwiftUI on Apple's own frameworks, zero package dependencies,
+  in ten languages.
+
+## How it works
+
+1. **Choose** — from the notch or the menu bar: a screen, a window, an area you drag out, or an
+   iPhone or iPad plugged in by cable. Your camera's self-view is on screen *before* the count.
+2. **Record** — a daruma counts you down and flies into the notch. <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd>
+   stops it from anywhere.
+3. **Review** — the editor opens with the work done: zooms on what you clicked, the pointer
+   redrawn smoothly, every step named. Disagree with any of it.
+4. **Export** — H.264, HEVC, ProRes 422 or 4444, or GIF; or the take as a guide, a walkthrough, or
+   Final Cut XML.
+
+## A tour
+
+**The notch.** Pointed at, it offers to record; clicked, it opens into the recorder; during a take
+it shows the time, your last presses, Pause and Stop; afterwards it says so.
 
 | Pointed at | Opened — choose, then Record or Screenshot |
 | --- | --- |
@@ -26,47 +73,40 @@ take's last presses, Pause and Stop; when the take ends it says so.
 | **Recording, pointer over it** | **Just finished** |
 | ![The notch during a take: the time, the last presses, Pause and Stop](docs/screenshots/notch-live-expanded.png) | ![The notch after a take: Saved](docs/screenshots/notch-finished.png) |
 
-<img src="docs/screenshots/countdown.png" alt="The countdown: the daruma with the count on its belly and a ring draining round its record eye" width="240" align="right">
+<img src="docs/screenshots/countdown.png" alt="The countdown: the daruma with the count on its belly and a ring draining round its record eye" width="220" align="right">
 
-**The countdown is a daruma.** The count is on its belly and a ring drains round its right eye;
-in the last second the eye is painted in, and the daruma flies up into the notch as the take
-starts. The same character is the app's mark — in the menu bar, in the notch, in the icon — and
-it looks at what you point at, blinks, and closes its eyes for each permission it does not have.
+**The countdown is a daruma.** The count is on its belly and a ring drains round its right eye; in
+the last second the eye is painted in, and the daruma flies up into the notch as the take starts.
+The same character is the app's mark everywhere — it looks at what you point at, blinks, and
+keeps an eye closed for each permission it does not have.
 
 <br clear="right">
 
-**Export settings open from Export**, with the file size and the time estimated before you
-commit — the time measured on this Mac, not assumed.
+**Or from the menu bar**, with the same choices — and Settings, where the character's colour, its
+face and the app's icon are chosen.
+
+| The menu bar's panel | Settings |
+| --- | --- |
+| <img src="docs/screenshots/menu-bar-panel.png" alt="The menu bar panel: Screen, Window or Area, the microphone, camera and countdown, Record and Screenshot" width="300"> | <img src="docs/screenshots/settings.png" alt="Settings: theme, the three app icons, the character's colour and face" width="460"> |
+
+**The editor**, on a real take: six clicks, six zooms, the Steps lane naming what was pressed, and
+the Zooms panel saying for each click why it was framed the way it was.
+
+![The editor on a real take: the Steps lane, six zooms on the timeline, and the Zooms panel listing each click with its reason](docs/screenshots/steps-and-zooms.png)
+
+**Export settings open from Export**, with the size and the time estimated before you commit — the
+time measured on this Mac, not assumed.
 
 ![The export settings: shape, resolution, frame rate, format, quality, the estimated size and time](docs/screenshots/export-settings.png)
 
-These are taken from the app itself by `scripts/make-readme-screenshots.sh`, which opens each
-surface through the app's own verification flags (`--show-notch`, `--show-countdown`,
-`--open-video`) — so they are re-taken, not redrawn, when the interface changes. The clip in the
-editor is this project's own website, scrolled.
+<sub>Every picture here is taken from the app itself by `scripts/make-readme-screenshots.sh`, which
+opens each surface through the app's own verification flags (`--show-notch`, `--show-countdown`,
+`--show-settings`, `--open-video`, `--record-window`) — re-taken, not redrawn, when the interface
+changes. What is recorded is this project's own website, so nobody's screen is in the repository.</sub>
 
----
+## Features
 
-## What it does
-
-Point at a display, a window, or a rectangle you drag out — or an iPhone or iPad plugged in by
-cable. Record it with system audio, a microphone you chose, and a camera whose self-view is on
-screen *before* the countdown starts. Then the editor opens with the work already done: the zooms
-placed on the things you clicked, the pointer redrawn smoothly from real observations, and a
-review panel that will tell you why each click was or was not zoomed to — so you can disagree with
-any of it.
-
-**A recording knows its steps.** Every click is recorded with the name of the control under it,
-read from the accessibility tree, so the timeline has a Steps lane — each step a control clicked
-or a menu item chosen, by its own name — and the take can leave as more than a video:
-
-| Export | What you get |
-| --- | --- |
-| **Guide** | `guide.md`, `guide.html` and a picture per step, each marking what was pressed — written in the interface's own words, not guessed from pixels |
-| **Walkthrough** | One page a viewer clicks through, where the thing to press is a real button |
-| **Final Cut XML** | The edit, for finishing in Final Cut Pro |
-
-**Seven things here that no other recorder we have read does:**
+**Only here** — things no other recorder we have read does:
 
 | | |
 | --- | --- |
@@ -76,71 +116,126 @@ or a menu item chosen, by its own name — and the take can leave as more than a
 | **The cursor tilts as it moves** | A small thing that makes a pointer read as a hand rather than a sprite |
 | **Window-follow capture** | Record a window and it stays framed when you move or resize it |
 | **Speed changes the audio too** | Easy to ship as video-only. This calls `scaleTimeRange` on both tracks |
-| **Nothing leaves the machine** | No account, no upload, no queue that can fail. See *the publishing rule* below |
 
-Plus the things you would expect and should not have to check for: automatic and manual zoom,
-cursor size and smoothing, idle-hide and loop-to-start, click effects, motion blur, backgrounds
-and padding and shadow and rounded corners, a device frame and a card you can lean and turn in 3D,
-crop, cut / split / reorder / re-speed, chapters, on-device transcription with word-timed
-burned-in captions, subtitle files, redactions, text, arrows and shapes, keyboard-shortcut badges,
-desktop icons hidden for the take, screenshots as well as recordings, 16:9 / 9:16 / 1:1, and
-export to H.264, HEVC, ProRes 422, ProRes 4444 or GIF — several exports queued at once. Three app
-icons to choose from in Settings.
+<table>
+<tr><td valign="top" width="50%">
+
+**Record**
+- A display, a window (followed as it moves), an area, or an iPhone/iPad by cable
+- System audio and a microphone on separate tracks; a camera with its self-view shown first
+- A pointer-free master — the cursor is drawn afterwards, from the log
+- Pause and resume; desktop icons hidden for the take
+- Screenshots as well as recordings
+
+**Edit**
+- Automatic and manual zoom, every one explained and reversible
+- Cursor size, smoothing, tilt, idle-hide, loop-to-start, click effects
+- Backgrounds, padding, shadow, corners, a device frame, a card you can lean and turn in 3D
+- Cut, split, reorder, re-speed (audio included), crop, chapters
+- Dead air removed, music ducked under speech, motion blur
+
+</td><td valign="top" width="50%">
+
+**Words**
+- On-device transcription with word-timed, burned-in captions, or subtitle files
+- Text, arrows and shapes anchored to the recording; redactions; shortcut badges
+
+**Export**
+- H.264, HEVC, ProRes 422, ProRes 4444, GIF — at 16:9, 9:16 or 1:1
+- Size and time estimated before you commit; several exports queued
+- **Guide** — `guide.md`, `guide.html` and a picture per step, marking what was pressed
+- **Walkthrough** — one page a viewer clicks through, the thing to press a real button
+- **Final Cut XML** — the edit, for finishing in Final Cut Pro
+
+**Everywhere**
+- Ten languages; three app icons; light and dark
+
+</td></tr>
+</table>
 
 [`docs/research/landscape.md`](docs/research/landscape.md) is the full matrix against the leading
-paid and free recorders, checked against this codebase rather than remembered — and it is equally
-clear about what is *missing*.
+paid and free recorders, checked against this codebase rather than remembered — and just as clear
+about what is *missing*.
 
----
+### Permissions
 
-## Status, honestly
+| Permission | What it is for | Without it |
+| --- | --- | --- |
+| Screen Recording | The picture | No recording |
+| Microphone | Your voice, when a microphone is chosen | A take with a microphone chosen does not start |
+| Input Monitoring | The pointer and clicks, for the drawn cursor and the zooms | The video records; nothing is observed |
+| Accessibility | The name of what was clicked, for steps and framed zooms | Zooms fall back to the pointer, and say so |
 
-**The free recorder is feature-complete; the derivation pipeline is not.**
+Ordinary typing is never recorded — only approved shortcuts such as ⌘C — and secure input stops
+observation entirely.
 
-Recording, editing and export all work end to end, and projects save and reopen. The interface is
-in ten languages — English, German, Spanish, French, Japanese, Korean, Brazilian Portuguese,
-Russian, and Simplified and Traditional Chinese. `scripts/build-release.sh` signs and notarises a Developer ID
-copy.
+### Keyboard
 
-**What is not built:** the derivation graph, title scenes and transitions, and the CLI. Framing decisions
-are made per click but are not yet graph-provenanced, and a portrait export still inherits
-landscape's zoom decisions — both named in [`ROADMAP.md`](ROADMAP.md) on rows that stay `◐` rather
-than being rounded up.
+| Keys | Does |
+| --- | --- |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> | Start or stop a recording, from any app |
+| <kbd>Space</kbd> | Play or pause |
+| <kbd>←</kbd> <kbd>→</kbd> · <kbd>⇧</kbd><kbd>←</kbd> <kbd>⇧</kbd><kbd>→</kbd> | Nudge the playhead, finely or coarsely |
+| <kbd>S</kbd> · <kbd>Delete</kbd> | Split at the playhead · delete the clip |
+| <kbd>I</kbd> · <kbd>O</kbd> · <kbd>⌥</kbd><kbd>I</kbd> | Mark in · mark out · clear the range |
+| <kbd>⌘</kbd><kbd>Z</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>Z</kbd> | Undo · redo |
+| <kbd>⌘</kbd><kbd>=</kbd> · <kbd>⌘</kbd><kbd>-</kbd> · <kbd>⌘</kbd><kbd>0</kbd> | Zoom the timeline in · out · fit |
+| <kbd>⌘</kbd><kbd>S</kbd> · <kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd> | Save · save as |
+| <kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd> | Export the frame under the playhead |
+| <kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd> | Edit captions |
+| <kbd>⌥</kbd><kbd>↑</kbd> <kbd>⌥</kbd><kbd>↓</kbd> | Previous · next caption |
 
-That distinction is the point of this repository. A row is not complete while the behaviour its
-name claims is not observable in the product, and nothing here is marked done because it nearly is.
+## Build it
 
----
-
-## Try it
+There is no signed download yet. Build it with Xcode 27 on macOS 26:
 
 ```bash
 git clone https://github.com/soredemo-dev/soredemo.git
 cd soredemo
-open Soredemo.xcodeproj      # ⌘R
+open Soredemo.xcodeproj      # then ⌘R
 ```
 
-Xcode 27 and macOS 26. [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) explains why the floor is where it
-is — and why you do **not** need a macOS 27 volume.
+[`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) explains why the floor is where it is — and why you do
+**not** need a macOS 27 volume. `scripts/build-release.sh` signs and notarises a Developer ID copy.
 
-Want to contribute? [`CONTRIBUTING.md`](CONTRIBUTING.md) has the four gates and the handful of
-standards that will otherwise surprise you in review.
+## Status, honestly
+
+**The free recorder is feature-complete; the derivation pipeline is not.** Recording, editing and
+export work end to end, and projects save and reopen.
+
+**Not built yet:** the derivation graph, title scenes and transitions, and the CLI. Framing
+decisions are made per click but are not yet graph-provenanced, and a portrait export still
+inherits landscape's zoom decisions — both named in [`ROADMAP.md`](ROADMAP.md) on rows that stay
+`◐` rather than being rounded up.
+
+That distinction is the point of this repository: a row is not complete while the behaviour its
+name claims is not observable in the product, and nothing here is marked done because it nearly is.
 
 ---
 
-## Start here
+## For contributors
 
 **Coding agent:** read [`AGENTS.md`](AGENTS.md) first — it governs everything.
+**Returning:** [`docs/PRODUCT.md`](docs/PRODUCT.md) for why, then [`ROADMAP.md`](ROADMAP.md) for
+what is next. **New:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to build it, the gates, and the
+standards that will otherwise surprise you in review.
 
-**Person returning to this repo:** [`docs/PRODUCT.md`](docs/PRODUCT.md) for why, then
-[`ROADMAP.md`](ROADMAP.md) for what is next.
+### The rules that matter most
 
-**Person arriving for the first time, to contribute:** [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to
-build it, the four gates, and the handful of standards that will otherwise surprise you in review.
+**The completion rule.** A row is not complete while the behaviour its name claims is not observable in
+the product. A pure function with no caller does not satisfy a row that claims a product behaviour.
 
----
+**The producer-value rule.** An authored override always wins over a derived value and is never
+silently replaced. Test it by supplying a value the producer could not have derived.
 
-## The documents
+**The publishing rule.** Nothing this app produces leaves the machine without a person sending it.
+There is no auto-publish, no "approve all", and no share button — and any that is ever proposed
+answers to this rule first.
+
+**Native Liquid Glass only.** App chrome is 100% standard SwiftUI. Never `.glassEffect()`, never
+`NSGlassEffectView`. Content surfaces are deliberately opaque.
+
+### The documents
 
 | Document | What it settles |
 | --- | --- |
@@ -158,26 +253,8 @@ build it, the four gates, and the handful of standards that will otherwise surpr
 and why — indexed by subject in [`docs/design/README.md`](docs/design/README.md). Those are the
 durable record of *why*; `git log` is the rest.
 
----
-
-## The rules that matter most
-
-**The completion rule.** A row is not complete while the behaviour its name claims is not observable in
-the product. A pure function with no caller does not satisfy a row that claims a product behaviour.
-
-**The producer-value rule.** An authored override always wins over a derived value and is never
-silently replaced. Test it by supplying a value the producer could not have derived.
-
-**The publishing rule.** Nothing this app produces leaves the machine without a person sending it.
-There is no auto-publish, no "approve all", and no share button — and any that is ever proposed
-answers to this rule first.
-
-**Native Liquid Glass only.** App chrome is 100% standard SwiftUI. Never `.glassEffect()`, never
-`NSGlassEffectView`. Content surfaces are deliberately opaque.
-
----
-
-## Layout
+<details>
+<summary><strong>Layout</strong> — three tiers, each boundary held by the build graph</summary>
 
 Three tiers, and the boundary between each pair is enforced by the build graph rather than by a rule
 someone has to remember. `docs/ARCHITECTURE.md` has the full module map.
@@ -231,18 +308,24 @@ The daruma, the brand kit in `assets/` and the app's icons are drawn from one fi
 (`DarumaFigure`) by `scripts/make-character-assets.sh`, so the website's mark and the app's are
 one geometry.
 
----
+</details>
 
-## The gates
+### The gates
 
-Nothing runs automatically — there is no CI here yet, so these are gates a person runs.
+Nothing runs automatically — there is no CI here yet, so these are gates a person runs, **one at a
+time**: several clean and rebuild `.build`, and two at once look like a hang.
+[`docs/TESTING.md`](docs/TESTING.md) §3 is the authoritative list, with each gate's exit criterion.
 
-| Command | What it holds |
-| --- | --- |
-| `swift test --package-path Core` | the whole suite; `--split` reports the deterministic and runnable populations separately, with the partition verified. **`--package-path Core`** since the package moved there — a bare `swift test` at the repository root now finds no manifest and says so |
-| `scripts/check-strict-memory-safety.sh` | zero unmarked unsafe sites, over a full clean compile of every target |
-| `xcodebuild -project Soredemo.xcodeproj -scheme Soredemo` | the app target, which `swift build` never compiles |
-| `scripts/run-cross-boundary-probe.sh` | the checks that need a real display, a real file and a person |
+| | Command | What it holds |
+| --- | --- | --- |
+| 1 | `scripts/count-tests.sh --split` | the whole package suite, and that its two populations partition it exactly |
+| 2 | `scripts/check-strict-memory-safety.sh` | zero unmarked and zero needless `unsafe`, over a clean compile |
+| 3 | `scripts/run-cross-boundary-probe.sh` | the checks that need a real display, a real file and a person |
+| 4 | `xcodebuild -project Soredemo.xcodeproj -scheme Soredemo` | the app target, which `swift build` never compiles |
+| 5 | `scripts/run-app-tests.sh` | the app target's own tests |
+| 6–8 | see `docs/TESTING.md` | the editor's window, coverage, the recording bar's drag — 6 and 8 move windows |
 
 `scripts/count-tests.sh` is where a test count comes from. A number written into prose is a number
 that drifts, and three documents once carried three different wrong ones.
+
+<p align="center"><sub>MIT · <a href="LICENSE">LICENSE</a> · <a href="NOTICE.md">NOTICE.md</a></sub></p>
