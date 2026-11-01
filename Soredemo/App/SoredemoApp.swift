@@ -67,6 +67,20 @@ struct SoredemoApp: App {
     /// executable: TCC attributes a direct `fork`/`exec` to the responsible
     /// parent process, so the grants reported would not be this bundle's.
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
+    /// The menu bar item's centre in global top-left points, from the status bar window that is
+    /// on a screen — the app also holds one parked above every screen. `nil` when the menu bar
+    /// has hidden the item.
+    @MainActor private static func statusItemCentre() -> (x: Double, y: Double)? {
+        guard let primary = NSScreen.screens.first,
+              let window = NSApp.windows.first(where: { window in
+                  window.className.contains("StatusBar")
+                      && NSScreen.screens.contains { $0.frame.intersects(window.frame) }
+              }) else { return nil }
+        let frame = window.frame
+        return (Double(frame.midX), Double(primary.frame.maxY - frame.midY))
+    }
 
     /// Acts on the flags that need the app to be up.
     ///
@@ -148,6 +162,39 @@ struct SoredemoApp: App {
                 print(before == after ? "the bar did not move" : "the bar moved")
                 exit(before == after ? 3 : 0)
             }
+            return
+        }
+
+        // **`--where-is-the-menu-bar-item`, `--record-window` and `--show-settings`: for the
+        // notch flag's reason.** `--record-window <id>:<seconds>` is a real take of one window
+        // with no picker — see `recordWindowForVerification`.
+        // The item is drawn by the system, so it is in no window list another process can read
+        // and not in the accessibility tree: this prints where it is — global top-left points —
+        // so a script can click it and look at the real panel. Exits 2 when the menu bar has
+        // hidden it. Settings is otherwise reached only through that panel.
+        if arguments.contains("--where-is-the-menu-bar-item") {
+            Task { @MainActor in
+                // The item is placed after this task starts.
+                try? await Task.sleep(for: .seconds(0.5))
+                guard let centre = Self.statusItemCentre() else {
+                    print("the menu bar has hidden the item")
+                    exit(2)
+                }
+                // Written, not printed: the app keeps running, and `print` would sit in a buffer.
+                FileHandle.standardOutput.write(Data("menu bar item at \(Int(centre.x)) \(Int(centre.y))\n".utf8))
+            }
+            return
+        }
+        // One argument, `<id>:<seconds>`: AppKit opens a second bare argument as a document.
+        if let index = arguments.firstIndex(of: "--record-window"), index + 1 < arguments.count,
+           case let parts = arguments[index + 1].split(separator: ":"), parts.count == 2,
+           let id = UInt32(parts[0]), let seconds = Double(parts[1]) {
+            recordingCoordinator.recordWindowForVerification(id, seconds: seconds)
+            return
+        }
+        if arguments.contains("--show-settings") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
             return
         }
 

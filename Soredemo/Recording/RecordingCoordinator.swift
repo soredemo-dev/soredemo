@@ -411,6 +411,30 @@ final class RecordingCoordinator {
 
     func stop() { Task { await stopRecording() } }
 
+    /// `--record-window <id>:<seconds>`: a take of one window, started and stopped with no picker
+    /// and no person — for a script that needs a real recording, real clicks in it, to look at.
+    /// The editor opens on it as after any take. Writes `recording` once the take has begun, so
+    /// the script knows when to act; exits 2 when no such window is on screen.
+    func recordWindowForVerification(_ id: UInt32, seconds: Double) {
+        Task { @MainActor in
+            let targets = await WindowTargets.onScreen()
+            guard let target = targets.first(where: { $0.id == id }),
+                  let source = await WindowTargets.source(for: target) else {
+                print("no window \(id) on screen")
+                exit(2)
+            }
+            capturePurpose = .take
+            await sourceSelected(source)
+            guard isRecording else {
+                print("the take did not start: \(status.text)")
+                exit(2)
+            }
+            FileHandle.standardOutput.write(Data("recording\n".utf8))
+            try? await Task.sleep(for: .seconds(seconds))
+            stop()
+        }
+    }
+
     /// A content scale as a percentage, for the resize message. **Rounded to whole percent**:
     /// the difference between 98% and 98.4% is not something anybody can act on.
     private static func percent(_ scale: Double) -> String {
