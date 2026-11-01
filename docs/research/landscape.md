@@ -104,6 +104,31 @@ Not taken: share links (the publishing rule), cloud workspaces, an AI agent that
 asking (automation proposes; the person decides — an on-device assistant that proposes is idea 7
 of `2026-10-22-what-macos-27-makes-possible.md`).
 
+## The adjacent field: agents, YC and Product Hunt (2026-10-27)
+
+Asked for by the owner: what YC's 2025–26 batches and Product Hunt's launches suggest, to go past
+the recorders rather than match them. Sources at the end of this section.
+
+| Signal | Who | What it means here |
+| --- | --- | --- |
+| **Agentic editing — "vibe editing"** | Cardboard (YC W26; W26's most-upvoted Hacker News launch): footage plus a goal ("3 variants", "30 s hook", "60 s recap") → a first cut, then a timeline. an Electron recorder 2 (Launch of the Day, 11 Oct 2026): an agent edits the recording over MCP. A Mac recorder edited through Claude Code. Wideframe (YC W26): a local agent that organises and sequences footage | an agent that edits is becoming ordinary. What none of them has is evidence: they cut from pixels and words. An agent working from Soredemo's log can say why each cut is there, and a person accepts each |
+| **Product videos that re-record themselves** | Clueso Agents (YC): logs into a web product, records the flows, and with GitHub connected flags videos a UI change made stale and regenerates them — one customer's redesign left ~700 out of date. Redemo re-films opted-in videos after a release; Demosmith does not | **corrects `2026-10-25-beyond-a-screen-recorder.md`**, which called idea 1 unclaimed. It is claimed — **for web products**, through a browser. Native Mac applications have no such tool; Soredemo's log is accessibility-based and works in any Mac application |
+| Personalised and live demos | Amorphic Labs (YC): an agent records a demo per prospect; Karumi (YC): a live agent that drives the product in front of a buyer | sales tooling with share links — outside the publishing rule; noted, not followed |
+| Recording → video **and** written guide | Clueso (YC), Trupeer ($3M seed, July 2025): both at about $40 a month; Arcade's Creator Studio | proven demand for what `GuideExport` already does locally |
+| The screen as context for agents | a YC S26 company recording the screen and serving it to agents over an API and MCP | the log is that context without the pixels or the text — what was pressed, in which application, why it was not zoomed |
+| Recorders keep launching | Smooth Recorder, Kapshot, ScreenCursor, Retina, CleanShot 5.0 (Product Hunt, 2026); Screen Studio led Product Hunt's 2025 leaderboard | the category is crowded; standing out inside it is the fight the owner does not want |
+
+**What it changes.** The way past the category is the combination nobody has: **an agent that edits from evidence** — a director's cut whose every cut names the step it removed and why — **on native Mac applications**, where the self-updating-video tools cannot reach, local, with a person approving each proposal. The cuts a goal asks for ("the tutorial", "a 45-second launch cut", "a vertical short") are views of one take.
+
+Sources: [Cardboard](https://www.ycombinator.com/companies/cardboard), [Wideframe](https://www.ycombinator.com/companies/wideframe),
+[an Electron recorder 2 on Product Hunt](https://www.producthunt.com/products/an Electron recorder-2/awards), [Clueso Agents](https://www.clueso.io/agents),
+[YC repost on Clueso's agents](https://theagenttimes.com/articles/y-combinator-spotlights-ai-agents-that-auto-generate-product-a9318fb5),
+[Amorphic Labs](https://www.ycombinator.com/launches/SIw-amorphic-labs-agentic-personalized-product-demo-videos-for-sales),
+[Karumi](https://www.ycombinator.com/companies/karumi), [Demosmith comparison](https://demosmith.ai/blog/best-ai-demo-video-generators-2026),
+[Trupeer seed](https://cmotech.uk/story/trupeer-raises-usd-3m-to-automate-ai-powered-video-creation),
+[Product Hunt 2025 leaderboard](https://www.producthunt.com/leaderboard/yearly/2025),
+[Product Hunt recording category](https://www.producthunt.com/categories/screenshots-and-screen-recording?order=recent_launches).
+
 ## Platform: what WWDC26 gives an editor like this one
 
 Read in the macOS 27.0 SDK and Apple's "What's new in SwiftUI" (WWDC26, session 269). The capture

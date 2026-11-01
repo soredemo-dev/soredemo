@@ -205,3 +205,9 @@ a person seeing the change first.
 - Interactive demos and their prices: [Peutly — interactive demo pricing 2026](https://www.peutly.com/blog/interactive-demo-software-pricing),
   [HowdyGo — interactive demo comparison](https://www.howdygo.com/blog/interactive-product-demo-comparison)
 - Screen Studio 4 problems: [ScreenKite — Screen Studio 4.0 problems](https://www.screenkite.com/blog/screen-studio-4-problems-best-alternative) (a competitor's blog)
+
+**Corrected 2026-10-27.** Idea 1 is not unclaimed: Clueso's agents re-record web product videos
+when a UI change makes them stale, and Redemo re-films after a release. Both work through a
+browser on web products; for native Mac applications the gap stands. `docs/research/landscape.md`,
+"The adjacent field".
+
