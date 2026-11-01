@@ -738,8 +738,8 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
     // being able to see that they outlive it. Safe here — `Data(bytes) as CFData`
     // is retained by the provider, which is retained by the image, for as long as
     // this test holds it.
-    let provider = try unsafe #require(CGDataProvider(data: Data(bytes) as CFData))
-    let synthetic = try unsafe #require(unsafe CGImage(
+    let provider = try #require(CGDataProvider(data: Data(bytes) as CFData))
+    let synthetic = try #require(unsafe CGImage(
         width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32,
         bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -814,7 +814,7 @@ private func renderedPixels(style: StageStyle, width: Int = 640, height: Int = 3
 private func onePixel() -> CGImage {
     // `unsafe`: same argument as the synthetic image above — the provider retains
     // the bytes and the image retains the provider.
-    let provider = unsafe CGDataProvider(data: Data([255, 255, 255, 255]) as CFData)!
+    let provider = CGDataProvider(data: Data([255, 255, 255, 255]) as CFData)!
     return unsafe CGImage(width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32,
                    bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
                    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),

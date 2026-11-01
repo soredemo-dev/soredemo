@@ -548,12 +548,12 @@ extension StageCompositorTests {
         // `CIContext`, not part of what a frame looks like — so it is set, not restored.
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = recording.logURL
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.framingOverrides = [override]
-        unsafe StageCompositor.editTimeline = edit
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = recording.logURL
+        StageCompositor.overrides = []
+        StageCompositor.framingOverrides = [override]
+        StageCompositor.editTimeline = edit
 
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "smoke-export-\(UUID().uuidString).mp4")
@@ -615,7 +615,7 @@ extension StageCompositorTests {
 
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.renderer = try CoreImageFrameRenderer()
 
         // Three samples across the reviewed click's own zoom block rather than one: the camera
         // eases in and out, so a single instant could land where two different targets happen to
@@ -645,11 +645,11 @@ extension StageCompositorTests {
                                               overrides: [FramingOverride],
                                               label: String,
                                               at seconds: [Double]) async throws -> [Data] {
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = recording.logURL
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
-        unsafe StageCompositor.framingOverrides = overrides
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = recording.logURL
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
+        StageCompositor.framingOverrides = overrides
 
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "smoke-review-\(label)-\(UUID().uuidString).mp4")
@@ -695,10 +695,10 @@ extension StageCompositorTests {
 
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = recording.logURL
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = recording.logURL
         // The forgotten line: the compositor still believes nothing was cut.
-        unsafe StageCompositor.editTimeline = whole
+        StageCompositor.editTimeline = whole
 
         let outputURL = FileManager.default.temporaryDirectory
             .appending(path: "smoke-mismatch-\(UUID().uuidString).mp4")

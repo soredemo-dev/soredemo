@@ -117,11 +117,11 @@ import Timeline
 /// reason `MP4ExporterTests` gives: the export drives process-global `StageCompositor` statics.
 extension StageCompositorTests {
     @Test func aRealExportWritesAGIFWhoseFramesAndDelayAreWhatTheSettingsAskedFor() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -157,7 +157,7 @@ extension StageCompositorTests {
     /// An edit the compositor has not been told about is refused rather than exported with every
     /// cursor and zoom off by the difference — the MP4 path's check, on this path too.
     @Test func aGIFExportRefusesAnEditTheCompositorIsNotSetTo() async throws {
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.editTimeline = nil
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
         let outputURL = FileManager.default.temporaryDirectory

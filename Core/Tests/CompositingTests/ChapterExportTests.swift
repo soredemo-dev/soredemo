@@ -12,11 +12,11 @@ extension StageCompositorTests {
     private func exportTwoTone(chapters: [PlacedChapter], as codec: ExportCodec = .h264,
                                fixture: String = "two-tone.mov")
     async throws -> (URL, ExportReport) {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/\(fixture)"))
         let url = FileManager.default.temporaryDirectory

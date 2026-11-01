@@ -13,11 +13,11 @@ import Testing
 /// "some frame" read differently — an exporter that always wrote the first frame passes nothing.
 extension StageCompositorTests {
     private func resetCompositor() throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
     }
 
     private var twoTone: AVAsset {
@@ -31,7 +31,8 @@ extension StageCompositorTests {
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8,
+        // `unsafe`: a context over a local buffer that outlives every draw into it.
+        let context = try #require(unsafe CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8,
                                              bytesPerRow: 4, space: space,
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(image, in: CGRect(x: -image.width / 2, y: -image.height / 2,
@@ -79,7 +80,8 @@ extension StageCompositorTests {
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         for i in stride(from: 0, to: bytes.count, by: 4) { bytes[i + 1] = 220; bytes[i + 3] = 255 }
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8,
+        // `unsafe`: a context over a local buffer that outlives every draw into it.
+        let context = try #require(unsafe CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8,
                                              bytesPerRow: width * 4, space: space,
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = try #require(context.makeImage())

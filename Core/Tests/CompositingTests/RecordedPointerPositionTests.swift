@@ -173,8 +173,8 @@ extension StageCompositorTests {
     /// the spring has had `settleSeconds` — long enough to converge from anywhere it could
     /// have been — and the drawn position must be the recorded one.
     @Test func aRestingPointerIsDrawnExactlyWhereItRests() throws {
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
         let compositor = StageCompositor()
         let plan = stagePlan(pointer: nil)
         let anchor = try recordedAnchor()
@@ -337,8 +337,8 @@ let assertedInstantCount = 3
 func drawnInstants() throws -> [DrawnInstant] {
     // `StageCompositor.style` is deliberately NOT set: only `startRequest` reads it and it is
     // `internal`, so setting it would force `@testable import Compositing` here.
-    unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-    unsafe StageCompositor.overrides = []
+    StageCompositor.observationLogURL = try recordedObservationLog()
+    StageCompositor.overrides = []
     let compositor = StageCompositor()
 
     let plan = stagePlan(pointer: nil)

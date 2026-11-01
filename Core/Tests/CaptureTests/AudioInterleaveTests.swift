@@ -24,7 +24,8 @@ private func planarStereo() throws -> CMSampleBuffer {
                                             channels: 2, interleaved: false))
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
     buffer.frameLength = 4
-    let channels = try #require(buffer.floatChannelData)
+    // `unsafe`: the buffer's channel pointers, read while `buffer` is alive in this scope.
+    let channels = try unsafe #require(unsafe buffer.floatChannelData)
     for i in 0..<4 {
         unsafe channels[0][i] = left[i]
         unsafe channels[1][i] = right[i]
@@ -50,7 +51,7 @@ private func floats(of sampleBuffer: CMSampleBuffer) throws -> [Float] {
     let block = try #require(CMSampleBufferGetDataBuffer(sampleBuffer))
     let length = CMBlockBufferGetDataLength(block)
     var values = [Float](repeating: 0, count: length / 4)
-    try #require(unsafe values.withUnsafeMutableBytes { raw in
+    try #require(values.withUnsafeMutableBytes { raw in
         unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length,
                                           destination: raw.baseAddress!)
     } == noErr)

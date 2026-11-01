@@ -66,14 +66,14 @@ extension StageCompositorTests {
         try writeZoomingLog(at: url)
         defer {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-            unsafe StageCompositor.observationLogURL = nil
+            StageCompositor.observationLogURL = nil
             StageCompositor.cameraPace = .standard
         }
-        unsafe StageCompositor.observationLogURL = url
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.framingOverrides = []
-        unsafe StageCompositor.zoomAdjustments = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.observationLogURL = url
+        StageCompositor.overrides = []
+        StageCompositor.framingOverrides = []
+        StageCompositor.zoomAdjustments = []
+        StageCompositor.editTimeline = nil
         StageCompositor.cameraPace = .standard
 
         // Mid-move: the block starts at the click less its pre-roll, so 2.8 s is partway in.

@@ -86,7 +86,7 @@ import Timeline
         var pixel: [UInt8] = [0, 0, 0, 0]
         // The buffer is four bytes for one RGBA pixel and `render` is told exactly that, so the
         // pointer cannot outlive the call and the size cannot be wrong.
-        unsafe pixel.withUnsafeMutableBytes { bytes in
+        pixel.withUnsafeMutableBytes { bytes in
             unsafe context.render(image, toBitmap: bytes.baseAddress!, rowBytes: 4,
                                   bounds: HeadlessGeometryBridge.pixel(x: x, y: y),
                                   format: .RGBA8,
@@ -332,7 +332,7 @@ import Timeline
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         // The buffer is exactly `width * height` RGBA pixels and `render` is told exactly that,
         // so the pointer cannot outlive the call and the size cannot be wrong.
-        unsafe bytes.withUnsafeMutableBytes { raw in
+        bytes.withUnsafeMutableBytes { raw in
             unsafe context.render(image, toBitmap: raw.baseAddress!, rowBytes: width * 4,
                                   bounds: image.extent, format: .RGBA8,
                                   colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
@@ -682,8 +682,8 @@ import Timeline
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         // `unsafe`: the buffer is exactly `width * height * 4` by construction and the pointer
         // does not escape the closure.
-        unsafe bytes.withUnsafeMutableBytes { buffer in
-            guard let base = unsafe buffer.baseAddress else { return }
+        bytes.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
             unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
                                   bounds: CGRect(x: 0, y: 0, width: width, height: height),
                                   format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
@@ -726,8 +726,8 @@ import Timeline
                                            outputWidth: width, outputHeight: height))
     let context = CIContext()
     var bytes = [UInt8](repeating: 0, count: width * height * 4)
-    unsafe bytes.withUnsafeMutableBytes { buffer in
-        guard let base = unsafe buffer.baseAddress else { return }
+    bytes.withUnsafeMutableBytes { buffer in
+        guard let base = buffer.baseAddress else { return }
         unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
                               bounds: CGRect(x: 0, y: 0, width: width, height: height),
                               format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
@@ -759,8 +759,8 @@ import Timeline
                                                outputWidth: width, outputHeight: height))
         let context = CIContext()
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
-        unsafe bytes.withUnsafeMutableBytes { buffer in
-            guard let base = unsafe buffer.baseAddress else { return }
+        bytes.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
             unsafe context.render(image, toBitmap: base, rowBytes: width * 4,
                                   bounds: CGRect(x: 0, y: 0, width: width, height: height),
                                   format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())

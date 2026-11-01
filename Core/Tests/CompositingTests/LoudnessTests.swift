@@ -319,7 +319,8 @@ private func toneFile(amplitude: Double, sampleRate: Double, seconds: Double) th
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format,
                                                frameCapacity: AVAudioFrameCount(samples.count)))
     buffer.frameLength = AVAudioFrameCount(samples.count)
-    let channel = try #require(buffer.floatChannelData)[0]
+    // `unsafe`: the buffer's channel pointer, read while `buffer` is alive in this scope.
+    let channel = try unsafe #require(unsafe buffer.floatChannelData)[0]
     for (index, value) in samples.enumerated() { unsafe channel[index] = value }
     try file.write(from: buffer)
     return url

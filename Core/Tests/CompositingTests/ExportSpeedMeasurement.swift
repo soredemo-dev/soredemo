@@ -22,11 +22,11 @@ extension StageCompositorTests {
         let width = Int(size.width.rounded()), height = Int(size.height.rounded())
         let frameRate = 60
 
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let clock = ContinuousClock()
         let bgra: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]

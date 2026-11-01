@@ -139,11 +139,11 @@ struct TransparentExportTests {
     /// the renderer writing nothing at all.
     private func makeOpaqueBuffer(width: Int, height: Int) throws -> CVPixelBuffer {
         let buffer = try makePixelBuffer(width: width, height: height, fill: (255, 255, 255))
-        unsafe CVPixelBufferLockBaseAddress(buffer, [])
-        defer { unsafe CVPixelBufferUnlockBaseAddress(buffer, []) }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(buffer))
             .assumingMemoryBound(to: UInt8.self)
-        let rowBytes = unsafe CVPixelBufferGetBytesPerRow(buffer)
+        let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
         for y in 0..<height {
             for x in 0..<width { unsafe base[y * rowBytes + x * 4 + 3] = 255 }
         }
@@ -152,11 +152,11 @@ struct TransparentExportTests {
 
     /// The alpha at one pixel. `pixels(of:)` drops it, and alpha is the whole subject here.
     private func alpha(of buffer: CVPixelBuffer, x: Int, y: Int) throws -> UInt8 {
-        unsafe CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { unsafe CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         let base = try unsafe #require(unsafe CVPixelBufferGetBaseAddress(buffer))
             .assumingMemoryBound(to: UInt8.self)
-        let rowBytes = unsafe CVPixelBufferGetBytesPerRow(buffer)
+        let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
         return unsafe base[y * rowBytes + x * 4 + 3]
     }
 }

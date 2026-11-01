@@ -117,7 +117,8 @@ struct StillnessReaderTests {
         // 20-frame fixture that can be read to the end before `cancel()` lands.
         let url = twoTone
         let outcome = await Task {
-            withUnsafeCurrentTask { $0?.cancel() }
+            // `unsafe`: the current task, cancelled inside the closure that lends it.
+            unsafe withUnsafeCurrentTask { unsafe $0?.cancel() }
             return await StillnessReader.changes(contentsOf: url)
         }.value
         #expect(outcome == .refused(.theWorkWasCancelled))

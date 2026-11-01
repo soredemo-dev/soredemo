@@ -265,8 +265,9 @@ public enum CGGeometryBridge {
     /// An upright bar with rounded corners about its centre, in top-left points: half the pause
     /// symbol the paused daruma's eyes make.
     public nonisolated static func bar(centreX: Double, centreY: Double, width: Double, height: Double, corner: Double) -> CGPath {
-        CGPath(roundedRect: CGRect(x: centreX - width / 2, y: centreY - height / 2, width: width, height: height),
-               cornerWidth: corner, cornerHeight: corner, transform: nil)
+        // `unsafe`: the initialiser takes its transform as a pointer, here `nil`.
+        unsafe CGPath(roundedRect: CGRect(x: centreX - width / 2, y: centreY - height / 2, width: width, height: height),
+                      cornerWidth: corner, cornerHeight: corner, transform: nil)
     }
 
     /// The brush that paints the record eye, in top-left points: one clockwise sweep from twelve

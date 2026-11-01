@@ -45,13 +45,13 @@ extension StageCompositorTests {
     @Test func withTheLoopOnTheLastFrameOfTheOutputMatchesItsFirst() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
         let plan = stagePlan(pointer: nil)
 
         // — loop off: where the cursor actually is at the two ends —
-        unsafe StageCompositor.cursorStyle = .default
+        StageCompositor.cursorStyle = .default
         let off = StageCompositor()
         let first = try #require(placement(off, atOutputSeconds: 0, plan: plan),
                                  "the fixture has no drawn pointer at source 9.5 s; pick another span")
@@ -64,7 +64,7 @@ extension StageCompositorTests {
             """)
 
         // — loop on —
-        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(loopsToStart: true)
+        StageCompositor.cursorStyle = CursorStyle.default.changing(loopsToStart: true)
         let on = StageCompositor()
         let firstLooped = try #require(placement(on, atOutputSeconds: 0, plan: plan))
         let lastLooped = try #require(placement(on, atOutputSeconds: Self.lastFrameSeconds, plan: plan))
@@ -85,14 +85,14 @@ extension StageCompositorTests {
     @Test func beforeTheLeadTheLoopLeavesTheCursorExactlyAlone() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
         let plan = stagePlan(pointer: nil)
 
-        unsafe StageCompositor.cursorStyle = .default
+        StageCompositor.cursorStyle = .default
         let off = StageCompositor()
-        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(loopsToStart: true)
+        StageCompositor.cursorStyle = CursorStyle.default.changing(loopsToStart: true)
         let on = StageCompositor()
 
         // Well before the 0.8 s lead (10 − 0.8 = 9.2), and each inside a sample cluster —
@@ -110,10 +110,10 @@ extension StageCompositorTests {
     @Test func withTheLoopOffTheLastFrameIsWhereTheRecordingLeftIt() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
-        unsafe StageCompositor.cursorStyle = .default
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = Self.tenSecondsFromNineAndAHalf()
+        StageCompositor.cursorStyle = .default
         let plan = stagePlan(pointer: nil)
         let off = StageCompositor()
         let first = try #require(placement(off, atOutputSeconds: 0, plan: plan))
@@ -131,13 +131,13 @@ extension StageCompositorTests {
     @Test func aPressedCursorCoversLessOfTheFrameThanAnUnpressedOne() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
         // No ripple: the ring is drawn into the same bitmap, and a test that counted every
         // non-background pixel would be measuring the ripple's growth rather than the press.
-        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
+        StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
 
         let renderer: any FrameRendering
         do { renderer = try CoreImageFrameRenderer() }
@@ -158,7 +158,7 @@ extension StageCompositorTests {
             let plan = RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight,
                                   card: base.card, cornerRadius: base.cornerRadius,
                                   style: base.style, pointer: placement,
-                                  cursorStyle: unsafe StageCompositor.cursorStyle)
+                                  cursorStyle: StageCompositor.cursorStyle)
             try renderer.render(plan, source: source, camera: nil, into: destination)
             return try pixels(of: destination)
                 .count { $0.r > 200 && $0.g > 200 && $0.b > 200 }
@@ -190,8 +190,8 @@ extension StageCompositorTests {
     @Test func aPressedCursorStaysOnItsOwnHotspot() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
+        StageCompositor.style = .default
+        StageCompositor.cursorStyle = CursorStyle.default.changing(clickEffect: CursorStyle.ClickEffect.none)
 
         let renderer: any FrameRendering
         do { renderer = try CoreImageFrameRenderer() }
@@ -213,7 +213,7 @@ extension StageCompositorTests {
                                   pointer: NormalizedPointerPlacement(x: 320, y: 180,
                                                                       ripplePhase: nil,
                                                                       pressScale: press),
-                                  cursorStyle: unsafe StageCompositor.cursorStyle)
+                                  cursorStyle: StageCompositor.cursorStyle)
             try renderer.render(plan, source: source, camera: nil, into: destination)
             let frame = try pixels(of: destination)
             for row in 0..<360 {

@@ -19,14 +19,14 @@ import Render
 /// two numbers are produced by the same decoder and differ only by what the export did.
 extension StageCompositorTests {
     @Test func theExportPreservesTheSourcesPixelValues() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.renderer = try CoreImageFrameRenderer()
         unsafe StageCompositor.style = StageStyle(
             insetFraction: 0, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
             background: .solid(red: 0, green: 0, blue: 0))
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
-        defer { unsafe StageCompositor.style = .default }
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
+        defer { StageCompositor.style = .default }
 
         let sourceURL = repositoryRootFromTests.appending(path: "Tests/RenderParityFixtures/two-tone.mov")
         let asset = AVURLAsset(url: sourceURL)
@@ -91,14 +91,14 @@ extension StageCompositorTests {
             (180, 60, 220), (32, 96, 224),
         ]
         let width = 448, height = 64
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.renderer = try CoreImageFrameRenderer()
         unsafe StageCompositor.style = StageStyle(
             insetFraction: 0, cornerRadius: 0, shadowRadius: 0, shadowOpacity: 0,
             background: .solid(red: 0, green: 0, blue: 0))
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
-        defer { unsafe StageCompositor.style = .default }
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
+        defer { StageCompositor.style = .default }
 
         let sourceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("patches-\(UUID().uuidString).mov")

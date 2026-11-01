@@ -54,9 +54,9 @@ extension StageCompositorTests {
     @Test func theCameraLeavesItsPlaceWhileTheCursorIsOnItAndOnlyThen() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(20 * Self.second))
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(20 * Self.second))
         let plan = stagePlan(pointer: nil)
 
         let scout = StageCompositor()
@@ -84,7 +84,7 @@ extension StageCompositorTests {
         let at = CMTime(seconds: visit.seconds, preferredTimescale: 600)
 
         // — off: the camera is where the style says —
-        unsafe StageCompositor.cameraStyle = homeStyle
+        StageCompositor.cameraStyle = homeStyle
         let off = StageCompositor()
         let stillThere = try #require(off.cameraOverlay(at: at, basePlan: plan,
                                                         sourcePixelWidth: nil, cameraAspect: 1))
@@ -96,7 +96,7 @@ extension StageCompositorTests {
         // **One transition after the visit, not at it.** A segment begins AT the sample that
         // saw the cursor arrive, and the glide's progress there is 0 — so the camera is, by
         // design, exactly home at that instant and away one `transitionSeconds` later.
-        unsafe StageCompositor.cameraStyle = homeStyle.changing(avoidsCursor: true)
+        StageCompositor.cameraStyle = homeStyle.changing(avoidsCursor: true)
         let on = StageCompositor()
         let moved = CMTime(seconds: visit.seconds + CameraDodge.transitionSeconds,
                            preferredTimescale: 600)
@@ -119,10 +119,10 @@ extension StageCompositorTests {
     @Test func theDodgeAnswersTheSameWhateverOrderFramesAreAskedIn() throws {
         let saved = StageCompositor.settings()
         defer { StageCompositor.apply(saved) }
-        unsafe StageCompositor.observationLogURL = try recordedObservationLog()
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(20 * Self.second))
-        unsafe StageCompositor.cameraStyle = CameraOverlayStyle.default
+        StageCompositor.observationLogURL = try recordedObservationLog()
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(20 * Self.second))
+        StageCompositor.cameraStyle = CameraOverlayStyle.default
             .placed(at: .bottomRight).changing(avoidsCursor: true)
         let plan = stagePlan(pointer: nil)
 

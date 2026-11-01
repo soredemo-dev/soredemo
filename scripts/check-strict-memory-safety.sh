@@ -116,6 +116,14 @@ if [ "$COMPILED" = "0" ]; then
     exit 3
 fi
 
+# **The compiler's colours and links come out first.** Swift now writes diagnostics with ANSI
+# colour codes and OSC 8 hyperlinks round the tag (`[#<ESC>]8;;https://…<ESC>\StrictMemorySafety…]`)
+# even into a pipe, and the patterns below, written for plain text, then matched nothing: this
+# gate printed "zero sites" over a real one (2026-10-27, CGGeometryBridge.swift:268).
+PLAIN=$(mktemp)
+trap 'rm -f "$LOG" "$PLAIN"' EXIT
+perl -pe 's/\e\][^\e\a]*(?:\e\\|\a)//g; s/\e\[[0-9;]*[A-Za-z]//g' "$LOG" > "$PLAIN"
+
 # Distinct sites. Rule 1: a primary warning line contributes its own position —
 # gutter-art repeats ('|- warning:') and the '[#StrictMemorySafety]:' footnote line
 # do not match the leading-path shape. Rule 2: a macro-buffer warning resolves
@@ -130,7 +138,39 @@ SITES=$(awk '
         pend = 0; next
     }
     { pend = 0 }
-' "$LOG" | sed "s|^$PWD/||" | sort -u)
+' "$PLAIN" | sed "s|^$PWD/||" | sort -u)
+
+# The instrument checks itself: the tag anywhere in the log with no site parsed means the
+# patterns no longer fit the compiler's output — unmeasured, not clean.
+if [ -z "$SITES" ] && grep -q 'StrictMemorySafety' "$PLAIN"; then
+    echo "FAILED: the log names StrictMemorySafety but no site was parsed from it — the" >&2
+    echo "compiler's output has changed shape. Unverified, not clean:" >&2
+    grep -m3 'StrictMemorySafety' "$PLAIN" | sed 's/^/  /' >&2
+    exit 2
+fi
+
+# **And the other way: an `unsafe` with nothing unsafe in it.** The owner's Xcode reports these
+# too (ChapterSamples.swift:70, 2026-10-26); left, they pile up — 220 were found in the tests the
+# day this check was added — and hide the one that matters.
+# Parsed as the sites are: a macro's own expansion resolves through the note that follows it.
+NEEDLESS=$(awk '
+    /^\/[^ ]+:[0-9]+:[0-9]+: warning: .*UnnecessaryUnsafe\]/ { split($0, a, ": warning"); print a[1]; next }
+    /^macro expansion .*: warning: .*UnnecessaryUnsafe\]/ { pend = 1; next }
+    pend && /note: expanded code originates here/ {
+        if (match($0, /\/[^ ]+:[0-9]+:[0-9]+/)) print substr($0, RSTART, RLENGTH)
+        pend = 0; next
+    }
+    { pend = 0 }
+' "$PLAIN" | sed "s|^$PWD/||" | sort -u)
+if [ -z "$NEEDLESS" ] && grep -q 'UnnecessaryUnsafe\]' "$PLAIN"; then
+    echo "FAILED: the log names UnnecessaryUnsafe but no site was parsed from it. Unverified." >&2
+    exit 2
+fi
+if [ -n "$NEEDLESS" ]; then
+    echo "FAILED: $(printf '%s\n' "$NEEDLESS" | wc -l | tr -d ' ') 'unsafe' marker(s) with no unsafe operation inside:" >&2
+    printf '%s\n' "$NEEDLESS" | sed 's/^/  /' >&2
+    exit 1
+fi
 
 if [ -n "$SITES" ]; then
     COUNT=$(printf '%s\n' "$SITES" | wc -l | tr -d ' ')
@@ -146,7 +186,7 @@ if [ -n "$SITES" ]; then
     exit 1
 fi
 
-echo "STRICT MEMORY SAFETY: zero StrictMemorySafety sites in a full compile of"
+echo "STRICT MEMORY SAFETY: zero StrictMemorySafety sites and no needless 'unsafe' in a full compile of"
 echo "every target, library and test ($COMPILED object files produced this run)."
 echo "Clean-per-run: this verdict is about the whole tree as it stands, not about"
 echo "whichever files happened to be stale."

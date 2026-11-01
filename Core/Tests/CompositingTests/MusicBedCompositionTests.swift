@@ -18,7 +18,8 @@ private func musicFile(seconds: Double) throws -> URL {
     let frames = AVAudioFrameCount(seconds * 48_000)
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
     buffer.frameLength = frames
-    let channel = try #require(buffer.floatChannelData)[0]
+    // `unsafe`: the buffer's channel pointer, read while `buffer` is alive in this scope.
+    let channel = try unsafe #require(unsafe buffer.floatChannelData)[0]
     for index in 0..<Int(frames) { unsafe channel[index] = Float(0.1 * sin(Double(index) * 0.05)) }
     try file.write(from: buffer)
     return url

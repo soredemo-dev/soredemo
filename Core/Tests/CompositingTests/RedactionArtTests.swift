@@ -109,7 +109,7 @@ import Render
         var pixel: [UInt8] = [0, 0, 0, 0]
         // Four bytes for one RGBA pixel and `render` is told exactly that, so the pointer cannot
         // outlive the call and the size cannot be wrong.
-        unsafe pixel.withUnsafeMutableBytes { bytes in
+        pixel.withUnsafeMutableBytes { bytes in
             unsafe CIContext().render(image, toBitmap: bytes.baseAddress!, rowBytes: 4,
                                       bounds: HeadlessGeometryBridge.pixel(x: x, y: y),
                                       format: .RGBA8,

@@ -298,7 +298,8 @@ private let pluralCategories: [String: Set<String>] = [
     func plist(_ language: String) throws -> [String: Any] {
         let url = resources.appending(path: "\(language).lproj/Localizable.stringsdict")
         let data = try Data(contentsOf: url)
-        return try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+        // `unsafe`: `format:` is an optional pointer out-parameter, passed nil.
+        return try #require(try unsafe PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                             "\(language)'s stringsdict is not a dictionary")
     }
     func stringsKeys(_ language: String) throws -> Set<String> {

@@ -14,8 +14,8 @@ extension StageCompositorTests {
     private static func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
     @Test func withNoEditOutputTimeIsSourceTime() {
-        unsafe StageCompositor.editTimeline = nil
-        defer { unsafe StageCompositor.editTimeline = nil }
+        StageCompositor.editTimeline = nil
+        defer { StageCompositor.editTimeline = nil }
         #expect(StageCompositor.sourceOffset(forOutput: Nanoseconds(4_000)) == Nanoseconds(4_000))
     }
 
@@ -23,10 +23,10 @@ extension StageCompositorTests {
     /// everything removed before it. A compositor that skipped this conversion would draw the
     /// cursor and aim the camera at whatever the recording was doing three seconds earlier.
     @Test func afterACutTheCompositorLooksUpTheSourcePosition() {
-        unsafe StageCompositor.editTimeline = EditTimeline
+        StageCompositor.editTimeline = EditTimeline
             .whole(duration: Nanoseconds(10_000))
             .removing(sourceRange: 2_000..<5_000)
-        defer { unsafe StageCompositor.editTimeline = nil }
+        defer { StageCompositor.editTimeline = nil }
 
         // Before the cut the two still agree…
         #expect(StageCompositor.sourceOffset(forOutput: Nanoseconds(1_000)) == Nanoseconds(1_000))
@@ -39,10 +39,10 @@ extension StageCompositorTests {
     /// frame: the caller draws no pointer and applies no camera, rather than repeating the
     /// final answer for every frame past the end.
     @Test func pastTheEndOfTheEditThereIsNoSourcePosition() {
-        unsafe StageCompositor.editTimeline = EditTimeline
+        StageCompositor.editTimeline = EditTimeline
             .whole(duration: Nanoseconds(10_000))
             .removing(sourceRange: 2_000..<5_000)
-        defer { unsafe StageCompositor.editTimeline = nil }
+        defer { StageCompositor.editTimeline = nil }
         #expect(StageCompositor.sourceOffset(forOutput: Nanoseconds(7_000)) == nil)
     }
 
@@ -52,14 +52,14 @@ extension StageCompositorTests {
     /// public seams rather than through the private helper, so the test fails if either call
     /// site stops using it.
     @Test func thePointerAndTheCameraAgreeAfterACut() throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = EditTimeline
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = EditTimeline
             .whole(duration: Nanoseconds(10_000_000_000))
             .removing(sourceRange: 2_000_000_000..<5_000_000_000)
-        defer { unsafe StageCompositor.editTimeline = nil }
+        defer { StageCompositor.editTimeline = nil }
 
         let compositor = StageCompositor()
         let plan = StagePlanner.plan(outputWidth: 320, outputHeight: 180,

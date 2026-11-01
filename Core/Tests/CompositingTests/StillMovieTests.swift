@@ -17,7 +17,8 @@ import Testing
     /// A picture that punishes the wrong codec: one-pixel black and white columns (blurred by any
     /// lossy low-pass), and one-pixel red columns on blue (averaged away by 4:2:0 chroma).
     private func pattern() throws -> CGImage {
-        let context = try #require(CGContext(
+        // `unsafe`: a context over memory it allocates itself (`data: nil`).
+        let context = try #require(unsafe CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))

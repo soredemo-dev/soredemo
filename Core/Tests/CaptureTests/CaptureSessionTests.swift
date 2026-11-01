@@ -1,6 +1,6 @@
 import Foundation
 import Geometry
-@preconcurrency import ScreenCaptureKit
+@unsafe @preconcurrency import ScreenCaptureKit
 import Project
 import Testing
 import Timeline

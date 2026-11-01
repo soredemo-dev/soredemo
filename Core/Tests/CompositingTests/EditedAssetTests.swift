@@ -118,19 +118,19 @@ extension StageCompositorTests {
         let combined = try await CameraComposition.combine(screen: cut, cameraURL: source.url)
         #expect(combined.cameraTrackID != nil)
 
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
         // The compositor is still told the edit — it maps the observation log through it, and
         // the exporter still checks the pairing. Saying "already cut" opts out of the CUT, not
         // out of the check.
-        unsafe StageCompositor.editTimeline = edit
-        unsafe StageCompositor.cameraTrackID = combined.cameraTrackID
+        StageCompositor.editTimeline = edit
+        StageCompositor.cameraTrackID = combined.cameraTrackID
         defer {
-            unsafe StageCompositor.editTimeline = nil
-            unsafe StageCompositor.cameraTrackID = nil
-            unsafe StageCompositor.cameraStyle = nil
+            StageCompositor.editTimeline = nil
+            StageCompositor.cameraTrackID = nil
+            StageCompositor.cameraStyle = nil
         }
 
         let withCamera = try await Self.exportFirstFrame(
@@ -222,7 +222,7 @@ extension StageCompositorTests {
     @MainActor
     private static func exportFirstFrame(of asset: sending AVAsset, edit: EditTimeline,
                                          cameraStyle: CameraOverlayStyle?) async throws -> Data {
-        unsafe StageCompositor.cameraStyle = cameraStyle
+        StageCompositor.cameraStyle = cameraStyle
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("camera-parity-\(cameraStyle == nil ? "off" : "on").mp4")
         try? FileManager.default.removeItem(at: outputURL)

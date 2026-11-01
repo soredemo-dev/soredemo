@@ -23,8 +23,8 @@ struct StageCompositorTests {
     /// cannot be produced by a default. This returns at `pointerPlacement`'s leading guard;
     /// everything below it is covered by `RecordedPointerPositionTests.swift`, not here.
     @Test func noConfiguredLogPlacesNoPointer() {
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
         let compositor = StageCompositor()
         let base = StagePlanner.plan(outputWidth: 640, outputHeight: 360,
                                      sourceWidth: 640, sourceHeight: 360, style: .default)

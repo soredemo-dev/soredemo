@@ -57,17 +57,17 @@ extension StageCompositorTests {
         let url = scratchLog()
         try writeLog(at: url, crops: [])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        unsafe StageCompositor.observationLogURL = url
-        unsafe StageCompositor.overrides = []
-        defer { unsafe StageCompositor.observationLogURL = nil }
+        StageCompositor.observationLogURL = url
+        StageCompositor.overrides = []
+        defer { StageCompositor.observationLogURL = nil }
 
         #expect(StageCompositor().contentCrop(at: at(0)) == .whole)
         #expect(StageCompositor().contentCrop(at: at(5)) == .whole)
     }
 
     @Test func noConfiguredLogCropsNotAtAll() {
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
         #expect(StageCompositor().contentCrop(at: at(0)) == .whole)
     }
 
@@ -85,9 +85,9 @@ extension StageCompositorTests {
                               content: shrunk, contentScale: 1.7733),
         ])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        unsafe StageCompositor.observationLogURL = url
-        unsafe StageCompositor.overrides = []
-        defer { unsafe StageCompositor.observationLogURL = nil }
+        StageCompositor.observationLogURL = url
+        StageCompositor.overrides = []
+        defer { StageCompositor.observationLogURL = nil }
 
         let compositor = StageCompositor()
         #expect(compositor.contentCrop(at: at(0)) == .whole)
@@ -106,9 +106,9 @@ extension StageCompositorTests {
                               contentScale: 2),
         ])
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        unsafe StageCompositor.observationLogURL = url
-        unsafe StageCompositor.overrides = []
-        defer { unsafe StageCompositor.observationLogURL = nil }
+        StageCompositor.observationLogURL = url
+        StageCompositor.overrides = []
+        defer { StageCompositor.observationLogURL = nil }
 
         #expect(StageCompositor().contentCrop(at: CMTime.invalid) == .whole)
     }

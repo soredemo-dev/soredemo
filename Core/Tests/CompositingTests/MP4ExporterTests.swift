@@ -33,11 +33,11 @@ extension StageCompositorTests {
     /// `CompositionBuilder`/`StageCompositor`/`CoreImageFrameRenderer` stack, not a synthesised
     /// asset. Output lands in the temporary directory and is removed in a `defer`.
     @Test func exportingTheFixtureNeverDropsAFrameAndFinishesWithinTheTestsOwnTimeout() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -93,11 +93,11 @@ extension StageCompositorTests {
     /// with gaps from 6.7 ms to 35 ms. The export now generates the output timeline instead of
     /// inheriting it.
     @Test func theExportIsConstantFrameRateWhateverTheSourceCadenceIs() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -126,11 +126,11 @@ extension StageCompositorTests {
     /// blended or blank frame between two source frames would invent motion the recording
     /// never had — the same fault `PointerTrack` refuses on the pointer track.
     @Test func aHeldFrameRepeatsTheSourceImageRatherThanInventingOne() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -155,11 +155,11 @@ extension StageCompositorTests {
     /// measured on a real export as `nb_streams = 1`. The fixture has TWO audio tracks, like a
     /// master does, and they must arrive as one.
     @Test func aRecordingWithAudioExportsWithOneMixedAudioTrack() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let source = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-track-audio.mov"))
@@ -192,11 +192,11 @@ extension StageCompositorTests {
     /// So this fixture is TEN seconds. It is the only reason a 150 KB binary is in the repo:
     /// the bug is a function of duration, and no shorter asset can express it.
     @Test func aLongRecordingWithAudioDoesNotStallTheWriter() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let source = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/long-two-track-audio.mov"))
@@ -223,9 +223,9 @@ extension StageCompositorTests {
 
     /// A master with no audio still exports, and says so rather than failing.
     @Test func aSilentRecordingExportsWithNoAudioTrack() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = nil
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -244,11 +244,11 @@ extension StageCompositorTests {
     /// takes seconds on a long recording and reports nothing; a bar that reached 100% and sat
     /// there looks stopped, and a person cancels a job that was about to finish.
     @Test func anExportReportsItsPhasesInOrder() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -274,9 +274,9 @@ extension StageCompositorTests {
     /// **Reported per whole percent, not per frame.** A 60 fps export of a three-minute
     /// recording is 10,800 frames; a callback each would cost more than the work it reports on.
     @Test func progressIsReportedPerPercentNotPerFrame() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = nil
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -297,9 +297,9 @@ extension StageCompositorTests {
     /// **Cancelling deletes the partial file.** A half-written MP4 sitting where a person asked
     /// for their video is worse than none, because it looks like the export worked.
     @Test func cancellingAnExportLeavesNoFileBehind() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = nil
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/long-two-track-audio.mov"))
@@ -331,11 +331,11 @@ extension StageCompositorTests {
     /// are empty for exactly the trimmed-away duration. Starting the session at the trim's
     /// start is what makes the output begin where the trim does.
     @Test func aTrimmedExportWritesFewerFramesAndStartsAtZero() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -357,8 +357,8 @@ extension StageCompositorTests {
         let totalNanos = Int64(duration.seconds * 1_000_000_000)
         let edit = EditTimeline.whole(duration: Nanoseconds(totalNanos))
             .trimmed(toSource: (totalNanos / 2)..<totalNanos)
-        unsafe StageCompositor.editTimeline = edit
-        defer { unsafe StageCompositor.editTimeline = nil }
+        StageCompositor.editTimeline = edit
+        defer { StageCompositor.editTimeline = nil }
         let trimmed = try await MP4Exporter.export(
             asset: asset, to: half, outputWidth: 160, outputHeight: 90, edit: edit)
 
@@ -378,9 +378,9 @@ extension StageCompositorTests {
     /// A trim of no duration is refused rather than clamped: the caller has a bug, and a
     /// zero-length MP4 would hide it.
     @Test func aTrimWithNoDurationIsRefused() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.editTimeline = nil
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = nil
+        StageCompositor.editTimeline = nil
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -389,8 +389,8 @@ extension StageCompositorTests {
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
         let empty = EditTimeline(clips: [])
-        unsafe StageCompositor.editTimeline = empty
-        defer { unsafe StageCompositor.editTimeline = nil }
+        StageCompositor.editTimeline = empty
+        defer { StageCompositor.editTimeline = nil }
         await #expect(throws: MP4Exporter.ExportError.self) {
             try await MP4Exporter.export(
                 asset: asset, to: outputURL, outputWidth: 160, outputHeight: 90, edit: empty)
@@ -403,10 +403,10 @@ extension StageCompositorTests {
     /// removed and checks the file is a second shorter — a cut that silently exported the whole
     /// recording would still produce a valid, plausible MP4.
     @Test func aCutInTheMiddleExportsBothSurvivingClips() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.style = .default
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.overrides = []
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.style = .default
+        StageCompositor.observationLogURL = nil
+        StageCompositor.overrides = []
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -416,8 +416,8 @@ extension StageCompositorTests {
         let edit = EditTimeline.whole(duration: Nanoseconds(totalNanos))
             .removing(sourceRange: (totalNanos / 4)..<(totalNanos * 3 / 4))
         #expect(edit.clips.count == 2, "the fixture for a cut must have two surviving clips")
-        unsafe StageCompositor.editTimeline = edit
-        defer { unsafe StageCompositor.editTimeline = nil }
+        StageCompositor.editTimeline = edit
+        defer { StageCompositor.editTimeline = nil }
 
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cut-\(UUID().uuidString).mp4")
@@ -440,10 +440,10 @@ extension StageCompositorTests {
     /// one way while that static said another would place every cursor and every zoom by the
     /// difference, silently.
     @Test func exportingAgainstADifferentEditThanTheCompositorSeesIsRefused() async throws {
-        unsafe StageCompositor.renderer = try CoreImageFrameRenderer()
-        unsafe StageCompositor.observationLogURL = nil
-        unsafe StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(1_000))
-        defer { unsafe StageCompositor.editTimeline = nil }
+        StageCompositor.renderer = try CoreImageFrameRenderer()
+        StageCompositor.observationLogURL = nil
+        StageCompositor.editTimeline = EditTimeline.whole(duration: Nanoseconds(1_000))
+        defer { StageCompositor.editTimeline = nil }
 
         let asset = AVURLAsset(url: repositoryRootFromTests
             .appending(path: "Tests/RenderParityFixtures/two-tone.mov"))
@@ -654,30 +654,30 @@ private final class PhaseLog: @unchecked Sendable {
         let restore = StageCompositor.settings()
         defer { StageCompositor.apply(restore) }
 
-        unsafe StageCompositor.crop = CropRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
-        unsafe StageCompositor.burnsInCaptions = true
-        unsafe StageCompositor.cursorStyle = CursorStyle.default.changing(scale: 2)
-        unsafe StageCompositor.cameraStyle = .default
-        unsafe StageCompositor.cameraTrackID = 7
+        StageCompositor.crop = CropRect(x: 0.1, y: 0.2, width: 0.5, height: 0.5)
+        StageCompositor.burnsInCaptions = true
+        StageCompositor.cursorStyle = CursorStyle.default.changing(scale: 2)
+        StageCompositor.cameraStyle = .default
+        StageCompositor.cameraTrackID = 7
         let captured: StageCompositor.Settings = StageCompositor.settings()
         // Read as a VALUE, which is the whole point of it: a queued job holds one of these for
         // minutes and the statics move underneath it.
         #expect(Self.describes(captured, cropWidth: 0.5))
 
         // Everything moves away from what was captured…
-        unsafe StageCompositor.crop = .whole
-        unsafe StageCompositor.burnsInCaptions = false
-        unsafe StageCompositor.cursorStyle = .default
-        unsafe StageCompositor.cameraStyle = nil
-        unsafe StageCompositor.cameraTrackID = nil
+        StageCompositor.crop = .whole
+        StageCompositor.burnsInCaptions = false
+        StageCompositor.cursorStyle = .default
+        StageCompositor.cameraStyle = nil
+        StageCompositor.cameraTrackID = nil
 
         // …and comes back.
         StageCompositor.apply(captured)
-        #expect(unsafe StageCompositor.crop.width == 0.5)
-        #expect(unsafe StageCompositor.burnsInCaptions)
-        #expect(unsafe StageCompositor.cursorStyle.scale == 2)
-        #expect(unsafe StageCompositor.cameraStyle != nil)
-        #expect(unsafe StageCompositor.cameraTrackID == 7)
+        #expect(StageCompositor.crop.width == 0.5)
+        #expect(StageCompositor.burnsInCaptions)
+        #expect(StageCompositor.cursorStyle.scale == 2)
+        #expect(StageCompositor.cameraStyle != nil)
+        #expect(StageCompositor.cameraTrackID == 7)
     }
 }
 

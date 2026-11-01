@@ -60,8 +60,8 @@ import Render
                                  sourceWidth: 640, sourceHeight: 360, style: .default)
     var source: CVPixelBuffer?
     var destination: CVPixelBuffer?
-    _ = CVPixelBufferCreate(nil, 640, 360, kCVPixelFormatType_32BGRA, nil, &source)
-    _ = CVPixelBufferCreate(nil, 640, 360, kCVPixelFormatType_32BGRA, nil, &destination)
+    _ = unsafe CVPixelBufferCreate(nil, 640, 360, kCVPixelFormatType_32BGRA, nil, &source)
+    _ = unsafe CVPixelBufferCreate(nil, 640, 360, kCVPixelFormatType_32BGRA, nil, &destination)
     let from = try #require(source)
     let into = try #require(destination)
     #expect(throws: Never.self) { try renderer.render(plan, source: from, camera: nil, into: into) }
