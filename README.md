@@ -12,13 +12,59 @@ Every recorder zooms. This one can say why it did not, and let you disagree.
 
 ---
 
+![The editor: the take on a stage, the timeline below it, the look in the inspector](docs/screenshots/editor.png)
+
+## What it looks like
+
+**It lives in the notch.** Nothing opens until there is something to edit. Point at the notch and
+it offers to record; click and it opens into the recorder; during a take it is the timer, the
+take's last presses, Pause and Stop; when the take ends it says so.
+
+| Pointed at | Opened — choose, then Record or Screenshot |
+| --- | --- |
+| ![The notch, pointed at: Record and its shortcut](docs/screenshots/notch-glance.png) | ![The notch, open: Screen, Window or Area, the microphone and camera, Screenshot and Record](docs/screenshots/notch-open.png) |
+| **Recording, pointer over it** | **Just finished** |
+| ![The notch during a take: the time, the last presses, Pause and Stop](docs/screenshots/notch-live-expanded.png) | ![The notch after a take: Saved](docs/screenshots/notch-finished.png) |
+
+<img src="docs/screenshots/countdown.png" alt="The countdown: the daruma with the count on its belly and a ring draining round its record eye" width="240" align="right">
+
+**The countdown is a daruma.** The count is on its belly and a ring drains round its right eye;
+in the last second the eye is painted in, and the daruma flies up into the notch as the take
+starts. The same character is the app's mark — in the menu bar, in the notch, in the icon — and
+it looks at what you point at, blinks, and closes its eyes for each permission it does not have.
+
+<br clear="right">
+
+**Export settings open from Export**, with the file size and the time estimated before you
+commit — the time measured on this Mac, not assumed.
+
+![The export settings: shape, resolution, frame rate, format, quality, the estimated size and time](docs/screenshots/export-settings.png)
+
+These are taken from the app itself by `scripts/make-readme-screenshots.sh`, which opens each
+surface through the app's own verification flags (`--show-notch`, `--show-countdown`,
+`--open-video`) — so they are re-taken, not redrawn, when the interface changes. The clip in the
+editor is this project's own website, scrolled.
+
+---
+
 ## What it does
 
-Point at a display, a window, or a rectangle you drag out. Record it with system audio, a
-microphone you chose, and a camera whose self-view is on screen *before* the countdown starts.
-Then the editor opens with the work already done: the zooms placed on the things you clicked, the
-pointer redrawn smoothly from real observations, and a review panel that will tell you why each
-click was or was not zoomed to — so you can disagree with any of it.
+Point at a display, a window, or a rectangle you drag out — or an iPhone or iPad plugged in by
+cable. Record it with system audio, a microphone you chose, and a camera whose self-view is on
+screen *before* the countdown starts. Then the editor opens with the work already done: the zooms
+placed on the things you clicked, the pointer redrawn smoothly from real observations, and a
+review panel that will tell you why each click was or was not zoomed to — so you can disagree with
+any of it.
+
+**A recording knows its steps.** Every click is recorded with the name of the control under it,
+read from the accessibility tree, so the timeline has a Steps lane — each step a control clicked
+or a menu item chosen, by its own name — and the take can leave as more than a video:
+
+| Export | What you get |
+| --- | --- |
+| **Guide** | `guide.md`, `guide.html` and a picture per step, each marking what was pressed — written in the interface's own words, not guessed from pixels |
+| **Walkthrough** | One page a viewer clicks through, where the thing to press is a real button |
+| **Final Cut XML** | The edit, for finishing in Final Cut Pro |
 
 **Seven things here that no other recorder we have read does:**
 
@@ -34,11 +80,12 @@ click was or was not zoomed to — so you can disagree with any of it.
 
 Plus the things you would expect and should not have to check for: automatic and manual zoom,
 cursor size and smoothing, idle-hide and loop-to-start, click effects, motion blur, backgrounds
-and padding and shadow and rounded corners, crop, cut / split / reorder / re-speed, on-device
-transcription with word-timed burned-in captions, subtitle files, redactions, titles, arrows and
-shapes, keyboard-shortcut badges, desktop icons hidden for the take, 16:9 / 9:16 / 1:1, and
-export to H.264, HEVC, ProRes 422, ProRes
-4444 or GIF — with the file size estimated before you commit and several exports queued at once.
+and padding and shadow and rounded corners, a device frame and a card you can lean and turn in 3D,
+crop, cut / split / reorder / re-speed, chapters, on-device transcription with word-timed
+burned-in captions, subtitle files, redactions, text, arrows and shapes, keyboard-shortcut badges,
+desktop icons hidden for the take, screenshots as well as recordings, 16:9 / 9:16 / 1:1, and
+export to H.264, HEVC, ProRes 422, ProRes 4444 or GIF — several exports queued at once. Three app
+icons to choose from in Settings.
 
 [`docs/research/landscape.md`](docs/research/landscape.md) is the full matrix against the leading
 paid and free recorders, checked against this codebase rather than remembered — and it is equally
@@ -55,7 +102,7 @@ in ten languages — English, German, Spanish, French, Japanese, Korean, Brazili
 Russian, and Simplified and Traditional Chinese. `scripts/build-release.sh` signs and notarises a Developer ID
 copy.
 
-**What is not built:** the derivation graph, titles and transitions, and the CLI. Framing decisions
+**What is not built:** the derivation graph, title scenes and transitions, and the CLI. Framing decisions
 are made per click but are not yet graph-provenanced, and a portrait export still inherits
 landscape's zoom decisions — both named in [`ROADMAP.md`](ROADMAP.md) on rows that stay `◐` rather
 than being rounded up.
@@ -180,7 +227,9 @@ Sibling directories, outside the repo:
 `../soredemo-web/` (design research) and `../opensource/` (comparable projects — **read for ideas, not
 for code**).
 
-The app icon is built from `soredemo-brand-kit/` with Icon Composer.
+The daruma, the brand kit in `assets/` and the app's icons are drawn from one figure in Core
+(`DarumaFigure`) by `scripts/make-character-assets.sh`, so the website's mark and the app's are
+one geometry.
 
 ---
 

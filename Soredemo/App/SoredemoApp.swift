@@ -151,6 +151,34 @@ struct SoredemoApp: App {
             return
         }
 
+        // **`--show-notch <state>`: the notch's surface held in one state**, beside the bar's flag
+        // and for its reason. Every state but the dormant one is reached only by the pointer
+        // or a running take, so it could not be looked at — or put in a screenshot — without
+        // hovering, clicking or recording. Exits 2 when no attached screen has a notch.
+        if let index = arguments.firstIndex(of: "--show-notch"), index + 1 < arguments.count {
+            let events: [NotchSurfaceState.Event]? = switch arguments[index + 1] {
+            case "glance": [.pointerEntered]
+            case "open": [.clicked]
+            case "live": [.recordingBegan]
+            case "live-expanded": [.recordingBegan, .pointerEntered]
+            case "finished": [.recordingBegan, .recordingEnded]
+            default: nil
+            }
+            guard let events else {
+                print("states: glance open live live-expanded finished")
+                exit(2)
+            }
+            // Installed here too: this can run before the delegate's launch hook has.
+            NotchSurfacePresenter.shared.install(coordinator: recordingCoordinator)
+            guard NotchSurfacePresenter.shared.hostsTheTake else {
+                print("no notch on any screen")
+                exit(2)
+            }
+            NotchSurfacePresenter.shared.hold(after: events)
+            print("notch held: \(arguments[index + 1])")
+            return
+        }
+
         // **`--open-video <path>`: the editor with a picture in it**, for looking at the editor
         // itself. `--open-project` needs a package, and a fixture package that opens nothing
         // showed an empty editor to every check that used it. A person can use it too.

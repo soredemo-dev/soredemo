@@ -49,6 +49,10 @@ final class NotchSurfacePresenter {
         self.panel = panel
         self.screenFrame = frame
         if coordinator.isRecording { model.send(.recordingBegan) }
+        if let held {
+            held.forEach(model.send)
+            return
+        }
         // The pointer and clicks everywhere: in other applications (global) and in this one's own
         // windows, the surface included (local). Mouse events need no permission to monitor.
         let kinds: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .rightMouseDown]
@@ -74,6 +78,15 @@ final class NotchSurfacePresenter {
     }
 
     func recordingBegan() { model?.send(.recordingBegan) }
+
+    /// `--show-notch`: the surface driven to one state and held there, the pointer no longer
+    /// moving it — so a look or a screenshot shows that state, not what the pointer made of it.
+    /// Kept, not just applied: the delegate's launch hook and a screen change both reinstall.
+    func hold(after events: [NotchSurfaceState.Event]) {
+        held = events
+        if let coordinator { install(coordinator: coordinator) }
+    }
+    private var held: [NotchSurfaceState.Event]?
 
     /// The live take's daruma on screen, global points y up — where the countdown's lands. `nil`
     /// when the notch does not host the take.
