@@ -605,7 +605,8 @@
 "Nothing was under the click" = "點按處沒有任何東西";
 "The click was on the recorder's own controls" = "點按落在錄製工具自己的控制項上";
 "The control reported no position" = "控制項沒有回報位置";
-"The window may have moved during the check" = "檢查期間視窗可能移動過";
+"The app answered after the click was let go, so what it reported may already have changed" = "放開點擊之後 app 才回應，它回報的內容可能已經變了";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "沒有看到點擊被放開，無法確認 app 是否及時回應";
 "The control and the click were in different coordinate systems" = "控制項與點按處於不同的座標系";
 "The control found was not where the click was" = "找到的控制項不在點按的位置";
 "The control had no size" = "控制項沒有大小";

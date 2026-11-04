@@ -47,6 +47,53 @@ private func writeZoomingLog(at url: URL) throws {
     try bytes.write(to: url)
 }
 
+/// One click at 3 s on a control whose centre (0.65, 0.60) is well away from the click (0.56,
+/// 0.56) — so a camera aimed at the control and one that fell back to the click land in different
+/// places — read in 1 ms. `released` writes the click's `up` 100 ms after its `down`; without it
+/// the gate has no release to measure the read against.
+private func writeFramedClickLog(at url: URL, released: Bool) throws {
+    let header = ObservationLogHeader(
+        anchor: EpochAnchor(epoch: epoch, hostTime: Nanoseconds(0), wallClockUnixNanos: 0),
+        segmentIndex: 0, mediaFilename: "master-00.mov", revision: revision, blindness: [])
+    let click = 3 * second
+    let at = { (ns: Int64) in HostInstant(epoch: epoch, hostTime: Nanoseconds(ns)) }
+    let position = NormalizedPoint(x: 0.56, y: 0.56)
+    var lines: [Data] = [try ObservationLog.encode(header)]
+    for tenth in 0..<80 {
+        lines.append(try ObservationLog.encode(PointerSample(
+            instant: at(Int64(tenth) * second / 10), position: position, revision: revision)))
+    }
+    lines.append(try ObservationLog.encode(ButtonEvent(instant: at(click), position: position,
+                                                       revision: revision, button: .left, phase: .down)))
+    if released {
+        lines.append(try ObservationLog.encode(ButtonEvent(instant: at(click + second / 10), position: position,
+                                                           revision: revision, button: .left, phase: .up)))
+    }
+    let control = NormalizedFrame(origin: NormalizedPoint(x: 0.55, y: 0.55),
+                                  size: NormalizedSize(width: 0.2, height: 0.1), revision: revision)
+    lines.append(try ObservationLog.encode(AXChainRecord(
+        instant: at(click), clickPosition: position, clickRevision: revision,
+        hitTestGlobalX: 560, hitTestGlobalY: 300,
+        hitTestInterval: HostRange(epoch: epoch, start: Nanoseconds(click + 400_000), duration: Nanoseconds(1_000_000)),
+        hit: AXElementRecord(role: "AXButton", title: "Send", frame: control,
+                             readInterval: HostRange(epoch: epoch, start: Nanoseconds(click + 1_400_000),
+                                                     duration: Nanoseconds(300_000))),
+        ancestors: [], children: nil,
+        truncation: .reachedRoot, axCalls: 3, depthCap: 12, walkBudgetNanos: 8_000_000)))
+    lines.append(try ObservationLog.encode(ObservationLogTrailer(
+        segmentIndex: 0,
+        hostRange: HostRange(epoch: epoch, start: Nanoseconds(0), duration: Nanoseconds(8 * second)),
+        endedBy: SegmentBoundary.stopped,
+        recordCounts: ["pointer": 80, "button": released ? 2 : 1, "axChain": 1],
+        gapWatches: GapSite.allCases.map {
+            GapWatch(site: $0, looks: 0, watchedSpanNanos: 0, gapsFound: 0, lost: 0)
+        })))
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    var bytes = Data()
+    for line in lines { bytes.append(line); bytes.append(0x0A) }
+    try bytes.write(to: url)
+}
+
 /// Extends `StageCompositorTests` for its `.serialized`: these write the process-global seams.
 extension StageCompositorTests {
     private func plan() -> RenderPlan {
@@ -102,5 +149,31 @@ extension StageCompositorTests {
         StageCompositor.apply(captured)
         #expect(StageCompositor.zoomIntensity == 0.4)
         #expect(StageCompositor.cameraPace == .snappy)
+    }
+
+    /// **The compositor pairs each click with its release, as the review does.** Released, the
+    /// read ended long before the button came up, so the camera aims at the control. Never let
+    /// go, the same click is refused as `releaseNotObserved` and the camera falls back to the
+    /// click — the second half is what shows the first is about the release.
+    @Test func theCompositorAimsAtAControlOnlyWhenItsClickWasLetGo() throws {
+        func centre(released: Bool) throws -> NormalizedPoint {
+            let url = FileManager.default.temporaryDirectory
+                .appending(path: "release-\(UUID())", directoryHint: .isDirectory).appending(path: "segment-00.jsonl")
+            try writeFramedClickLog(at: url, released: released)
+            defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            StageCompositor.observationLogURL = url
+            StageCompositor.overrides = []
+            StageCompositor.framingOverrides = []
+            StageCompositor.zoomAdjustments = []
+            StageCompositor.editTimeline = nil
+            StageCompositor.cameraPace = .standard
+            // Inside the block, after the move in: the click is at 3 s.
+            return StageCompositor().cameraPlan(plan(), at: CMTime(value: 34, timescale: 10)).contentCentre
+        }
+        defer { StageCompositor.observationLogURL = nil }
+        let aimed = try centre(released: true)
+        let fallenBack = try centre(released: false)
+        #expect(aimed.x > 0.62, "released, the camera should centre on the control (0.65): \(aimed)")
+        #expect(fallenBack.x < 0.6, "never let go, the camera should fall back to the click (0.56): \(fallenBack)")
     }
 }

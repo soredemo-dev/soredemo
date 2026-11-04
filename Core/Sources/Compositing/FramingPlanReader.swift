@@ -11,7 +11,7 @@ import Timeline
 /// surface needs the same decisions before anything is played or exported, and asking it to
 /// stand up a compositor to find out why a click was refused would make the explanation
 /// depend on the machinery it is explaining. The rule that turns a chain into a decision
-/// still has exactly one owner — `FramingGate.decide(for:)` — which is the part that must
+/// still has exactly one owner — `FramingGate.decide(for:releasedAt:)` — which is the part that must
 /// not be duplicated; the loop that finds the lines is not.
 public enum FramingPlanReader {
     /// Every `axChain` record in the log, decided.
@@ -21,15 +21,23 @@ public enum FramingPlanReader {
     /// Read failures throw.
     public static func plan(fromObservationLogAt url: URL) throws -> FramingPlan {
         let lines = try JSONLReader.linesOfFile(at: url).lines
-        var entries: [FramingPlan.Entry] = []
-        for line in lines where try ObservationLog.kind(of: line) == "axChain" {
-            let record = try ObservationLog.decode(line) as AXChainRecord
-            entries.append(FramingPlan.Entry(instant: record.instant,
-                                             decision: FramingGate.decide(for: record),
-                                             clickPosition: record.clickPosition,
-                                             clickRevision: record.clickRevision))
+        var chains: [AXChainRecord] = []
+        var buttons: [ButtonEvent] = []
+        for line in lines {
+            switch try ObservationLog.kind(of: line) {
+            case "axChain": chains.append(try ObservationLog.decode(line) as AXChainRecord)
+            case "button": buttons.append(try ObservationLog.decode(line) as ButtonEvent)
+            default: break
+            }
         }
-        return FramingPlan(entries: entries)
+        // Released by the same pairing the compositor uses, so the review and the video agree.
+        return FramingPlan(entries: chains.map { record in
+            FramingPlan.Entry(instant: record.instant,
+                              decision: FramingGate.decide(for: record,
+                                                           releasedAt: ClickRelease.instant(for: record, in: buttons)),
+                              clickPosition: record.clickPosition,
+                              clickRevision: record.clickRevision)
+        })
     }
 
     /// Every `axChain` record in the log, as recorded — what `RecordedSteps` derives steps from.

@@ -217,6 +217,9 @@ extension StageCompositorTests {
     /// click's own revision, on a walk that reached the root. Built through the record's own
     /// initialiser rather than as JSON — the on-disk shape belongs to `AXChainRecord` and is
     /// pinned by its own round-trip tests.
+    /// How long each click is held: 100 ms, inside the 83–113 ms of the real fixture's clicks.
+    private static let clickHeld: Int64 = 100_000_000
+
     private static func framedChain(at instant: HostInstant) -> AXChainRecord {
         let click = NormalizedPoint(x: 0.5, y: 0.5)
         let frame = NormalizedFrame(origin: NormalizedPoint(x: 0.4, y: 0.4),
@@ -229,8 +232,8 @@ extension StageCompositorTests {
             clickPosition: click,
             clickRevision: smokeRevision,
             hitTestGlobalX: 640, hitTestGlobalY: 360,
-            // Well under `FramingGate.stalenessBudget`; a slower read would be refused as
-            // `.staleObservation` and this chain would stop being the accepted one.
+            // Over long before the button comes up (`clickHeld` after the down): a read that
+            // ended after the release would be refused as `.staleObservation`.
             hitTestInterval: HostRange(epoch: smokeEpoch, start: instant.hostTime,
                                        duration: Nanoseconds(200_000)),
             hit: AXElementRecord(role: "AXButton", title: "Send", frame: frame,
@@ -337,6 +340,19 @@ extension StageCompositorTests {
                 instant: instant,
                 position: NormalizedPoint(x: 0.1 + 0.8 * progress, y: 0.5),
                 revision: smokeRevision))
+        }
+        // Each click's own down and up, as a real take writes them: the gate decides whether a
+        // read was in time by the release (`ClickRelease`), and a chain with no `up` after it is
+        // refused as `.releaseNotObserved`.
+        for (instant, position) in [(framedClick, NormalizedPoint(x: 0.5, y: 0.5)),
+                                    (refusedClick, NormalizedPoint(x: 0.25, y: 0.75))] {
+            try log.append(ButtonEvent(instant: instant, position: position, revision: smokeRevision,
+                                       button: .left, phase: .down))
+            try log.append(ButtonEvent(instant: HostInstant(epoch: smokeEpoch,
+                                                            hostTime: Nanoseconds(instant.hostTime.rawValue
+                                                                                  + clickHeld)),
+                                       position: position, revision: smokeRevision,
+                                       button: .left, phase: .up))
         }
         try log.append(framedChain(at: framedClick))
         try log.append(refusedChain(at: refusedClick))

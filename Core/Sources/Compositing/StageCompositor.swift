@@ -1126,7 +1126,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         var buttonEvents: [ButtonEvent] = []
         var presses: [KeystrokeTrack.Press] = []
         var anchor: EpochAnchor?
-        var planEntries: [FramingPlan.Entry] = []
+        var chains: [AXChainRecord] = []
         var contentCrops: [ContentCropSample] = []
         for line in lines {
             switch try ObservationLog.kind(of: line) {
@@ -1159,14 +1159,19 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                 // keep the targets and discard the refusals one call after the gate named
                 // them, so a recording that zoomed nowhere could not say why. `FramingPlan`
                 // holds both; `review-ui` reads it, and a reviewer's override attaches to it.
-                let record = try ObservationLog.decode(line) as AXChainRecord
-                planEntries.append(FramingPlan.Entry(instant: record.instant,
-                                                     decision: FramingGate.decide(for: record),
-                                                     clickPosition: record.clickPosition,
-                                                     clickRevision: record.clickRevision))
+                // Decided after the loop: the gate needs the click's release, and a click's `up`
+                // can be written after its chain.
+                chains.append(try ObservationLog.decode(line) as AXChainRecord)
             default:
                 break
             }
+        }
+        let planEntries = chains.map { record in
+            FramingPlan.Entry(instant: record.instant,
+                              decision: FramingGate.decide(for: record,
+                                                           releasedAt: ClickRelease.instant(for: record, in: buttonEvents)),
+                              clickPosition: record.clickPosition,
+                              clickRevision: record.clickRevision)
         }
         // The button-down instants feed the presentation path, where the cursor's spring
         // stiffens into a click so it has arrived when the ripple starts — see `PointerPath`.

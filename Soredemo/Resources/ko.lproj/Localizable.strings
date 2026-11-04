@@ -589,7 +589,8 @@
 "Nothing was under the click" = "클릭한 곳에 아무것도 없었습니다";
 "The click was on the recorder's own controls" = "클릭이 녹화 앱 자체의 컨트롤 위였습니다";
 "The control reported no position" = "컨트롤이 위치를 알려 주지 않았습니다";
-"The window may have moved during the check" = "확인하는 동안 창이 움직였을 수 있습니다";
+"The app answered after the click was let go, so what it reported may already have changed" = "클릭을 뗀 뒤에 앱이 응답해서, 알려 준 내용이 이미 바뀌었을 수 있습니다";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "클릭을 떼는 순간이 기록되지 않아 앱이 제때 응답했는지 확인할 수 없습니다";
 "The control and the click were in different coordinate systems" = "컨트롤과 클릭의 좌표계가 달랐습니다";
 "The control found was not where the click was" = "찾은 컨트롤이 클릭 위치에 있지 않았습니다";
 "The control had no size" = "컨트롤에 크기가 없었습니다";

@@ -591,7 +591,8 @@
 "Nothing was under the click" = "点击处没有任何东西";
 "The click was on the recorder's own controls" = "点击落在录制工具自己的控件上";
 "The control reported no position" = "控件没有报告位置";
-"The window may have moved during the check" = "检查期间窗口可能移动过";
+"The app answered after the click was let go, so what it reported may already have changed" = "松开点击之后 app 才回应，它报告的内容可能已经变了";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "没有看到点击被松开，无法确认 app 是否及时回应";
 "The control and the click were in different coordinate systems" = "控件与点击处于不同的坐标系";
 "The control found was not where the click was" = "找到的控件不在点击的位置";
 "The control had no size" = "控件没有尺寸";

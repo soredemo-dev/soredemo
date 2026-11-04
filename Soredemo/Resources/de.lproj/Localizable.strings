@@ -589,7 +589,8 @@
 "Nothing was under the click" = "Unter dem Klick war nichts";
 "The click was on the recorder's own controls" = "Der Klick lag auf den Bedienelementen des Recorders";
 "The control reported no position" = "Das Element meldete keine Position";
-"The window may have moved during the check" = "Das Fenster hat sich während der Prüfung womöglich bewegt";
+"The app answered after the click was let go, so what it reported may already have changed" = "Die App antwortete erst nach dem Loslassen des Klicks – was sie meldete, hat sich womöglich schon geändert";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "Das Loslassen des Klicks wurde nie gesehen – ob die App rechtzeitig antwortete, lässt sich nicht prüfen";
 "The control and the click were in different coordinate systems" = "Element und Klick lagen in verschiedenen Koordinatensystemen";
 "The control found was not where the click was" = "Das gefundene Element lag nicht dort, wo geklickt wurde";
 "The control had no size" = "Das Element hatte keine Größe";

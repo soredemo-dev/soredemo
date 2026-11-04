@@ -19,9 +19,12 @@ public enum FramingRejection: String, Codable, Hashable, Sendable, CaseIterable 
     /// An element answered, without geometry. Distinct from a BAD frame: nothing was
     /// measured, so nothing can be judged degenerate or offscreen.
     case noFrameRecorded
-    /// The hit-test took longer than `stalenessBudget`; the window may have moved between
-    /// the click and the frame being reported.
+    /// The read ended after the click was let go, so what it reported may be what the click's
+    /// action put there. See `docs/design/2026-11-04-a-read-is-stale-only-after-the-release.md`.
     case staleObservation
+    /// The log has no release for this click — the take ended with the button held, or the
+    /// release fell where nothing was observed — so whether the read was in time is unknown.
+    case releaseNotObserved
     /// The frame and the click are in different geometry revisions — two coordinate
     /// systems, and comparing them is the `1a98402` family one domain over.
     case notComparable
@@ -77,14 +80,6 @@ public enum FramingDecision: Hashable, Sendable {
 /// **No pointer fallback here.** A function that silently substituted the pointer would
 /// erase the reason it just computed; the caller asks for the fallback having seen it.
 public enum FramingGate {
-    /// How long a hit-test may take before its frame is treated as describing a window that
-    /// may have moved. **Uncalibrated**: chosen as an order of magnitude above the
-    /// sub-millisecond answers a responsive app gives, and below the 8 ms walk budget.
-    /// `framing-gates`' row asks for calibration against real measurements, and this task
-    /// does not have them — the constant is named and public so a measurement can move it
-    /// in one place.
-    public static let stalenessBudget = Nanoseconds(4_000_000)
-
     /// The share of the screen past which a target is a pane rather than a control.
     /// **Uncalibrated**, same as above: 0.5 is a starting point, not a finding.
     public static let maxTargetArea: Double = 0.5
@@ -94,14 +89,26 @@ public enum FramingGate {
     /// the reported reason would vary with evaluation order and `review-ui` could show a
     /// different cause for the same recording between builds
     /// (`theEarliestApplicableGateIsTheReportedReason`).
-    public static func decide(for record: AXChainRecord) -> FramingDecision {
+    ///
+    /// `release` is when the click was let go — `ClickRelease.instant(for:in:)`, from the same
+    /// log — and is what gate 3 measures the read against.
+    public static func decide(for record: AXChainRecord, releasedAt release: HostInstant?) -> FramingDecision {
         // Before the missing-hit guard, because a click on our own window has no hit too — and
         // reporting it as `.hitTestReturnedNothing` is what let the fallback zoom to it.
         if record.truncation == .overOwnWindow { return .rejected(.overOwnWindow) }
         guard let hit = record.hit else { return .rejected(.hitTestReturnedNothing) }
         guard let frame = hit.frame else { return .rejected(.noFrameRecorded) }
 
-        if record.hitTestInterval.duration.rawValue > stalenessBudget.rawValue {
+        // **Stale means read after the release, not read slowly.** Until the button comes up the
+        // click has activated nothing, so a 36 ms read that ends before it describes what was
+        // pressed; a fast one that ends after it may not. The read ends with the later of the
+        // hit-test and the hit element's own read, where the frame comes from.
+        guard let release, release.epoch == record.hitTestInterval.epoch else {
+            return .rejected(.releaseNotObserved)
+        }
+        let readEnd = max(record.hitTestInterval.start.rawValue + record.hitTestInterval.duration.rawValue,
+                          hit.readInterval.start.rawValue + hit.readInterval.duration.rawValue)
+        if readEnd > release.hostTime.rawValue {
             return .rejected(.staleObservation)
         }
         // Containment is `AXChainRecord`'s own computation, so the revision check and the

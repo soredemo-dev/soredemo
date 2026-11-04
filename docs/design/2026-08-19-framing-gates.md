@@ -36,7 +36,7 @@ the order is a statement about which explanation is more useful to a person.
 | --- | --- | --- | --- |
 | 1 | `hitTestReturnedNothing` | `truncation == .hitTestReturnedNothing` | the chain has no element at all; every later gate would be asking about a `nil` |
 | 2 | `noFrameRecorded` | the hit element has no `frame` | AX answered without geometry — nothing to frame, and distinct from a bad frame |
-| 3 | `staleObservation` | `hitTestInterval.duration` exceeds the budget | the frame describes a window that may have moved before the read finished |
+| 3 | `staleObservation` | the read ended after the click's release (`releaseNotObserved` when no release was recorded) — **changed 2026-11-04**: this was `hitTestInterval.duration` over a 4 ms budget, which refused reads that finished long before anything could change; see [2026-11-04-a-read-is-stale-only-after-the-release](2026-11-04-a-read-is-stale-only-after-the-release.md) | the frame describes what was under the click only while the click had not yet acted |
 | 4 | `notComparable` | frame's `GeometryRevision` ≠ click's | two coordinate systems; comparing them is the `1a98402` family |
 | 5 | `doesNotContainTheClick` | click outside the hit frame | a coordinate fault: the element AX returned is not where the user clicked |
 | 6 | `degenerateRectangle` | zero or negative width/height | nothing to zoom to |
@@ -44,7 +44,8 @@ the order is a statement about which explanation is more useful to a person.
 | 8 | `tooLarge` | frame covers more than `maxTargetArea` of the screen | **a pane is not a control** — zooming to it is a no-op that looks like a bug |
 | 9 | `bestCandidateOnTheTruncationBoundary` | the chosen element is the outermost recorded AND the chain was cut | Phase 2's F2-3: measured at 7–8% of clicks, so a normal path. A candidate sitting at the cut is indistinguishable on disk from one genuinely outermost, so the honest answer is refusal, not a guess |
 
-Gate 8's threshold and gate 3's budget are **calibration constants, not measurements** —
+Gate 8's threshold and gate 3's budget were **calibration constants, not measurements** (gate 3's
+was replaced on 2026-11-04 by the release, an event rather than a constant) —
 named, documented as uncalibrated, and carried where `review-ui` and a real recording can
 tune them. Stating that is the point: `framing-gates`'s row says "calibrate the size
 threshold against real measurements", and this task does not have those measurements.

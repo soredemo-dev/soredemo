@@ -40,7 +40,7 @@ Every recorder zooms. **This one can say why it did not, and let you disagree.**
   beside the video — where the pointer was, each click, and the accessibility element under it.
   The drawn cursor, the zooms and the steps are all worked out from that log.
 - **Every decision is reviewable.** Each zoom names its reason — *framed from the AXButton under
-  the click*, or *fell back to the pointer because the window may have moved* — with **Don't zoom**
+  the click*, or *fell back to the pointer because the app answered after the click was let go* — with **Don't zoom**
   beside it. Automation proposes; you decide.
 - **It lives in your notch.** Nothing opens until there is something to edit. Point at the notch to
   record; during a take it is the timer, your last presses, Pause and Stop.

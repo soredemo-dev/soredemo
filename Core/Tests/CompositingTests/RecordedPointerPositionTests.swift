@@ -454,25 +454,24 @@ func recordedReading(in samples: [PointerSample],
 /// draw. Until this landed, `axChain` was a line the writer had always written and nothing
 /// had ever read — it fell through `buildTracks`' `default: break`.
 ///
-/// The recording's three chains exercise three different outcomes, and the second one
-/// corrected this test's own premise:
+/// The recording's three chains exercise three different outcomes:
 ///
 /// * 36.6 ms hit-test, `truncation == .hitTestReturnedNothing` — gate 1;
-/// * 6.8 ms hit-test on an `AXGroup` covering 0.92 × 0.87 — **gate 3, `staleObservation`**.
-///   This test first asserted `tooLarge`, reasoning from the area (0.80, past the 0.5
-///   threshold). The area gate never runs: staleness is gate 3 and fires first, because the
-///   read took 6.8 ms against a 4 ms budget. **The ordering claim from
-///   `theEarliestApplicableGateIsTheReportedReason` turns out to matter on the very first
-///   real recording it met**, and it is the more useful answer of the two — "the frame may
-///   describe a window that has since moved" explains the refusal, where "it was big"
-///   describes a rectangle that might not have been where AX said it was.
-/// * 3.1 ms hit-test, `AXGroup` at area 0.27 — inside both budgets, accepted.
+/// * 6.8 ms hit-test on an `AXGroup` covering 0.92 × 0.87 — **gate 8, `tooLarge`**. This test
+///   asserted `tooLarge` first, from the area (0.80, past the 0.5 threshold); then gate 3 fired
+///   ahead of it, because 6.8 ms was over the old 4 ms budget. That read ended 7.6 ms after the
+///   button went down and the button came up at 91.7 ms, so nothing had happened yet that could
+///   make it stale — `docs/design/2026-11-04-a-read-is-stale-only-after-the-release.md`. The
+///   area is the true reason, and the first assertion was right.
+/// * 3.1 ms hit-test, `AXGroup` at area 0.27 — accepted.
 ///
-/// So exactly one click survives the gates, and the camera zooms once. Two uncalibrated
-/// constants are doing real work here on real data, which is the first evidence either has
-/// ever had.
+/// So exactly one click survives the gates, and the camera zooms once — and no click is
+/// refused as stale, because every read in this recording ended before its release.
 @Test func theRecordingsAXChainsProduceExactlyOneZoom() throws {
-    let decisions = try recordedAXChains().map { FramingGate.decide(for: $0) }
+    let events = try recordedButtonEvents()
+    let decisions = try recordedAXChains().map {
+        FramingGate.decide(for: $0, releasedAt: ClickRelease.instant(for: $0, in: events))
+    }
     #expect(decisions.count == 3, "the fixture's chain count changed — re-read this test's premise")
 
     let accepted = decisions.compactMap { decision -> FramingTarget? in
@@ -484,7 +483,19 @@ func recordedReading(in samples: [PointerSample],
         Reasons: \(decisions.map { $0.rejection.map(\.rawValue) ?? "framed" }.joined(separator: ", "))
         """)
     #expect(decisions.contains { $0.rejection == .hitTestReturnedNothing })
-    #expect(decisions.contains { $0.rejection == .staleObservation })
+    #expect(decisions.contains { $0.rejection == .tooLarge })
+    #expect(!decisions.contains { $0.rejection == .staleObservation || $0.rejection == .releaseNotObserved })
+}
+
+/// **The review's reader pairs the releases too.** `FramingPlanReader` reads the log apart from
+/// the compositor; if it passed no release, every click in the review would read "never seen let
+/// go" while the video zoomed — two derivations disagreeing, silently.
+@Test func theReviewsReaderFindsEveryReleaseInTheRecording() throws {
+    let plan = try FramingPlanReader.plan(fromObservationLogAt: try recordedObservationLog())
+    #expect(plan.entries.count == 3)
+    #expect(plan.rejectionCounts[.releaseNotObserved] == nil,
+            "the reader decided a click without its release")
+    #expect(plan.rejectionCounts[.tooLarge] == 1)
 }
 
 /// **The recording produces NO zoom, and that is the pipeline working.** This test first
@@ -505,8 +516,10 @@ func recordedReading(in samples: [PointerSample],
 /// clicking a button — which is a human step, not a fixture that can be written.
 @Test func theRecordingsOneAcceptedClickIsTooBroadToZoomInto() throws {
     let chains = try recordedAXChains()
+    let events = try recordedButtonEvents()
     let clicks = chains.compactMap { record -> FramedClick? in
-        guard case .framed(let target) = FramingGate.decide(for: record) else { return nil }
+        guard case .framed(let target) = FramingGate.decide(
+            for: record, releasedAt: ClickRelease.instant(for: record, in: events)) else { return nil }
         return FramedClick(instant: record.instant, target: target)
     }
     let blocks = ZoomBlock.blocks(for: clicks, coverage: 1, intensity: 1)
@@ -535,6 +548,13 @@ func recordedReading(in samples: [PointerSample],
 }
 
 /// Every `axChain` line in the fixture, decoded through the production reader.
+func recordedButtonEvents() throws -> [ButtonEvent] {
+    try JSONLReader.linesOfFile(at: try recordedObservationLog()).lines.compactMap { line in
+        guard try ObservationLog.kind(of: line) == "button" else { return nil }
+        return try ObservationLog.decode(line) as ButtonEvent
+    }
+}
+
 func recordedAXChains() throws -> [AXChainRecord] {
     let url = try #require(Bundle.module.url(forResource: "segment-00-redacted",
                                              withExtension: "jsonl"))

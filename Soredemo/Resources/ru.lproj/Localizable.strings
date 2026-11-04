@@ -589,7 +589,8 @@
 "Nothing was under the click" = "Под щелчком ничего не было";
 "The click was on the recorder's own controls" = "Щелчок пришёлся на элементы управления самой записи";
 "The control reported no position" = "Элемент не сообщил своё положение";
-"The window may have moved during the check" = "Окно могло сдвинуться во время проверки";
+"The app answered after the click was let go, so what it reported may already have changed" = "Приложение ответило уже после того, как клик отпустили, — сообщённое могло успеть измениться";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "Отпускание клика не было замечено, поэтому нельзя проверить, ответило ли приложение вовремя";
 "The control and the click were in different coordinate systems" = "Элемент и щелчок были в разных системах координат";
 "The control found was not where the click was" = "Найденный элемент был не там, где щёлкнули";
 "The control had no size" = "У элемента не было размера";

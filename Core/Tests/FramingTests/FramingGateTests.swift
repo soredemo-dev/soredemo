@@ -46,11 +46,21 @@ private func chain(hit: AXElementRecord? = element(),
                   depthCap: 12, walkBudgetNanos: 8_000_000)
 }
 
+/// When the default click was let go: 100 ms after it went down, inside the 83–113 ms the
+/// fixture's three real clicks took. Every test that is not about the release uses this, so a
+/// refusal below is never the release's doing by accident.
+private let letGo = HostInstant(epoch: epoch, hostTime: Nanoseconds(1_000 + 100_000_000))
+
+/// The gate, with the default release unless a test is about the release.
+private func decide(_ record: AXChainRecord, releasedAt release: HostInstant? = letGo) -> FramingDecision {
+    FramingGate.decide(for: record, releasedAt: release)
+}
+
 // MARK: - the accepting case
 
 /// The default chain frames the HIT element, not an ancestor and not the click point.
 @Test func aWellFormedChainFramesTheHitElement() throws {
-    guard case .framed(let target) = FramingGate.decide(for: chain()) else {
+    guard case .framed(let target) = decide(chain()) else {
         Issue.record("a chain designed to pass every gate was refused")
         return
     }
@@ -58,10 +68,10 @@ private func chain(hit: AXElementRecord? = element(),
     #expect(target.role == "AXButton")
 }
 
-// MARK: - the nine refusals, in the order they fire
+// MARK: - the refusals, in the order they fire
 
 @Test func aHitTestThatReturnedNothingIsRefusedAsSuch() {
-    let decision = FramingGate.decide(for: chain(hit: nil, truncation: .hitTestReturnedNothing))
+    let decision = decide(chain(hit: nil, truncation: .hitTestReturnedNothing))
     #expect(decision.rejection == .hitTestReturnedNothing)
 }
 
@@ -70,20 +80,56 @@ private func chain(hit: AXElementRecord? = element(),
 @Test func anElementWithNoFrameIsRefusedForThatAndNotForGeometry() {
     let frameless = AXElementRecord(role: "AXButton", title: "Record", frame: nil,
                                     readInterval: range(1_000, 500_000))
-    #expect(FramingGate.decide(for: chain(hit: frameless)).rejection == .noFrameRecorded)
+    #expect(decide(chain(hit: frameless)).rejection == .noFrameRecorded)
 }
 
-/// The read took longer than the budget: the window may have moved between the click and
-/// the frame being reported, so the rectangle describes a place that may no longer exist.
-@Test func aSlowHitTestIsRefusedAsStale() {
-    let slow = FramingGate.stalenessBudget.rawValue + 1
-    #expect(FramingGate.decide(for: chain(hitTestDuration: slow)).rejection == .staleObservation)
+/// **Slow is not stale.** The fixture's own first click took 36.6 ms to hit-test and was let
+/// go 82.7 ms after it went down: the answer is about the moment the person was still holding
+/// the button over what they chose. This was refused at the old 4 ms budget.
+@Test func aSlowReadThatEndedBeforeTheReleaseIsNotStale() {
+    let released = HostInstant(epoch: epoch, hostTime: Nanoseconds(1_000 + 82_700_000))
+    #expect(decide(chain(hitTestDuration: 36_643_625), releasedAt: released).rejection == nil)
+}
+
+/// A read that ended after the release may describe what the click's action put there — a
+/// page that navigated, a sheet that opened — so its frame is not trusted, however fast it was.
+@Test func aReadThatEndedAfterTheReleaseIsStale() {
+    let released = HostInstant(epoch: epoch, hostTime: Nanoseconds(1_000 + 1_000_000))
+    #expect(decide(chain(hitTestDuration: 2_000_000), releasedAt: released).rejection
+            == .staleObservation)
+}
+
+/// **The frame is read after the hit-test**, as part of the hit element, so the read ends when
+/// that does. A hit-test over in 2 ms with the element read until 50 ms is a read that ended
+/// at 50 ms — after a release at 10 ms.
+@Test func theHitElementsOwnReadCountsNotOnlyTheHitTest() {
+    let lateRead = AXElementRecord(role: "AXButton", title: "Record",
+                                   frame: NormalizedFrame(origin: NormalizedPoint(x: 0.4, y: 0.4),
+                                                          size: NormalizedSize(width: 0.1, height: 0.05),
+                                                          revision: revision),
+                                   readInterval: range(2_001_000, 48_000_000))
+    let released = HostInstant(epoch: epoch, hostTime: Nanoseconds(1_000 + 10_000_000))
+    #expect(decide(chain(hit: lateRead, hitTestDuration: 2_000_000), releasedAt: released).rejection
+            == .staleObservation)
+}
+
+/// No release in the log — the take ended with the button held, or the release fell in a blind
+/// interval. That is not evidence the read was in time, so it is refused, by its own name.
+@Test func aClickWithNoReleaseIsRefusedByName() {
+    #expect(decide(chain(), releasedAt: nil).rejection == .releaseNotObserved)
+}
+
+/// A release from another boot is on another clock, and comparing it is meaningless.
+@Test func aReleaseFromAnotherBootIsNoRelease() {
+    let otherBoot = BootEpoch(id: UUID(uuidString: "C0FFEE00-9999-4222-8333-444455556666")!)
+    let released = HostInstant(epoch: otherBoot, hostTime: Nanoseconds(1_000 + 100_000_000))
+    #expect(decide(chain(), releasedAt: released).rejection == .releaseNotObserved)
 }
 
 /// Two geometry revisions are two coordinate systems — the `1a98402` family, one domain
 /// over. Refused rather than compared.
 @Test func aFrameFromAnotherRevisionIsRefusedAsNotComparable() {
-    #expect(FramingGate.decide(for: chain(hit: element(revision: otherRevision))).rejection
+    #expect(decide(chain(hit: element(revision: otherRevision))).rejection
             == .notComparable)
 }
 
@@ -91,20 +137,20 @@ private func chain(hit: AXElementRecord? = element(),
 /// geometry gates, because "this is the wrong element" explains more than "its rectangle
 /// is odd".
 @Test func aClickOutsideTheHitFrameIsRefusedAsAFault() {
-    #expect(FramingGate.decide(for: chain(clickX: 0.9, clickY: 0.9)).rejection
+    #expect(decide(chain(clickX: 0.9, clickY: 0.9)).rejection
             == .doesNotContainTheClick)
 }
 
 @Test func aZeroSizedFrameIsRefusedAsDegenerate() {
     let flat = element(width: 0, height: 0.05)
-    #expect(FramingGate.decide(for: chain(hit: flat, clickX: 0.4, clickY: 0.42)).rejection
+    #expect(decide(chain(hit: flat, clickX: 0.4, clickY: 0.42)).rejection
             == .degenerateRectangle)
 }
 
 /// Half the target is not on the recording, so framing it would zoom to empty space.
 @Test func aFrameExtendingBeyondTheScreenIsRefused() {
     let overhanging = element(x: 0.95, y: 0.4, width: 0.2, height: 0.05)
-    #expect(FramingGate.decide(for: chain(hit: overhanging, clickX: 0.97, clickY: 0.42)).rejection
+    #expect(decide(chain(hit: overhanging, clickX: 0.97, clickY: 0.42)).rejection
             == .partlyOffscreen)
 }
 
@@ -112,7 +158,7 @@ private func chain(hit: AXElementRecord? = element(),
 /// no-op that reads as a bug.
 @Test func aFrameCoveringMostOfTheScreenIsRefusedAsTooLarge() {
     let pane = element(role: "AXScrollArea", x: 0.02, y: 0.02, width: 0.96, height: 0.96)
-    #expect(FramingGate.decide(for: chain(hit: pane)).rejection == .tooLarge)
+    #expect(decide(chain(hit: pane)).rejection == .tooLarge)
 }
 
 /// Phase 2's F2-3, measured at 7–8% of clicks: when the chain was CUT and the element
@@ -121,7 +167,7 @@ private func chain(hit: AXElementRecord? = element(),
 /// thing with no way to tell afterwards.
 @Test func anOutermostElementOfACutChainIsRefused() {
     // No ancestors recorded AND the walk was cut: the hit element is the boundary.
-    let decision = FramingGate.decide(for: chain(ancestors: [], truncation: .depthCapReached))
+    let decision = decide(chain(ancestors: [], truncation: .depthCapReached))
     #expect(decision.rejection == .bestCandidateOnTheTruncationBoundary)
 }
 
@@ -129,7 +175,7 @@ private func chain(hit: AXElementRecord? = element(),
 /// ancestors is a root, not a truncation artefact. This is the pair that makes the gate
 /// above about truncation rather than about ancestor count.
 @Test func anOutermostElementOfACompleteChainIsAccepted() {
-    let decision = FramingGate.decide(for: chain(ancestors: [], truncation: .reachedRoot))
+    let decision = decide(chain(ancestors: [], truncation: .reachedRoot))
     #expect(decision.rejection == nil)
 }
 
@@ -141,9 +187,8 @@ private func chain(hit: AXElementRecord? = element(),
 @Test func theEarliestApplicableGateIsTheReportedReason() {
     let bad = AXElementRecord(role: "AXButton", title: nil, frame: nil,
                               readInterval: range(1_000, 500_000))
-    let decision = FramingGate.decide(for: chain(hit: bad,
-                                                 truncation: .budgetExceeded,
-                                                 hitTestDuration: FramingGate.stalenessBudget.rawValue + 1))
+    let released = HostInstant(epoch: epoch, hostTime: Nanoseconds(1_000))
+    let decision = decide(chain(hit: bad, truncation: .budgetExceeded), releasedAt: released)
     // noFrameRecorded (2) precedes staleObservation (3) and the truncation gate (9).
     #expect(decision.rejection == .noFrameRecorded)
 }
@@ -166,7 +211,7 @@ private func chain(hit: AXElementRecord? = element(),
 /// ended with the camera moving toward where the bar had been.
 @Test func aClickOnTheRecordersOwnWindowIsNeverZoomedToNotEvenByTheFallback() {
     let record = chain(hit: nil, ancestors: [], truncation: .overOwnWindow)
-    let decision = FramingGate.decide(for: record)
+    let decision = decide(record)
     #expect(decision.rejection == .overOwnWindow,
             "the refusal must name the recorder's own window, got \(String(describing: decision))")
 
@@ -186,7 +231,7 @@ private func chain(hit: AXElementRecord? = element(),
 @Test func aClickOverNothingStillFallsBackToThePointer() {
     let record = chain(hit: nil, ancestors: [], truncation: .hitTestReturnedNothing)
     let plan = FramingPlan(entries: [FramingPlan.Entry(instant: record.instant,
-                                                       decision: FramingGate.decide(for: record),
+                                                       decision: decide(record),
                                                        clickPosition: record.clickPosition,
                                                        clickRevision: record.clickRevision)])
     let resolved = plan.resolvedWithPointerFallback(overrides: [], revision: revision)

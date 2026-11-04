@@ -591,7 +591,8 @@
 "Nothing was under the click" = "クリック位置に何もありませんでした";
 "The click was on the recorder's own controls" = "クリックは収録アプリ自身の操作部の上でした";
 "The control reported no position" = "コントロールが位置を報告しませんでした";
-"The window may have moved during the check" = "確認中にウインドウが動いた可能性があります";
+"The app answered after the click was let go, so what it reported may already have changed" = "クリックを離したあとにアプリが応答したため、伝えられた内容はすでに変わっている可能性があります";
+"The click was never seen being let go, so whether the app answered in time cannot be checked" = "クリックを離した瞬間が記録されていないため、アプリが間に合って応答したか確かめられません";
 "The control and the click were in different coordinate systems" = "コントロールとクリックの座標系が異なっていました";
 "The control found was not where the click was" = "見つかったコントロールはクリック位置にありませんでした";
 "The control had no size" = "コントロールに大きさがありませんでした";

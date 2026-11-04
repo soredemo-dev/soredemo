@@ -90,6 +90,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 | --- | --- |
 | [2026-10-25-a-recording-knows-its-steps](2026-10-25-a-recording-knows-its-steps.md) | steps — each named press — derived from the log, on a Steps lane |
 | [2026-08-19-framing-gates](2026-08-19-framing-gates.md) | the zoom target, and every reason there isn't one |
+| [2026-11-04-a-read-is-stale-only-after-the-release](2026-11-04-a-read-is-stale-only-after-the-release.md) | gate 3: a read is stale when it ended after the click was let go, not when it was slow |
 | [how-the-drawn-cursor-behaves](how-the-drawn-cursor-behaves.md) | the drawn cursor: shape, density, motion |
 | [classifying-the-live-cursor](classifying-the-live-cursor.md) | telling cursor shapes apart while recording |
 | [2026-08-25-presentation-motion](2026-08-25-presentation-motion.md) | the cursor, the camera and the pixels between them |
