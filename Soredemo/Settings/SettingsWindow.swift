@@ -292,8 +292,10 @@ struct SettingsWindow: View {
         SwiftUI.Section("Defaults") {
             // Export settings live on the recording being exported, not here: a GIF's frame rate
             // is a property of that export. What is here is the statement of where they are, so
-            // a person looking for them in the obvious place is told the non-obvious answer.
-            Text("An export's shape, size and GIF settings belong to the recording being exported and are in the editor's Project tab, saved with the project.")
+            // a person looking for them in the obvious place is told the non-obvious answer —
+            // and how long each lasts: `EditState` saves the shape (`outputShapeName`) and nothing
+            // else of an export's, so the rest go when `EditorViewModel` does.
+            Text("An export's shape, format, size and GIF settings belong to the recording being exported, under Export… in the editor. The shape is saved with the project; the rest last while that recording is open.")
                 .font(Type.detail).foregroundStyle(.secondary)
         }
     }

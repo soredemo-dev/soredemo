@@ -447,7 +447,7 @@
 "Dragging the playhead plays the moment under it, so a sentence can be found by ear instead of by scrubbing and watching." = "再生ヘッドをドラッグするとその位置の音が鳴るので、目で追わずに耳で一文を探せます。";
 "Turning system audio off would leave a writer input nothing ever feeds, which costs a second and a half of every recording to recover from. It goes in when the writer can be told up front that a track will not exist." = "システム音声を切ると、何も供給されないライターの入力が残り、そこから復帰するのに収録ごとに1.5秒かかります。トラックが存在しないと最初にライターへ伝えられる場合にだけ有効になります。";
 "Works while another application is in front, which is when a recording is stopped." = "別のアプリケーションが前面にあるときも働きます。収録が止められるのは、まさにそのときです。";
-"An export's shape, size and GIF settings belong to the recording being exported and are in the editor's Project tab, saved with the project." = "書き出しの形・サイズ・GIF 設定は書き出す収録に属し、エディタの「Project」タブにあり、プロジェクトと一緒に保存されます。";
+"An export's shape, format, size and GIF settings belong to the recording being exported, under Export… in the editor. The shape is saved with the project; the rest last while that recording is open." = "書き出しの形・フォーマット・サイズ・GIF 設定は書き出す収録に属し、エディタの「書き出す…」にあります。形はプロジェクトと一緒に保存され、それ以外はその収録を開いているあいだ保たれます。";
 "This page opens on its own whenever something Soredemo needs has not been granted, or is taken away later." = "Soredemo に必要な許可が与えられていないとき、または後から取り消されたとき、このページはひとりでに開きます。";
 "Drop it anywhere in the list. macOS has no way for an app to add itself." = "リストのどこに置いても構いません。macOS には、アプリが自分自身を追加する方法がありません。";
 "A mosaic averages away what it covers; a solid fill leaves nothing at all. Neither is a blur — a blur can be undone." = "モザイクは覆ったものを平均化し、塗りつぶしは何も残しません。どちらもぼかしではありません — ぼかしは元に戻せます。";

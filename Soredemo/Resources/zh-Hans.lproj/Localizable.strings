@@ -447,7 +447,7 @@
 "Dragging the playhead plays the moment under it, so a sentence can be found by ear instead of by scrubbing and watching." = "拖动播放头时会播出下面那一刻的声音,所以一句话可以用听的找到,而不必一边刮一边看。";
 "Turning system audio off would leave a writer input nothing ever feeds, which costs a second and a half of every recording to recover from. It goes in when the writer can be told up front that a track will not exist." = "把系统音频关掉,会留下一个永远没有东西喂它的写入器输入,而要从那个状态恢复要花掉每次录制的一秒半。它是在能够事先告诉写入器「这条轨不会存在」的时候才加进去的。";
 "Works while another application is in front, which is when a recording is stopped." = "在其他应用程序在前台时也有效,而那正是录制被停止的时候。";
-"An export's shape, size and GIF settings belong to the recording being exported and are in the editor's Project tab, saved with the project." = "导出的形状、大小和 GIF 设置属于被导出的那段录制,在编辑器的「Project」标签页里,和项目一起保存。";
+"An export's shape, format, size and GIF settings belong to the recording being exported, under Export… in the editor. The shape is saved with the project; the rest last while that recording is open." = "导出的形状、格式、大小和 GIF 设置属于被导出的那段录像，在编辑器的「导出…」里。形状会和项目一起保存；其余设置在这段录像打开期间有效。";
 "This page opens on its own whenever something Soredemo needs has not been granted, or is taken away later." = "每当 Soredemo 需要的某项权限尚未被授予、或后来被收回时,这一页会自己打开。";
 "Drop it anywhere in the list. macOS has no way for an app to add itself." = "放到列表里任何位置都可以。macOS 没有让应用程序自己加进去的办法。";
 "A mosaic averages away what it covers; a solid fill leaves nothing at all. Neither is a blur — a blur can be undone." = "马赛克把它盖住的东西平均掉;实心填充则什么都不留下。两者都不是模糊 —— 模糊是可以还原的。";
