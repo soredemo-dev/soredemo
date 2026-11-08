@@ -45,6 +45,8 @@ struct SoredemoApp: App {
     /// registered there and needs something to toggle; a `.task` on a scene would not have run
     /// yet, and with every window suppressed there may be no window scene body evaluated at all.
     init() {
+        // A terminal call answers and exits here, before anything below builds a window.
+        CommandLineSurface.runIfAsked()
         if CommandLine.arguments.dropFirst().contains("--dump-permissions") {
             print(CapturePermissions.dumpText(
                 build: BuildProvenance.builtAt, commit: BuildProvenance.commit))

@@ -160,6 +160,34 @@ public enum ProjectPackageIO {
         return dangling.sorted()
     }
 
+    /// **The observation log for one media file, found by the format's join field** — the
+    /// header's `mediaFilename` — rather than by the writer's naming convention, which is the
+    /// writer's business and lives in another tier. A link is never followed, for
+    /// `mediaFile(named:in:)`'s reason.
+    ///
+    /// `nil` when no log names it: a capture without Input Monitoring has media and no log.
+    /// **Two logs naming one file throw**: picking either would be a silent guess about which
+    /// recording a person meant.
+    public static func observationLog(forMedia name: String, in packageURL: URL) throws -> URL? {
+        let fm = FileManager.default
+        let directory = observationsURL(in: packageURL)
+        guard fm.fileExists(atPath: directory.path) else { return nil }
+        var found: [URL] = []
+        for entry in try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil,
+                                                options: [.skipsHiddenFiles])
+        where entry.pathExtension == "jsonl" {
+            // `lstat`, so a link is its own type rather than its target's.
+            guard (try? fm.attributesOfItem(atPath: entry.path))?[.type] as? FileAttributeType == .typeRegular,
+                  (try? ObservationLogReadReport.read(logAt: entry))?.header?.mediaFilename == name
+            else { continue }
+            found.append(entry)
+        }
+        guard found.count <= 1 else {
+            throw ProjectFormatError.severalLogsNameOneMedia(name, found.map(\.lastPathComponent).sorted())
+        }
+        return found.first
+    }
+
     /// The only path by which media is deleted: removes exactly the names
     /// `unreferencedSidecars` reports and returns them. Never called by `save`.
     public static func compact(_ packageURL: URL, snapshot: ProjectSnapshot) throws -> [String] {

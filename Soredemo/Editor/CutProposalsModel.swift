@@ -43,7 +43,7 @@ final class CutProposalsModel {
 
     @ObservationIgnored private var log: (url: URL, anchor: EpochAnchor, duration: Nanoseconds)?
     @ObservationIgnored private var transcript: Transcript?
-    @ObservationIgnored private var silences: [SilenceFinder.Span]?
+    @ObservationIgnored private var sounding: [Range<Int64>]?
 
     /// The recording to propose cuts for — called once it is open, beside the steps, from the
     /// same log and anchor. Without a log, an anchor or a length there is nothing to derive from.
@@ -56,9 +56,10 @@ final class CutProposalsModel {
     /// What was heard, which arrives after the recording opens and changes when it is
     /// transcribed. **The transcript wins over the waveform**: it says what was SAID, and a sound
     /// is only a guess at that.
-    func hear(transcript: Transcript?, silences: [SilenceFinder.Span]?) {
+    /// `sounding` is `nil` when no audio was read — no waveform yet, or no audio track.
+    func hear(transcript: Transcript?, sounding: [Range<Int64>]?) {
         self.transcript = transcript
-        self.silences = silences
+        self.sounding = sounding
         derive()
     }
 
@@ -73,8 +74,8 @@ final class CutProposalsModel {
         if let transcript, !transcript.segments.isEmpty {
             speech = transcript.segments.map { $0.start.rawValue..<max($0.start.rawValue, $0.end.rawValue) }
             hearing = .transcript
-        } else if let silences {
-            speech = SilenceFinder.sounding(outside: silences, duration: log.duration)
+        } else if let sounding {
+            speech = sounding
             hearing = .sound
         } else {
             speech = []

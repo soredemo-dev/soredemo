@@ -116,6 +116,17 @@ public enum SilenceFinder {
         return sounding
     }
 
+    /// Where something could be heard, straight from a waveform's peaks — **`nil` when there
+    /// are none**, which is a recording with no audio track: nothing was heard, and that is not
+    /// the same as sound throughout, which `sounding(outside: [])` would say. The one function
+    /// both the editor and the surface call, so the two cannot answer this differently.
+    public static func sounding(peaks: [Float], sliceSeconds: Double, settings: Settings = .default,
+                                duration: Nanoseconds) -> [Range<Int64>]? {
+        guard !peaks.isEmpty, sliceSeconds > 0 else { return nil }
+        return sounding(outside: spans(peaks: peaks, sliceSeconds: sliceSeconds, settings: settings),
+                        duration: duration)
+    }
+
     /// `timeline` with every span removed.
     ///
     /// **Removed back to front.** `EditTimeline.removing(sourceRange:)` takes SOURCE times and

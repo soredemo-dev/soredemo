@@ -591,6 +591,50 @@ private struct RecordWithNoInstant: ObservationRecord {
     #expect(fm.fileExists(atPath: observations.appending(path: "segment-01.jsonl").path))
 }
 
+// MARK: - the join field, looked up
+
+/// The log for a media file is the one whose header names it — not the one whose filename
+/// looks like it should. Here the log for `master-00.mov` is called `segment-07.jsonl` and a
+/// `segment-00.jsonl` beside it names another file.
+@Test func theLogForAMediaFileIsTheOneWhoseHeaderNamesIt() throws {
+    let fm = FileManager.default
+    let packageURL = fm.temporaryDirectory
+        .appending(path: "t11-join-\(UUID().uuidString).soredemo", directoryHint: .isDirectory)
+    defer { try? fm.removeItem(at: packageURL) }
+    try ProjectPackageIO.save(
+        ProjectSnapshot(schemaVersion: ProjectSnapshot.currentSchemaVersion,
+                        geometries: GeometryRegistry(), mediaFilenames: ["master-00.mov"]),
+        to: packageURL)
+    let observations = packageURL.appending(path: "observations", directoryHint: .isDirectory)
+    try fm.createDirectory(at: observations, withIntermediateDirectories: true)
+    func writeLog(named name: String, mediaFilename: String) throws {
+        var data = try ObservationLog.encode(
+            ObservationLogHeader(anchor: anchor(), segmentIndex: 0, mediaFilename: mediaFilename,
+                                 revision: rev, blindness: []))
+        data.append(UInt8(ascii: "\n"))
+        try data.write(to: observations.appending(path: name, directoryHint: .notDirectory))
+    }
+    #expect(try ProjectPackageIO.observationLog(forMedia: "master-00.mov", in: packageURL) == nil,
+            "no log names it yet")
+
+    try writeLog(named: "segment-00.jsonl", mediaFilename: "master-01.mov")
+    try writeLog(named: "segment-07.jsonl", mediaFilename: "master-00.mov")
+    #expect(try ProjectPackageIO.observationLog(forMedia: "master-00.mov", in: packageURL)?.lastPathComponent
+            == "segment-07.jsonl")
+
+    // A link that names it is not followed, so it is neither found nor counted.
+    try fm.createSymbolicLink(at: observations.appending(path: "segment-08.jsonl"),
+                              withDestinationURL: observations.appending(path: "segment-07.jsonl"))
+    #expect(try ProjectPackageIO.observationLog(forMedia: "master-00.mov", in: packageURL)?.lastPathComponent
+            == "segment-07.jsonl")
+
+    try writeLog(named: "segment-09.jsonl", mediaFilename: "master-00.mov")
+    #expect(throws: ProjectFormatError.severalLogsNameOneMedia("master-00.mov",
+                                                              ["segment-07.jsonl", "segment-09.jsonl"])) {
+        try ProjectPackageIO.observationLog(forMedia: "master-00.mov", in: packageURL)
+    }
+}
+
 // MARK: - the pointer shape, added after two hundred thousand shape-less samples
 
 /// Every schema-2 pointer line ever written — the committed row-14 fixture included —

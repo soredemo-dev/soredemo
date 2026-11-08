@@ -124,7 +124,7 @@ response, both `Codable`, defined once:
 | `export` | read | a render of the edit as it stands, to a path the caller names |
 
 The front ends are **a CLI inside the app's own executable** — `Soredemo.app/Contents/MacOS/
-Soredemo cut steps demo.soredemo --json`, newline-delimited JSON when asked — and **an MCP
+Soredemo cli steps demo.soredemo --json`, newline-delimited JSON when asked — and **an MCP
 server over stdio** started by the same executable. stdio rather than a listening socket: a
 port on `127.0.0.1` is reachable by every process on the machine, while a stdio server is
 reachable only by the client that started it. The ROADMAP's `mcp-server` row said `NWListener`;
@@ -144,6 +144,41 @@ corrected in the same commit as this document.
 **Text from outside is data.** A proposal's goal and an agent's arguments are attacker-
 controllable (`agentic-threat-model`): they are quoted into the model's prompt as data under a
 fixed instruction, never concatenated into it, and nothing they say can widen what a verb does.
+
+### The CLI, as built (stage 4, 2026-11-08)
+
+*`Core/Sources/Surface/` (the verbs, pure over `ProjectReading`), `Core/Sources/Compositing/
+PackageProjectReader.swift` (the package and the audio), `Soredemo/App/CommandLineSurface.swift`
+(the entry point).*
+
+**How others shape an agent-facing CLI, and what was taken.** Command-line guidelines and the
+2026 write-ups on CLIs driven by agents agree on a handful of things: a global `--json`; results
+on stdout and diagnostics on stderr; non-zero exits that say *what* failed rather than only that
+something did; one envelope shape for every command, carrying a schema version; and a way for a
+caller to list what exists. Two screen recorders' own CLIs do the same, and both also *write* —
+record, export, upload, change a project's configuration. **This one takes the shape and refuses
+the writes**, and says so in the listing an agent reads first.
+
+- **`cli`, not `cut`.** The first word was `cut` in the draft above; it read as a verb and would
+  have made `cut status` mean nothing. `cli` is a word no launch flag can collide with.
+- **One envelope**, `{schemaVersion, verb, ok, result | error}`, one line, keys sorted so two runs
+  are byte-comparable. In `--json` mode even a call that failed to parse answers in it.
+- **Exit statuses from `sysexits(3)`**: 64 called wrongly, 65 the log is missing or unreadable,
+  66 the project cannot be opened.
+- **A write verb is refused by name.** `accept`, `apply`, `publish` and their neighbours do not
+  merely fail as unknown: the message says that a person does that, in the editor — the
+  difference between an agent that stops and one that retries with a different spelling.
+- **The log is found by its header's join field** (`ProjectPackageIO.observationLog(forMedia:)`),
+  not by the writer's naming convention, and **its length comes from its trailer**: no media is
+  decoded to answer `status` or `steps`, and a log with no trailer — a recording that crashed —
+  is refused rather than given a length. The editor reads the length from the media; `status`
+  says which one it used.
+- **What was heard** comes from the media's waveform through `SilenceFinder.sounding(peaks:…)`,
+  the one function the editor's Cuts tab also calls. Writing that function found a defect in
+  stage 3: a recording with no audio track had an empty waveform, which the complement of "no
+  silences" read as sound throughout, hiding every proposal. It now says nothing was heard.
+- **`export` is not built yet.** It is the one verb that renders, and it waits for stage 5's need
+  for it; `cli-surface` stays ◐ until it lands.
 
 ## The agent panel: bring the agent you already use
 
@@ -266,7 +301,7 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | 1 | this document; the landscape update; the ROADMAP rows | — |
 | 2 | `CutProposal` and the rule producers, in the package — **dead air landed 2026-11-08** | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
 | 3 | the review list in the editor: each proposal, its evidence, accept / dismiss — **landed 2026-11-08** | a person accepts one and the timeline changes, undoably |
-| 4 | the CLI's read verbs and `propose-cut` | a terminal prints a take's steps and its proposals as JSON |
+| 4 | the CLI's read verbs and `propose-cut` — **landed 2026-11-08, `export` still to come** | a terminal prints a take's steps and its proposals as JSON |
 | 5 | MCP over stdio, the same registry | Claude Code lists Soredemo's tools and calls `steps` |
 | 6 | the model producer, for a goal | "45 seconds" yields a pending set of step-ranged proposals, each validated |
 | 7 | the agent panel, with the on-device provider, then the person's CLI agent | a typed request produces proposals in the review list, marked with their provider |

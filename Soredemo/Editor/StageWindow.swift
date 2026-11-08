@@ -725,9 +725,13 @@ struct StageWindow: View {
                         let timeline = editor.timeline
                         editor.cuts.hear(
                             transcript: editor.captions.transcript,
-                            silences: timeline.waveform.map {
-                                SilenceFinder.spans(peaks: $0.peaks, sliceSeconds: $0.sliceDuration,
-                                                    settings: timeline.silenceSettings)
+                            sounding: timeline.waveform.flatMap { waveform in
+                                timeline.duration.flatMap {
+                                    SilenceFinder.sounding(peaks: waveform.peaks,
+                                                           sliceSeconds: waveform.sliceDuration,
+                                                           settings: timeline.silenceSettings,
+                                                           duration: $0)
+                                }
                             })
                     }
             case .captions:

@@ -16,7 +16,7 @@ let package = Package(
         .library(
             name: "SoredemoCore", type: .static,
             targets: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render",
-                      "Overlays"]
+                      "Overlays", "Surface"]
         ),
 
         // NOT added to `SoredemoCore`'s targets array, and not named `SoredemoCore`:
@@ -56,6 +56,10 @@ let package = Package(
         // reads `StillInterval` and `SegmentTable` by name, and rule 1 answers imports
         // from this list rather than from the transitive graph.
         .target(name: "Overlays", dependencies: ["Timeline", "Render", "Project"], swiftSettings: strict,
+                plugins: archCheck),
+        // The verbs a terminal or an agent runs against a project — read and propose, never
+        // accept. Pure over a `ProjectReading` protocol; the package reader is in Compositing.
+        .target(name: "Surface", dependencies: ["Framing", "Project", "Timeline"], swiftSettings: strict,
                 plugins: archCheck),
 
         // **The tier `swift test` can run but a person still has to believe.**
@@ -120,7 +124,7 @@ let package = Package(
         // chains into zoom blocks and asks `CameraMotion` where to point. Runnable → pure,
         // the legal direction; `Framing` does not and may not depend back.
         .target(name: "Compositing",
-                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing", "Overlays"],
+                dependencies: ["Geometry", "Timeline", "Project", "Render", "Framing", "Overlays", "Surface"],
                 swiftSettings: strict + [.enableUpcomingFeature("NonisolatedNonsendingByDefault")],
                 plugins: headlessCheck),
 
@@ -201,7 +205,7 @@ let package = Package(
         // asserts the list stays complete.
         .testTarget(name: "DeterminismTests",
                     dependencies: ["Geometry", "Timeline", "Graph", "Framing", "Variants", "Project", "Render",
-                                   "Overlays"],
+                                   "Overlays", "Surface"],
                     swiftSettings: strict),
 
         // The first direct test of the code view. Until now the lexer's four
@@ -216,6 +220,8 @@ let package = Package(
         .testTarget(name: "GeometryTests", dependencies: ["Geometry", "CheckerLexer"], swiftSettings: strict),
         .testTarget(name: "TimelineTests", dependencies: ["Timeline"], swiftSettings: strict),
         .testTarget(name: "GraphTests", dependencies: ["Graph", "Geometry", "Timeline"], swiftSettings: strict),
+        .testTarget(name: "SurfaceTests", dependencies: ["Surface", "Framing", "Geometry", "Project", "Timeline"],
+                    swiftSettings: strict),
         .testTarget(name: "FramingTests", dependencies: ["Framing", "Geometry", "Project", "Timeline"],
                     swiftSettings: strict),
         .testTarget(name: "VariantsTests", dependencies: ["Variants", "Framing", "Geometry"],

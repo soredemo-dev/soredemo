@@ -156,4 +156,18 @@ import Timeline
         let sounding = SilenceFinder.sounding(outside: [span(8, 30)], duration: Nanoseconds(10 * 1_000_000_000))
         #expect(sounding == [seconds(0, 8)])
     }
+
+    /// No audio track is nothing heard — not sound from start to end, which is what the
+    /// complement of "no silences" would say, and which would hide every proposal.
+    @Test func aWaveformWithNoPeaksHeardNothing() {
+        #expect(SilenceFinder.sounding(peaks: [], sliceSeconds: slice, duration: Nanoseconds(10 * 1_000_000_000)) == nil)
+    }
+
+    @Test func aWaveformIsHeardWhereItIsNotSilent() {
+        // One second of sound, two of silence, one of sound — at a tenth of a second a slice.
+        let heard = SilenceFinder.sounding(peaks: peaks("xxxxxxxxxx" + String(repeating: ".", count: 20) + "xxxxxxxxxx"),
+                                           sliceSeconds: slice, duration: Nanoseconds(4 * 1_000_000_000))
+        #expect(heard == [0..<1_120_000_000, 2_880_000_000..<4_000_000_000],
+                "the default padding of 0.12 s is kept as sound at each edge of the silence")
+    }
 }

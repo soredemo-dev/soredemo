@@ -122,6 +122,7 @@ xcrun swiftc \
   Soredemo/App/EditorWindowPresence.swift \
   Soredemo/App/GlobalHotkey.swift \
   Soredemo/App/PermissionRequests.swift \
+  Soredemo/App/CommandLineSurface.swift \
   Soredemo/DesignSystem/DesignTokens.swift \
   Soredemo/DesignSystem/LiveSlider.swift \
   Soredemo/Editor/ContentView.swift \

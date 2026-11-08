@@ -21,6 +21,9 @@ public enum ProjectFormatError: Error, Equatable {
     /// The named media is not an ordinary file in the package — a symbolic link to somewhere
     /// else, most dangerously, which would open a file this package does not contain.
     case mediaIsNotAFile(String)
+    /// More than one observation log names this media file in its header, so which one belongs
+    /// to it cannot be decided — the media's name, then the logs' names, sorted.
+    case severalLogsNameOneMedia(String, [String])
 }
 
 /// Decodes a `ProjectSnapshot` from any schema version this build reads, migrating
