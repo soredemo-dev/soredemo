@@ -909,3 +909,22 @@
 "Using %@" = "正在用 %@";
 "%@ is editing" = "%@ 正在编辑";
 "Working · %llds" = "工作中 · %lld 秒";
+
+/* Pinned notes (2026-11-08). */
+"Address my open notes." = "处理我留下的笔记。";
+"Addressed your note" = "已处理你的笔记";
+"Left your note open" = "你的笔记先保留";
+"Pin a note on the preview (N)" = "在预览上钉一则笔记（N）";
+"Press N, click where something should change, and write what. Then ask Claude Code to address your notes." = "按 N，点一下要改的地方，写下要怎么改。然后请 Claude Code 处理你的笔记。";
+"Open notes: %lld" = "待处理的笔记：%lld";
+"Pin another note (N)" = "再钉一则笔记（N）";
+"Address them" = "处理这些笔记";
+"Ask Claude Code to make the change each open note asks for" = "请 Claude Code 按照每一则待处理的笔记去改";
+"Move the playhead to this note" = "把播放头移到这则笔记";
+"Delete this note" = "删除这则笔记";
+"Reopen this note" = "重新打开这则笔记";
+"Click where the note goes. Esc to cancel." = "点一下要放笔记的位置。按 Esc 取消。";
+"What should change here?" = "这里要怎么改？";
+"Pin note" = "钉上笔记";
+"Write what should change here." = "写下这里要怎么改。";
+"Keep a note under %lld characters; this one is %lld." = "笔记请在 %1$lld 字以内；这则有 %2$lld 字。";

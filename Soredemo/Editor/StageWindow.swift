@@ -289,6 +289,16 @@ struct StageWindow: View {
                 // The panel's agent, seen where the person is looking: who is editing, what it is
                 // doing now, and a sweep of light as each cut lands.
                 .overlay { AgentPresence(model: editor.agent) }
+                // Notes pinned on the picture, and placing one: N, then a click.
+                .overlay {
+                    let size = editor.outputSize
+                    NoteLayer(notes: editor.notes, timeline: editor.timeline,
+                              outputWidth: size.width, outputHeight: size.height)
+                }
+                .bareKeys([.pinNote]) { _ in
+                    editor.notes.draft = nil
+                    editor.notes.isPlacing.toggle()
+                }
                 // **The picture's area is dark in both themes**, backdrop and everything drawn
                 // over it: its ground is black whatever the window is, so a handle or a label in
                 // the light theme's dark lane colours would vanish into it.

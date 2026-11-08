@@ -155,7 +155,7 @@ struct TimelineEditor: View {
         case .markOut: model.markOut()
         // Not this view's: the player is the transport bar's. Listed so a case added to
         // `BareKeys.Action` cannot be forgotten here — the handler above declines it anyway.
-        case .togglePlay: break
+        case .togglePlay, .pinNote: break
         }
     }
 

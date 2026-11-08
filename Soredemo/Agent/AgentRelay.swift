@@ -46,7 +46,35 @@ nonisolated final class AgentRelay: @unchecked Sendable {
         parameters.requiredLocalEndpoint = .unix(path: socketPath)
         listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
+        // **Listening before this returns.** The config handed to `claude` names the socket, and
+        // a child that arrives before the socket exists waits, then — taking that for an app that
+        // has gone — exits; a relay test failed exactly so under a loaded full run (2026-11-08).
+        let settled = DispatchSemaphore(value: 0)
+        let outcome = Mutex<NWListener.State?>(nil)
+        listener.stateUpdateHandler = { state in
+            switch state {
+            case .ready, .failed, .cancelled:
+                if outcome.withLock({ current in defer { current = current ?? state }; return current == nil }) {
+                    settled.signal()
+                }
+            default: break
+            }
+        }
         listener.start(queue: queue)
+        guard settled.wait(timeout: .now() + 3) == .success else {
+            listener.cancel()
+            throw RelayError.notListening("the socket was not listening after three seconds")
+        }
+        if case .failed(let error)? = outcome.withLock({ $0 }) {
+            throw RelayError.notListening("\(error)")
+        }
+    }
+
+    enum RelayError: Error, CustomStringConvertible {
+        case notListening(String)
+        var description: String {
+            switch self { case .notListening(let why): "The agent relay could not listen: \(why)." }
+        }
     }
 
     /// Stops listening and removes the directory, socket and config with it.

@@ -30,6 +30,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(EditState(annotationTrackData: Data("x".utf8)).changesAnything)
         #expect(EditState(chapterTrackData: Data("x".utf8)).changesAnything)
         #expect(EditState(dismissedCutData: Data("x".utf8)).changesAnything)
+        #expect(EditState(notesData: Data("x".utf8)).changesAnything)
     }
 
     /// **Burn-in being OFF is not a change.** It is the default, so a project that only ever had

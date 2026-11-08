@@ -179,6 +179,8 @@ xcrun swiftc \
   Soredemo/Agent/AgentPanelModel.swift \
   Soredemo/Agent/AgentPanel.swift \
   Soredemo/Agent/AgentPresence.swift \
+  Soredemo/Editor/NotesModel.swift \
+  Soredemo/Editor/NoteLayer.swift \
   Soredemo/Inspector/CutProposalsPanel.swift \
   Soredemo/Editor/FinalCutXMLExport.swift \
   Soredemo/Inspector/CameraOverlayControls.swift \

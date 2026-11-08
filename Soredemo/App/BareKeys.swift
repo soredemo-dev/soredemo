@@ -43,6 +43,9 @@ struct BareKeys {
         /// Play or pause. **Not the timeline's** — the player lives with the transport bar, which
         /// is why a handler says which actions it answers.
         case togglePlay
+        /// Pin a note on the preview: the next click there places it. The preview's, not the
+        /// timeline's.
+        case pinNote
     }
 
     /// The keys, as Carbon's layout-independent `kVK_*` POSITIONS.
@@ -77,6 +80,8 @@ struct BareKeys {
         /// MOUSE as well, and pressing play after editing a line did nothing. Guarding an
         /// action cannot distinguish a key from a click; declining a key can.
         case space = 49
+        /// `kVK_ANSI_N`: N for note, as a POSITION — see above.
+        case n = 45
     }
 
     /// What to do with a key, or `nil` for "this is not ours".
@@ -99,6 +104,7 @@ struct BareKeys {
         case .i: return modifiers.shift ? nil : .markIn
         case .o: return modifiers.shift ? nil : .markOut
         case .space: return modifiers.shift ? nil : .togglePlay
+        case .n: return modifiers.shift ? nil : .pinNote
         }
     }
 }

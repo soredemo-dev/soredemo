@@ -44,7 +44,8 @@ private let everything = EditState(
     noiseReductionData: encoded(NoiseReduction.Settings(strength: 2, floor: 0.1)),
     spokenTerms: ["Soredemo"],
     chapterTrackData: encoded(ChapterTrack().adding(title: "Intro", start: ns(0))),
-    dismissedCutData: encoded([CutProposal.Key(reason: .deadAir, quietStart: HostInstant(epoch: epoch, hostTime: ns(9)))]))
+    dismissedCutData: encoded([CutProposal.Key(reason: .deadAir, quietStart: HostInstant(epoch: epoch, hostTime: ns(9)))]),
+    notesData: encoded(try! NoteBoard().adding(at: ns(3), x: 0.4, y: 0.6, text: "Zoom tighter here")))
 
 /// The fields of two edits that differ, by name — so a failure says which decision was lost.
 private func differingFields(_ a: EditState, _ b: EditState) -> [String] {

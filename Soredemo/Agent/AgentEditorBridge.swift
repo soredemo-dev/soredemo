@@ -27,6 +27,8 @@ final class AgentEditorBridge {
     let agentName: String
     /// Called with each edit, so the panel can list it under the turn.
     var onEdit: (AgentEditRecord) -> Void = { _ in }
+    /// Called with each note the agent resolves or leaves open, with what it said.
+    var onNote: (PinnedNote) -> Void = { _ in }
     private var lastEdit: AgentEditRecord?
     private var editsMade = 0
 
@@ -67,6 +69,12 @@ final class AgentEditorBridge {
                 return .failure(message: "No pending proposal has the id \(id). Read propose_cut for the current ones.", code: "noSuchProposal")
             }
             return record(reason: reason, source: row.source) { name in editor.timeline.acceptCut(row, named: name) }
+        case .notes:
+            return notes()
+        case .resolveNote(let id, let reason):
+            return resolve(id, as: .addressed(reason))
+        case .skipNote(let id, let reason):
+            return resolve(id, as: .skipped(reason))
         case .undoLastAgentEdit:
             guard let last = lastEdit, editor.timeline.undoStepName == last.stepName else {
                 return .failure(message: "The last edit is not yours, or something was edited after it; nothing was undone.", code: "notYours")
@@ -112,6 +120,32 @@ final class AgentEditorBridge {
                 "partlyCutAlready": row.survival == .partly,
             ] as [String: Any]
         }, "alreadyCut": listing.alreadyCut, "kept": listing.dismissed])
+    }
+
+    private func notes() -> MCPToolResult {
+        let anchored = anchor.map { editor.notes.board.anchored(to: editor.steps.steps, anchor: $0) }
+            ?? editor.notes.board.notes.map { ($0, nil) }
+        return json(["notes": anchored.map { note, step in
+            var row: [String: Any] = ["id": note.id, "atNanos": note.at.rawValue, "text": note.text,
+                                      "open": note.isOpen]
+            if let x = note.x, let y = note.y { row["x"] = x; row["y"] = y }
+            if let step { row["step"] = step.number; row["stepLabel"] = step.label }
+            switch note.state {
+            case .open: break
+            case .addressed(let how): row["addressed"] = how
+            case .skipped(let why): row["skipped"] = why
+            }
+            return row
+        }])
+    }
+
+    private func resolve(_ id: Int, as state: PinnedNote.State) -> MCPToolResult {
+        guard editor.notes.resolve(id, as: state),
+              let note = editor.notes.board.notes.first(where: { $0.id == id }) else {
+            return .failure(message: "No open note has the id \(id). Read notes for the open ones.", code: "noSuchNote")
+        }
+        onNote(note)
+        return .success(json: #"{"resolved":\#(id)}"#)
     }
 
     private func listing() -> CutReview.Listing? {

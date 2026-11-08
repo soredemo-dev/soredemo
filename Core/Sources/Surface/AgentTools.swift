@@ -16,6 +16,9 @@ public enum AgentTools {
     public static let acceptProposal = "accept_proposal"
     public static let seek = "seek"
     public static let undoLastAgentEdit = "undo_last_agent_edit"
+    public static let notes = "notes"
+    public static let resolveNote = "resolve_note"
+    public static let skipNote = "skip_note"
 
     /// Shortest span an agent may cut: under this a cut is a slip of the arithmetic, not an edit.
     public static let shortestCut: Int64 = 100_000_000
@@ -57,6 +60,19 @@ public enum AgentTools {
         MCPTool(name: undoLastAgentEdit, title: "Undo your last edit",
                 description: "Undo the most recent edit, only if it was yours and nothing was edited after it.",
                 inputSchema: none, readOnly: false),
+        MCPTool(name: notes, title: "Pinned notes",
+                description: "The notes the person pinned on the recording: each with its id, its time on the recording's clock, the step it falls in, the point on the picture if any, its words, and whether it is still open.",
+                inputSchema: none, readOnly: true),
+        MCPTool(name: resolveNote, title: "Mark a note addressed",
+                description: "Mark an open note addressed, after you have made the edit it asks for. Say what you did; the person reads it beside their note.",
+                inputSchema: #"{"additionalProperties":false,"properties":{"id":{"description":"The note's id, from notes.","type":"integer"},"#
+                    + reason + #"},"required":["id","reason"],"type":"object"}"#,
+                readOnly: false),
+        MCPTool(name: skipNote, title: "Leave a note open",
+                description: "Leave an open note as it is because you cannot or should not do what it asks, and say why. It stays for the person.",
+                inputSchema: #"{"additionalProperties":false,"properties":{"id":{"description":"The note's id, from notes.","type":"integer"},"#
+                    + reason + #"},"required":["id","reason"],"type":"object"}"#,
+                readOnly: false),
     ]
 
     /// A request that passed every check. What the app performs.
@@ -66,6 +82,9 @@ public enum AgentTools {
         case cutStep(Int, reason: String)
         case acceptProposal(id: String, reason: String)
         case seek(Int64)
+        case notes
+        case resolveNote(Int, reason: String)
+        case skipNote(Int, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -95,6 +114,12 @@ public enum AgentTools {
         case steps: return .success(.steps)
         case proposeCut: return .success(.proposeCut)
         case undoLastAgentEdit: return .success(.undoLastAgentEdit)
+        case notes: return .success(.notes)
+        case resolveNote, skipNote:
+            guard let id = integer("id"), id > 0, id <= Int64(Int.max) else {
+                return .failure(.init("`id` must be a note's id from notes."))
+            }
+            return why().map { name == resolveNote ? .resolveNote(Int(id), reason: $0) : .skipNote(Int(id), reason: $0) }
         case seek:
             guard let at = integer("atNanos") else { return .failure(.init("`atNanos` must be an integer.")) }
             guard (0...duration).contains(at) else {

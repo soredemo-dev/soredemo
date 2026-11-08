@@ -909,3 +909,22 @@
 "Using %@" = "%@ を使用中";
 "%@ is editing" = "%@ が編集中";
 "Working · %llds" = "作業中 · %lld 秒";
+
+/* Pinned notes (2026-11-08). */
+"Address my open notes." = "開いているメモに対応して。";
+"Addressed your note" = "メモに対応しました";
+"Left your note open" = "メモはそのままにしました";
+"Pin a note on the preview (N)" = "プレビューにメモを付ける（N）";
+"Press N, click where something should change, and write what. Then ask Claude Code to address your notes." = "N を押し、変えたい場所をクリックして、どう変えるか書きます。そのあと Claude Code にメモへの対応を頼みます。";
+"Open notes: %lld" = "未対応のメモ：%lld";
+"Pin another note (N)" = "メモを追加（N）";
+"Address them" = "対応する";
+"Ask Claude Code to make the change each open note asks for" = "未対応のメモそれぞれの変更を Claude Code に頼む";
+"Move the playhead to this note" = "再生ヘッドをこのメモへ移動";
+"Delete this note" = "このメモを削除";
+"Reopen this note" = "このメモを未対応に戻す";
+"Click where the note goes. Esc to cancel." = "メモを付ける場所をクリック。Esc でキャンセル。";
+"What should change here?" = "ここをどう変えますか？";
+"Pin note" = "メモを付ける";
+"Write what should change here." = "ここをどう変えるか書いてください。";
+"Keep a note under %lld characters; this one is %lld." = "メモは %1$lld 文字以内にしてください。これは %2$lld 文字です。";

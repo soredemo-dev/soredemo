@@ -3,6 +3,7 @@ import Foundation
 import Network
 import Surface
 import Timeline
+import Framing
 @testable import Soredemo
 
 // The agent panel's app half: the relay to the open editor, the live tools, and reverting a turn.
@@ -193,4 +194,57 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     }
     if process.isRunning { process.terminate() }
     #expect(waited < 5_000, "the relay child was still waiting after five seconds")
+}
+
+// MARK: - pinned notes
+
+/// N pins a note; never while a field has the caret, and not with shift.
+@Test func nPinsANoteButNotWhileTyping() {
+    #expect(BareKeys.action(keyCode: 45, modifiers: .none, isTyping: false) == .pinNote)
+    #expect(BareKeys.action(keyCode: 45, modifiers: .none, isTyping: true) == nil)
+    #expect(BareKeys.action(keyCode: 45, modifiers: BareKeys.Modifiers(shift: true), isTyping: false) == nil)
+}
+
+@Test @MainActor func aNoteWithNoWordsIsNotPinnedAndSaysWhy() {
+    let notes = NotesModel()
+    notes.begin(at: Nanoseconds(3 * second), x: 0.5, y: 0.5)
+    #expect(!notes.pin())
+    #expect(notes.refusal != nil && notes.board.notes.isEmpty)
+    notes.draft?.text = "Zoom tighter here"
+    #expect(notes.pin())
+    #expect(notes.board.notes.map(\.text) == ["Zoom tighter here"])
+}
+
+/// The agent reads the notes, resolves one with what it did, and the panel is told.
+@Test @MainActor func theAgentResolvesANoteWithWhatItDid() throws {
+    let editor = editor()
+    editor.notes.begin(at: Nanoseconds(3 * second), x: 0.4, y: 0.6)
+    editor.notes.draft?.text = "This pause drags"
+    editor.notes.pin()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var told: [PinnedNote] = []
+    bridge.onNote = { told.append($0) }
+
+    guard case .success(let listed) = bridge.perform(.notes) else { Issue.record("notes failed"); return }
+    #expect(listed.contains(#""text":"This pause drags""#) && listed.contains(#""open":true"#))
+    #expect(listed.contains(#""atNanos":3000000000"#))
+
+    guard case .success = bridge.perform(.resolveNote(1, reason: "Cut 2.1 s of the pause")) else { Issue.record("resolve failed"); return }
+    #expect(editor.notes.board.notes.first?.state == .addressed("Cut 2.1 s of the pause"))
+    #expect(told.map(\.id) == [1])
+    guard case .failure(_, let code) = bridge.perform(.skipNote(1, reason: "again")) else { Issue.record("resolved twice"); return }
+    #expect(code == "noSuchNote", "a resolved note is not resolved again")
+}
+
+/// A saved project keeps its notes, the agent's resolutions included.
+@Test @MainActor func notesSurviveSavingAndOpening() throws {
+    let editor = editor()
+    editor.notes.begin(at: Nanoseconds(3 * second), x: 0.4, y: 0.6)
+    editor.notes.draft?.text = "Zoom tighter here"
+    editor.notes.pin()
+    editor.notes.resolve(1, as: .skipped("The zoom is already at its closest"))
+    let reopened = EditorViewModel()
+    reopened.timeline.load(duration: 20)
+    #expect(reopened.restore(editor.currentEditState(hasCamera: false)).isEmpty)
+    #expect(reopened.notes.board == editor.notes.board)
 }

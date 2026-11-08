@@ -93,6 +93,9 @@ public struct EditState: Codable, Sendable, Equatable {
     /// is stored**: proposals are re-derived from the log on open and an acceptance is already
     /// in `timeline` as the cut it became. Absent means none.
     public var dismissedCutData: Data?
+    /// The notes a person pinned on the recording, as an encoded `NoteBoard` — `Data` for the
+    /// reason above. Authored in full, the agent's resolutions included. Absent means none.
+    public var notesData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -116,7 +119,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 noiseReductionData: Data? = nil,
                 spokenTerms: [String]? = nil,
                 chapterTrackData: Data? = nil,
-                dismissedCutData: Data? = nil) {
+                dismissedCutData: Data? = nil,
+                notesData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -140,6 +144,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.spokenTerms = spokenTerms
         self.chapterTrackData = chapterTrackData
         self.dismissedCutData = dismissedCutData
+        self.notesData = notesData
     }
 
     /// A recording nobody has edited.
@@ -170,6 +175,7 @@ public struct EditState: Codable, Sendable, Equatable {
             || (spokenTerms.map { !$0.isEmpty } ?? false)
             || chapterTrackData != nil
             || dismissedCutData != nil
+            || notesData != nil
     }
 
     // MARK: - the tiers that own these values

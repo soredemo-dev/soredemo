@@ -58,10 +58,18 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
     /// Reads are marked read-only and edits are not — a client reads this to decide what to ask.
     @Test func everyEditIsMarkedAsOneAndEveryReadAsARead() {
         let edits = Set(AgentTools.definitions.filter { !$0.readOnly }.map(\.name))
-        #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit"])
+        #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit", "resolve_note", "skip_note"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
+    }
+
+    /// A note is resolved or skipped by its id, always with what was done or why not.
+    @Test func aNoteIsResolvedOrSkippedByIdWithAReason() {
+        #expect(request("resolve_note", #"{"id":3,"reason":"Cut 2.1 s of the pause"}"#) == .success(.resolveNote(3, reason: "Cut 2.1 s of the pause")))
+        #expect(request("skip_note", #"{"id":3,"reason":"The step is needed"}"#) == .success(.skipNote(3, reason: "The step is needed")))
+        #expect(failure(request("resolve_note", #"{"id":3}"#))?.contains("`reason` is required") == true)
+        #expect(failure(request("resolve_note", #"{"id":0,"reason":"r"}"#)) == "`id` must be a note's id from notes.")
     }
 }
 

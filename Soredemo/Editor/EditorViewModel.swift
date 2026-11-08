@@ -43,6 +43,8 @@ final class EditorViewModel {
     let cuts = CutProposalsModel()
     /// The person's own agent, editing this recording from the Agent tab.
     let agent = AgentPanelModel()
+    /// Notes pinned on the recording, for the agent — or anyone — to address.
+    let notes = NotesModel()
 
     // MARK: - authored values
 
@@ -251,7 +253,8 @@ final class EditorViewModel {
             spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms,
             chapterTrackData: chapters.track.isEmpty ? nil : try? EditState.encoding(chapters.track),
             dismissedCutData: timeline.dismissedCuts.isEmpty
-                ? nil : try? EditState.encoding(CutProposal.Key.fileOrder(timeline.dismissedCuts)))
+                ? nil : try? EditState.encoding(CutProposal.Key.fileOrder(timeline.dismissedCuts)),
+            notesData: notes.board.notes.isEmpty ? nil : try? EditState.encoding(notes.board))
     }
 
     /// Applies a saved edit to the models, and returns the parts that could not be read.
@@ -372,6 +375,11 @@ final class EditorViewModel {
                 timeline.restoreDismissedCuts(Set(keys))
             }
         } catch { failures.append("the dismissed cut suggestions") }
+        do {
+            if let board = try EditState.decoding(edit.notesData, as: NoteBoard.self) {
+                notes.restore(board)
+            }
+        } catch { failures.append("the pinned notes") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = String(localized: "Opened, but could not read \(failures.joined(separator: ", ")).")

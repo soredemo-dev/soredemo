@@ -923,3 +923,22 @@
 "Using %@" = "Using %@";
 "%@ is editing" = "%@ is editing";
 "Working · %llds" = "Working · %llds";
+
+/* Pinned notes (2026-11-08). */
+"Address my open notes." = "Address my open notes.";
+"Addressed your note" = "Addressed your note";
+"Left your note open" = "Left your note open";
+"Pin a note on the preview (N)" = "Pin a note on the preview (N)";
+"Press N, click where something should change, and write what. Then ask Claude Code to address your notes." = "Press N, click where something should change, and write what. Then ask Claude Code to address your notes.";
+"Open notes: %lld" = "Open notes: %lld";
+"Pin another note (N)" = "Pin another note (N)";
+"Address them" = "Address them";
+"Ask Claude Code to make the change each open note asks for" = "Ask Claude Code to make the change each open note asks for";
+"Move the playhead to this note" = "Move the playhead to this note";
+"Delete this note" = "Delete this note";
+"Reopen this note" = "Reopen this note";
+"Click where the note goes. Esc to cancel." = "Click where the note goes. Esc to cancel.";
+"What should change here?" = "What should change here?";
+"Pin note" = "Pin note";
+"Write what should change here." = "Write what should change here.";
+"Keep a note under %lld characters; this one is %lld." = "Keep a note under %1$lld characters; this one is %2$lld.";

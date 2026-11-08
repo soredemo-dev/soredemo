@@ -923,3 +923,22 @@
 "Using %@" = "正在用 %@";
 "%@ is editing" = "%@ 正在編輯";
 "Working · %llds" = "工作中 · %lld 秒";
+
+/* Pinned notes (2026-11-08). */
+"Address my open notes." = "處理我留下的筆記。";
+"Addressed your note" = "已處理你的筆記";
+"Left your note open" = "你的筆記先保留";
+"Pin a note on the preview (N)" = "在預覽上釘一則筆記（N）";
+"Press N, click where something should change, and write what. Then ask Claude Code to address your notes." = "按 N，點一下要改的地方，寫下要怎麼改。然後請 Claude Code 處理你的筆記。";
+"Open notes: %lld" = "待處理的筆記：%lld";
+"Pin another note (N)" = "再釘一則筆記（N）";
+"Address them" = "處理這些筆記";
+"Ask Claude Code to make the change each open note asks for" = "請 Claude Code 依照每一則待處理的筆記去改";
+"Move the playhead to this note" = "把播放頭移到這則筆記";
+"Delete this note" = "刪除這則筆記";
+"Reopen this note" = "重新打開這則筆記";
+"Click where the note goes. Esc to cancel." = "點一下要放筆記的位置。按 Esc 取消。";
+"What should change here?" = "這裡要怎麼改？";
+"Pin note" = "釘上筆記";
+"Write what should change here." = "寫下這裡要怎麼改。";
+"Keep a note under %lld characters; this one is %lld." = "筆記請在 %1$lld 字以內；這則有 %2$lld 字。";

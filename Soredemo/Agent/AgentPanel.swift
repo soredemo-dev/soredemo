@@ -30,6 +30,10 @@ struct AgentPanel: View {
             // Pinned to the newest line while it grows, and left alone when the person scrolls up
             // to read — the sticky-bottom behaviour every chat has.
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            NotesBar(notes: editor.notes, timeline: editor.timeline, canAddress: !model.isRunning && model.availability != .checking) {
+                draft = String(localized: "Address my open notes.")
+                send()
+            }
             AgentComposer(model: model, editor: editor, draft: $draft, onSend: send)
         }
         .background(Theme.Surface.panel)
@@ -219,6 +223,8 @@ private struct TurnView: View {
             ThinkingBlock(text: text, done: done)
         case .edit(let record):
             EditCard(record: record) { if let at = record.at { editor.timeline.movePlayhead(to: at) } }
+        case .note(let note):
+            NoteCard(note: note)
         case .tool:
             EmptyView()
         }
@@ -440,6 +446,149 @@ private struct EditCard: View {
         }
         .buttonStyle(HoverLift())
         .help("Move the playhead to where this cut is")
+    }
+}
+
+/// A note the agent addressed or left open, with what it said — the answer beside the question.
+private struct NoteCard: View {
+    let note: PinnedNote
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Space.regular) {
+            Image(systemName: addressed ? "checkmark.circle.fill" : "pin.slash")
+                .font(.system(size: 14))
+                .foregroundStyle(addressed ? Theme.Ink.primary : Theme.Ink.tertiary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(heading).font(Type.detail.weight(.semibold))
+                Text(verbatim: "“\(note.text)”").font(Type.detail).foregroundStyle(Theme.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: how).font(Type.detail).foregroundStyle(Theme.Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Space.regular)
+        .background(Theme.Fill.rest, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var addressed: Bool { if case .addressed = note.state { true } else { false } }
+
+    private var heading: LocalizedStringKey { addressed ? "Addressed your note" : "Left your note open" }
+
+    private var how: String {
+        switch note.state {
+        case .addressed(let text), .skipped(let text): text
+        case .open: ""
+        }
+    }
+}
+
+/// The notes pinned on this recording, above the message box: how many are open, the list, and
+/// the one button that hands them to the agent.
+private struct NotesBar: View {
+    let notes: NotesModel
+    let timeline: TimelineEditorModel
+    let canAddress: Bool
+    let onAddress: () -> Void
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.snug) {
+            if notes.board.notes.isEmpty {
+                Button {
+                    notes.isPlacing = true
+                } label: {
+                    Label("Pin a note on the preview (N)", systemImage: "pin")
+                        .font(Type.detail)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Ink.tertiary)
+                .help("Press N, click where something should change, and write what. Then ask Claude Code to address your notes.")
+            } else {
+                HStack(spacing: Space.snug) {
+                    Button {
+                        withAnimation(.snappy) { open.toggle() }
+                    } label: {
+                        HStack(spacing: Space.tight) {
+                            Image(systemName: "pin.fill").font(Type.barIcon)
+                            Text("Open notes: \(notes.open.count)").font(Type.detail.weight(.semibold))
+                            Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+                                .rotationEffect(.degrees(open ? 90 : 0))
+                        }
+                        .foregroundStyle(Theme.Ink.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Button {
+                        notes.isPlacing = true
+                    } label: {
+                        Image(systemName: "plus").font(Type.barIcon)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Ink.secondary)
+                    .help("Pin another note (N)")
+                    Button("Address them", action: onAddress)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(Theme.accent)
+                        .disabled(!canAddress || notes.open.isEmpty)
+                        .help("Ask Claude Code to make the change each open note asks for")
+                }
+                if open {
+                    VStack(alignment: .leading, spacing: Space.tight) {
+                        ForEach(Array(notes.board.notes.enumerated()), id: \.element.id) { index, note in
+                            NoteRow(note: note, number: index + 1, notes: notes, timeline: timeline)
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+        }
+        .padding(.horizontal, Space.roomy)
+        .padding(.top, Space.snug)
+    }
+}
+
+/// One note in the list: its number, words, time and state; a click shows the moment.
+private struct NoteRow: View {
+    let note: PinnedNote
+    let number: Int
+    let notes: NotesModel
+    let timeline: TimelineEditorModel
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.snug) {
+            Text(verbatim: "\(number)")
+                .font(.system(size: 10, weight: .bold).monospacedDigit())
+                .foregroundStyle(Theme.Ink.onAccent)
+                .frame(width: 18, height: 18)
+                .background(note.isOpen ? Theme.accent : Theme.Ink.tertiary, in: Circle())
+            Button {
+                if let output = timeline.edit.outputTime(atSource: note.at) { timeline.movePlayhead(to: output) }
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: note.text).font(Type.detail)
+                        .foregroundStyle(note.isOpen ? Theme.Ink.primary : Theme.Ink.tertiary)
+                        .strikethrough(!note.isOpen, color: Theme.Ink.tertiary)
+                        .lineLimit(2)
+                    Text(verbatim: ChapterList.timestamp(note.at, withHours: false))
+                        .font(Type.readout).foregroundStyle(Theme.Ink.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Move the playhead to this note")
+            if note.isOpen {
+                Button { notes.remove(note.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
+                    .buttonStyle(.plain).foregroundStyle(Theme.Ink.tertiary)
+                    .help("Delete this note")
+            } else {
+                Button { notes.reopen(note.id) } label: { Image(systemName: "arrow.uturn.backward").font(.system(size: 9, weight: .semibold)) }
+                    .buttonStyle(.plain).foregroundStyle(Theme.Ink.tertiary)
+                    .help("Reopen this note")
+            }
+        }
     }
 }
 

@@ -37,6 +37,7 @@ public enum AgentPrompt {
         "Every recording has an observation log: numbered steps (presses on named elements), clicks, and spans where nothing happened. Read steps and propose_cut before you edit, and base every edit on them.",
         "Your edits apply to the open timeline immediately, each as one undo step named by your reason. Give every edit a reason that names the step or proposal it rests on, in one short sentence.",
         "Prefer accept_proposal for dead air, cut_step for a whole step, and cut_span only when neither fits. Use seek to show the person the moment you mean.",
+        "The person can pin notes on the recording. When asked to address them, read notes, make the edit each open note asks for, then call resolve_note with what you did — or skip_note with why, when it should not be done. Never resolve a note you did not act on.",
         "Times are integer nanoseconds on the recording's clock. You cannot publish, share or export anything, and must not offer to.",
         "Keep replies short and in plain text with no Markdown: the panel is narrow and shows text as written. Say what you changed in one line at the end.",
     ].joined(separator: " ")

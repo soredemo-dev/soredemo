@@ -286,6 +286,32 @@ note to the selected provider as one request; each note comes back as zero or mo
 each naming the note it answers, and a note stays open until a person resolves it. A note
 whose request produced nothing says so, rather than closing silently.
 
+### Notes, as built (stage 8, 2026-11-08)
+
+*`Core/Sources/Framing/PinnedNotes.swift`; `Soredemo/Editor/NotesModel.swift` and `NoteLayer.swift`;
+the notes bar and cards in `Soredemo/Agent/AgentPanel.swift`.*
+
+**How others do it, and what was taken.** A slide framework's comment mode — press a key, click an
+element or drag a region, write a note, and have an agent apply every note in one pass, deleting
+each marker it applied and leaving any it skipped, with why. A review tool for video pins a
+comment to the paused frame, optionally stretches it over a range, lets the reviewer draw on the
+frame, and shows the comments on the player bar. **Taken**: the key, the click on the picture,
+one pass by the agent, and an answer for every note — done, or left with a reason.
+
+**What differs from the plan above, and why.**
+
+- **Pinned on the preview only, for now.** A note on the zoom or steps lane is not built; the
+  preview carries a time and a point, which is what every note so far has needed.
+- **The note stores its time on the recording's clock and its point on the picture**; the step it
+  falls in is derived when it is read (`NoteBoard.anchored`), never stored, so it follows the
+  steps if they are re-derived — the producer-value rule, with the note as the authored half.
+- **The agent resolves a note, with what it did, or leaves it open with why** (`resolve_note`,
+  `skip_note`), because the panel's agent edits directly (stage 7): a note is answered by the edit
+  it asked for, not by a proposal. A resolved note is greyed, keeps its answer, and a person can
+  reopen it. A note the agent never answered stays open.
+- **Notes are saved with the project** (`EditState.notesData`), through a validating decoder: an
+  empty note, a negative time or a point off the picture in a file is refused by name.
+
 ## The review list
 
 *Landed 2026-11-08, stage 3: `Core/Sources/Framing/CutReview.swift`,
@@ -401,7 +427,7 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | 5 | MCP over stdio, the same registry — **landed 2026-11-08** | Claude Code lists Soredemo's tools and calls `steps` |
 | 6 | the model producer, for a goal — **its planning core landed 2026-11-08; the model's half is next** | "45 seconds" yields a pending set of step-ranged proposals, each validated |
 | 7 | the agent panel driving the person's Claude Code, editing the live timeline (redesigned 2026-11-08) | a typed request cuts the timeline while the person watches; each cut is one named undo step and the turn reverts at once |
-| 8 | notes pinned on the preview and lanes, and "address the notes" | a note on a pause comes back as a proposal that names it |
+| 8 | notes pinned on the preview, and "address the notes" — **landed 2026-11-08, preview only** | a note on a pause is answered by the cut it asked for, or left open with why |
 
 Each row is a merge point. Rows 2 and 3 together are the first that a person can see, and the
 completion rule holds the ROADMAP row at ◐ until row 3 lands.

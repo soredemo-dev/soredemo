@@ -1,4 +1,5 @@
 import Foundation
+import Framing
 import Observation
 import Surface
 import Timeline
@@ -22,6 +23,7 @@ final class AgentPanelModel {
         case thinking(id: Int, String, done: Bool)
         case tool(id: String, name: String, input: String?, state: ToolState, output: String?)
         case edit(AgentEditRecord)
+        case note(PinnedNote)
 
         var id: String {
             switch self {
@@ -29,6 +31,7 @@ final class AgentPanelModel {
             case .thinking(let id, _, _): "thinking-\(id)"
             case .tool(let id, _, _, _, _): id
             case .edit(let record): "edit-\(record.id)"
+            case .note(let note): "note-\(note.id)"
             }
         }
     }
@@ -178,6 +181,10 @@ final class AgentPanelModel {
         guard relay == nil else { return }
         let bridge = AgentEditorBridge(editor: editor, agentName: provider.name)
         bridge.onEdit = { [weak self] record in self?.record(record) }
+        bridge.onNote = { [weak self] note in
+            self?.flushNow()
+            self?.appendToCurrent(.note(note))
+        }
         let executable = Bundle.main.executableURL?.path(percentEncoded: false) ?? CommandLine.arguments[0]
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         relay = try AgentRelay(toolbox: bridge.toolbox(), version: version, executable: executable)
