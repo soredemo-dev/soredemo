@@ -136,7 +136,7 @@ in the editor, or publish. Accepting happens in the editor's review list, by a p
 is no accept verb to call.
 
 **No argument-parsing dependency.** The `cli-surface` row named Swift Argument Parser.
-Architecture rule 4 holds every manifest at zero dependencies, the README advertises zero, and
+Architecture rule 4 held every manifest at zero dependencies when this was written (since 2026-11-08 it admits official, pinned ones; none is used), the README advertises zero, and
 the verbs above are five with a handful of flags each. A small hand-written parser in the app
 target, tested like any other code, costs less than the rule it would break. The row is
 corrected in the same commit as this document.
@@ -212,24 +212,62 @@ specification rather than from an SDK.
 
 ## The agent panel: bring the agent you already use
 
-A panel beside the editor where a person types what they want — "cut this to 45 seconds",
-"why is step 6 not zoomed" — and an agent answers by calling the verbs above. **Which agent is
-the person's choice, behind one protocol**:
+A panel in the editor where a person types what they want — "cut this to 45 seconds", "why is
+step 6 not zoomed" — and the agent they already use does it, **in the editor, while they watch**.
+*Redesigned 2026-11-08 by the owner's decision: the agent edits directly.* The first draft of this
+section let an agent only propose; that is kept for every agent the person is not watching (the
+terminal CLI, an outside MCP client), and dropped for the one they are.
+
+### How others design it, and what was taken
+
+| Product | How the agent is connected | Who edits | How a change is taken back |
+| --- | --- | --- | --- |
+| a slide framework built for agents | drives the person's installed Claude Code or Codex under their own login; the current slide and selection go with every message, in escaped tags | the agent, inside the deck's folders; anything else asks | provider checkpoints, rewind |
+| an agentic video editor (native macOS) | in-app agent with the person's own API keys or the vendor's cloud; @-mentions frozen into sorted JSON at send time | the agent, on the timeline; every tool returns a delta of what moved | undo |
+| a transcript-based editor's agent | built in, plus MCP | the agent | **a checkpoint before each response, and "Revert" under it**; undo; version history |
+| a cloud recorder's agent | built in, plus a hosted MCP | the agent, "while you watch" | — |
+| a design tool's assistant | select an element, then "Ask"; the selection is the context | the agent, on the canvas | continue in chat or edit by hand |
+| a coding agent's desktop app | modes chosen per session: plan, ask, accept edits | the agent, by mode | diff review per file before commit |
+| an edge platform's agent toolkit | per-tool: runs, or waits for a confirmation the UI renders | the agent, gated per tool | — |
+
+Agent-UX write-ups of 2026 converge on the same few things: stream tool calls with their
+arguments and collapse them when done; keep a visible **Stop** that says what stopping leaves;
+show the work as a trace that stays inspectable, not a spinner; put a checkpoint before anything
+lasting.
+
+**What was taken.** The connection — the person's own CLI, their login, no key in Soredemo. The
+selection as context. The per-response checkpoint and Revert. Streamed, collapsing tool rows and a
+Stop that says what it leaves. **What only Soredemo adds:** every edit names the step or proposal it
+rests on, so a cut can be checked against the observation log rather than trusted as a number.
+
+### How it works
+
+1. **The app starts the person's `claude`** headless — `-p`, `--output-format stream-json`,
+   `--include-partial-messages`, `--strict-mcp-config` with Soredemo's server only, and
+   `--tools ""` so none of the agent's built-in tools (shell, file edits, web) exist in the session.
+   Measured 2026-11-08 against Claude Code 2.1.318: `init` listed exactly the four Soredemo tools,
+   one tool call and one answer took five seconds.
+2. **The tools run in the editor, not on the saved file.** The MCP server the agent starts is
+   `Soredemo mcp --relay <socket>`, a pipe to the running app over a Unix socket in a directory
+   only this user can open; the app answers with the live timeline, so the agent reads what the
+   person sees, including its own last cut. Run without `--relay` it is the read-only server above.
+3. **The edit tools** — cut a span, cut a step, accept a rule's proposal, move the playhead — each
+   record one undo step named for the agent and its reason ("Claude: cut 9.2s — nothing happens
+   after step 4"), and return what changed: the span, the new length, the step it touched.
+4. **Each turn is checkpointed.** "Revert this turn" undoes back to the history position the
+   turn started at, as long as nothing else was edited since; otherwise it says so.
+5. **Each message carries what is on screen**: the playhead, its step, the selected proposal or
+   note — in tagged, escaped blocks, as data. Never the video or a frame.
+6. **Stop** ends the process; cuts already made stay and are revertible, and the button says so.
+
+**Publishing is not a tool**, here or anywhere. The relay gives the agent the editor; it does not
+give it a share button, and there is none to give.
 
 | Provider | Where it runs | What leaves the Mac |
 | --- | --- | --- |
-| the on-device model (default) | `SystemLanguageModel.default` | nothing |
-| the person's own Claude Code or Codex | their installed CLI, started headless by the app with Soredemo's MCP server attached, under **their** login — no API key is typed into Soredemo | what that agent sends its provider, which is the person's existing arrangement with it; the panel says so in one line before the first message |
-| a local server the person runs | an OpenAI-compatible endpoint on `localhost` (LM Studio, Ollama) | nothing |
-
-Driving the coding agent a person already has, rather than shipping keys of our own, is an
-idea already proven elsewhere. What differs here is what the agent may do — the same verbs as
-every other front end, so it can read and propose and **cannot accept**. Its proposals arrive
-in the same review list as the rules' proposals, marked with which provider made them.
-
-**What goes along with each message** is what is on screen, and only that: the playhead's
-step, the selected step or zoom, and the take's step list. Never the video, never a frame,
-never typed text that the privacy rules already keep out of the log.
+| the person's own Claude Code (first) | their CLI, under **their** login | what that agent sends its provider, which is the person's existing arrangement; the panel says so before the first message |
+| the person's Codex (next) | `codex exec --json`, same relay | the same |
+| the on-device model | `SystemLanguageModel.default` | nothing |
 
 ## Pin a note where it is wrong
 
@@ -291,6 +329,34 @@ remembered**, so the next derivation does not offer the same pause again.
 - **Accepting is the one place a proposal becomes a cut**: `CutReview.accepting`, recorded by
   `TimelineEditorModel.acceptCut` under a name that says what it cut ("Cut 9.2s Pause").
 
+## Cutting to a goal
+
+*Stage 6's core, 2026-11-08: `Core/Sources/Framing/GoalCut.swift`. The on-device model's half —
+the prompt and `@Generable` answer — is the next step.*
+
+**How others approach it.** Tutorial-video research finds that a raw demonstration's redundant
+and irrelevant actions must be filtered into key steps, and that handing a long action sequence
+straight to a model yields over-granular, noisy results; a practitioner rule of thumb is three to
+seven steps. An auto-editing agent's own instructions order cuts as dead air first, then fillers,
+false starts and repeated beats — and remind it to re-read after each cut, because indices shift.
+Idle-time trimming alone took one published recording from 2:59 to 1:01.
+
+**What was decided: the model judges, the code measures.** A language model is asked only what
+it is good at — which steps a stated goal does not need, least needed first, with a sentence each.
+Nothing it is bad at: no times, no lengths, no arithmetic.
+
+1. Dead air first: if the rules' proposals already reach the target, no step is proposed.
+2. Then whole steps in the model's order, each removed from a second before its press to a second
+   before the next press (never back past the previous press), until the projected length meets
+   the target.
+3. Never a step the model called necessary, never one a person kept; a target still out of reach
+   is reported as a shortfall in seconds rather than met by cutting further.
+4. Every verdict is checked: a step that does not exist, a second verdict on one step, and a cut
+   with no reason are refused by name; a step the model said nothing about is kept and listed.
+
+Indices cannot shift under it, because a proposal is keyed to the log's instants, not to a
+position in the edit.
+
 ## The layers
 
 The user of this document asked for SOLID, MVVM and a clean architecture explicitly; this is
@@ -333,8 +399,8 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | 3 | the review list in the editor: each proposal, its evidence, accept / dismiss — **landed 2026-11-08** | a person accepts one and the timeline changes, undoably |
 | 4 | the CLI's read verbs and `propose-cut` — **landed 2026-11-08, `export` still to come** | a terminal prints a take's steps and its proposals as JSON |
 | 5 | MCP over stdio, the same registry — **landed 2026-11-08** | Claude Code lists Soredemo's tools and calls `steps` |
-| 6 | the model producer, for a goal | "45 seconds" yields a pending set of step-ranged proposals, each validated |
-| 7 | the agent panel, with the on-device provider, then the person's CLI agent | a typed request produces proposals in the review list, marked with their provider |
+| 6 | the model producer, for a goal — **its planning core landed 2026-11-08; the model's half is next** | "45 seconds" yields a pending set of step-ranged proposals, each validated |
+| 7 | the agent panel driving the person's Claude Code, editing the live timeline (redesigned 2026-11-08) | a typed request cuts the timeline while the person watches; each cut is one named undo step and the turn reverts at once |
 | 8 | notes pinned on the preview and lanes, and "address the notes" | a note on a pause comes back as a proposal that names it |
 
 Each row is a merge point. Rows 2 and 3 together are the first that a person can see, and the
@@ -346,9 +412,12 @@ since the official cask repository asks a self-submitted project for 225 stars.
 
 ## Alternatives considered
 
-- **Let the agent apply the cut and offer undo.** What the others do. Rejected: it is the one
-  thing the thesis forbids, and an undo shown after the fact is a person reviewing a change
-  already made — the posture the publishing rule exists to refuse.
+- **Let the agent apply the cut and offer undo.** Rejected in the first draft as the thing the
+  thesis forbade; **adopted 2026-11-08 by the owner** for the agent a person is watching in the
+  panel, after reading that every agent-driven editor of 2026 edits directly. The objection —
+  that an undo after the fact is review after the fact — is answered by naming every edit for its
+  agent and reason, checkpointing each turn, and keeping the terminal and outside MCP clients,
+  which nobody is watching, read-only.
 - **Proposals keyed to seconds.** Simpler, and every competitor's. Rejected for the reason
   above: a time cannot be checked against the log, and survives a re-derivation only by luck.
 - **A cloud model for better goals.** Rejected: nothing leaves the machine unless a person

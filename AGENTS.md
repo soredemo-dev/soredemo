@@ -14,8 +14,15 @@ video — where the pointer was, when it was clicked, what accessibility element
 — and everything the editor does afterwards is derived from that log rather than guessed from the
 pixels: the drawn cursor, the zoom to whatever was clicked, the reason a click was not zoomed to.
 
-Every derived value carries its origin and a review state. **Automation proposes; the person decides.**
-That is the product thesis and it is also the architecture.
+Every derived value carries its origin and a review state. **Automation may act; every act names who
+did it and why, and the person can take it back.** The rules and the on-device model propose, and a
+person accepts; an agent the person chose and is watching may edit directly, and each of its edits is
+one undo step named for the agent and its reason, checkpointed per turn so a whole turn reverts at
+once. That is the product thesis and it is also the architecture.
+
+*Changed 2026-11-08 by the owner*, from "automation proposes; the person decides", after reading how
+the agent-driven editors of 2026 work: every one of them edits directly, and the best undo a whole
+turn from a checkpoint. What did not change is below — publishing is still a person's act, always.
 
 ### The publishing rule
 
@@ -1002,9 +1009,15 @@ rather than writing it as though it had one.
    one boundary file, `Sources/Capture/Minting.swift` and
    `Sources/Compositing/MonotonicStopwatch.swift`, each a file whose EVERY member reads the
    environment, which is what makes a whole-file permit cost nothing.
-4. **No manifest declares a package dependency** — *plugin; fails both builds.* Every
-   `Package*.swift`, not just `Package.swift`. This is what keeps rule 1's import allow-list
-   complete: with zero dependencies there is no unlisted module to smuggle one in through.
+4. **A package dependency comes only from an admitted official organisation, pinned** —
+   *plugin; fails both builds; the Xcode project by a test.* Every `Package*.swift`, not just
+   `Package.swift`, and every remote package in `Soredemo.xcodeproj`. Admitted: `apple`,
+   `swiftlang`, `modelcontextprotocol` on GitHub — each named with its reason in
+   `PackageDependencyRule.organisations` — and only with `exact:` or `revision:`, so nothing
+   changes without a commit that says so. A local path or a registry id is never admitted.
+   **Changed 2026-11-08 by the owner, from "no dependency at all".** Rule 1 is unaffected: a
+   dependency's module is still not in any core target's import allow-list, so it can be used
+   only in the runnable tier or the app. There are zero dependencies today.
 5. **The app names no CG geometry type at all**, and the runnable tier confines them to one
    bridge per direction — `Sources/Capture/CGGeometryBridge.swift` (entry) and
    `Sources/Compositing/HeadlessGeometryBridge.swift` (exit) — *test; fails `swift test` only.* A

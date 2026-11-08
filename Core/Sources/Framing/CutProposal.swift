@@ -15,6 +15,9 @@ public struct CutProposal: Hashable, Sendable {
     public enum Reason: String, Hashable, Sendable, Codable {
         /// Nothing was pressed, clicked, typed, said or moved, and the observer was watching.
         case deadAir
+        /// A whole step the on-device model judged unnecessary for a person's stated goal, cut
+        /// because the recording was still longer than they asked for (`GoalCut`).
+        case outsideTheGoal
     }
 
     /// What ended the activity before a quiet span, or began the activity after it.
@@ -57,7 +60,8 @@ public struct CutProposal: Hashable, Sendable {
     }
 
     public let reason: Reason
-    /// The whole span in which nothing happened — what the proposal rests on.
+    /// The span the proposal rests on: for dead air, the whole span in which nothing happened;
+    /// for a step outside the goal, the step from its press to the next one's.
     public let quiet: HostRange
     /// The part of `quiet` proposed for removal: smaller by the breath kept on each side.
     public let removes: HostRange
@@ -65,17 +69,21 @@ public struct CutProposal: Hashable, Sendable {
     public let closedBy: Boundary
     /// The step in progress when the quiet began, by number; `nil` before the first step.
     public let duringStep: Int?
+    /// Why a model proposed it, in its own words, already checked to be non-empty; `nil` for a
+    /// rule, whose reason is the measurement above.
+    public let rationale: String?
 
     public var key: Key { Key(reason: reason, quietStart: HostInstant(epoch: quiet.epoch, hostTime: quiet.start)) }
 
     init(reason: Reason, quiet: HostRange, removes: HostRange, openedBy: Boundary, closedBy: Boundary,
-         duringStep: Int?) {
+         duringStep: Int?, rationale: String? = nil) {
         self.reason = reason
         self.quiet = quiet
         self.removes = removes
         self.openedBy = openedBy
         self.closedBy = closedBy
         self.duringStep = duringStep
+        self.rationale = rationale
     }
 }
 
