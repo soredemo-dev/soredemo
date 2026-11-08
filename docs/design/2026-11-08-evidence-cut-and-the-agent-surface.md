@@ -25,33 +25,61 @@ decides.* So the question is not whether to add an agent. It is:
 
 ## What a proposal is
 
-**A proposal is a `Derived` value whose evidence is steps, not seconds.** One proposal says:
+*Rewritten 2026-11-08 when stage 2 landed: the first draft called a proposal a `Derived` value
+keyed by a span from one step's origin to another's, and neither survived building it. Code:
+`Core/Sources/Framing/CutProposal.swift`, `TakeActivity.swift`, `DeadAirProposer.swift`.*
+
+**A proposal is a plain value whose evidence is its own non-optional fields**, the shape the
+zoom plan already has — a `FramingDecision` names its gate, and a reviewer's decision about it
+is stored apart, keyed on the click. `Derived` and its graph are not used, because nothing in
+the product uses them yet (`derivation-graph` is ◐ for exactly that reason), and a first
+production caller of the graph is its own piece of work rather than a side effect of this one.
+When that row lands, proposals move into it; the fields below are what they will carry.
 
 | Field | What it holds |
 | --- | --- |
-| the change | remove a span, or speed it up by a factor |
-| the span | **from one step's origin to another's**, never a bare time — `RecordedStep.origin` is a `HostInstant`, the same key a zoom carries |
-| the reason | a closed code: `deadAirBetweenSteps`, `repeatedAttempt`, `pointerIdle`, `outsideTheGoal` |
-| the evidence | the step numbers and the measured values the reason rests on — "steps 4→5: 9.2 s with no press and the pointer still" |
-| origin / review | `generated`, `pending` — until a person accepts it |
+| `reason` | closed: `deadAir` today. `repeatedAttempt` and `outsideTheGoal` are later cases |
+| `quiet` | the whole span in which nothing happened — what the proposal rests on |
+| `removes` | the part of `quiet` proposed for removal |
+| `openedBy`, `closedBy` | what bounded the span on each side, by name: `press(step:)`, `click`, `shortcut`, `pointerMoved`, `speech`, `unobserved`, `recordingStart`, `recordingEnd` |
+| `duringStep` | the step in progress when the quiet began, by number |
+| `key` | the reason and the instant the quiet began; a dismissal is stored against it |
 
-**Why steps and not times.** A time is an answer nothing can check; a step range is a claim the
-log can confirm or refute. Re-deriving the steps after the observation log is re-read gives the
-same origins, so a proposal still lands on the same press. `ChapterSuggester` already holds
-this line for the model: it returns a sentence *number*, and the time comes from the
-transcript in `ChapterSuggestions.validate`. Proposals take the same shape for the same reason.
+**Anchored to what happened, not to a bare time.** The first draft required the span to run from
+one step's origin to another's. A real pause does not: it begins when the pointer stops after
+step 4, not at step 4's press, and ends half a second before step 5. So the span is bounded by
+*measured instants*, each with its name, and the steps it lies between are carried beside it.
+That keeps the property the draft wanted — every bound can be checked against the log, and the
+same log re-derives the same key — without pretending a pause starts at a click.
 
-**Accepting one is an authored edit.** It becomes an ordinary cut in `EditState.timeline`,
-undoable like any other, and the producer-value rule applies unchanged: a span a person kept is
-never re-proposed for removal by a later run, and a person's own cut is never replaced by a
-derived one. Test form, as the rule asks: author a keep over a span the proposer would remove,
-re-run the proposer, assert the keep wins.
+**The initialiser is internal**, so only a producer in `Framing` builds one, and a proposal with
+no bounds cannot be spelled. Proposals from outside — an agent's — arrive in stage 4 through a
+validating constructor that refuses a span outside the take or running backwards, by name.
 
-**A proposal with no evidence cannot reach `pending`.** That is the evaluation this project's
-testing section already names — "a claim with no valid supporting evidence cannot reach an
-approvable state" — and it is a validating constructor, not a review step: a proposal whose
-step numbers do not exist in the take, or whose span runs backwards, is refused with its reason
-rather than shown.
+**Accepting one is an authored edit**, in stage 3: an ordinary undoable cut in
+`EditState.timeline`. The producer-value rule holds in stage 2 already, for the authored half
+that exists — a dismissal: `CutProposals.pending(_:dismissed:)` drops every proposal whose key
+a person dismissed, and `aDismissedProposalStaysDismissedAfterReDerivation` is its test.
+
+### How others decide what is dead air, and what was combined
+
+| Approach | What it measures | What it misses |
+| --- | --- | --- |
+| transcript editors | silence in the audio, found from the transcript; offered as *shorten* or *remove* | a silent span in which the person was clicking through the product is the demo itself |
+| browser silence cutters | audio gaps over about 0.6 s, cut in one pass | the same, and they cut rather than propose |
+| a cursor-driven camera's intent classifier | no input events for 5 s is `idle` | speech — a narrated pause with a still pointer reads as idle |
+| research on tutorial video | a transcript and a software-usage log together; breaks at application switches and time gaps | built for segmentation, not removal |
+
+So: **quiet means every channel at once** — no press, no click (a press on an unnamed element made
+no step and still happened), no shortcut, no pointer movement beyond a tremble, no speech — and,
+from this project's own log, **a span the observer could not see is not quiet**: secure input
+emits nothing, which is the absence of a measurement, not stillness. From the transcript
+editors, **shorten rather than remove**: half a second is kept after the last thing that happened
+and before the next, except at the recording's own start and end. Stillness is measured **from
+where the pointer came to rest**, not from the previous sample, so a slow drift made of trembles
+still counts once it has gone far enough. A recording in which nothing happened proposes nothing.
+
+The constants — 2 s minimum, 0.5 s breath, 0.005 of the display — are uncalibrated.
 
 ## Who proposes
 
@@ -191,7 +219,7 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | # | Lands | Observable as |
 | --- | --- | --- |
 | 1 | this document; the landscape update; the ROADMAP rows | — |
-| 2 | `CutProposal` and the rule producers, in the package | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
+| 2 | `CutProposal` and the rule producers, in the package — **dead air landed 2026-11-08** | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
 | 3 | the review list in the editor: each proposal, its evidence, accept / dismiss | a person accepts one and the timeline changes, undoably |
 | 4 | the CLI's read verbs and `propose-cut` | a terminal prints a take's steps and its proposals as JSON |
 | 5 | MCP over stdio, the same registry | Claude Code lists Soredemo's tools and calls `steps` |
