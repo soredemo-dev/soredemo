@@ -50,10 +50,18 @@ private let epoch = BootEpoch(id: UUID(uuidString: "9B1DE104-6C3E-4E2A-8B3C-2B6A
         follower.start { frames.report($0) }
         try? await Task.sleep(for: .milliseconds(20))
         frames.set(PointRect(x: 300, y: 250, width: 800, height: 600))
+        // **Polled for the report, then held for twenty more ticks**, not slept a fixed 40 ms: a
+        // loaded CI runner can miss the window (the pointer-cadence test did, 2026-11-08). The
+        // hold after the first report is what tests "once" — a second report would land in it.
+        var waited = 0
+        while frames.all.isEmpty, waited < 2_000 {
+            try? await Task.sleep(for: .milliseconds(10))
+            waited += 10
+        }
         try? await Task.sleep(for: .milliseconds(40))
         follower.stop()
 
-        #expect(frames.all.count == 1, "expected one report, got \(frames.all.count)")
+        #expect(frames.all.count == 1, "expected one report, got \(frames.all.count) after about \(waited) ms")
         #expect(frames.all.first?.x == 300)
         #expect(follower.frameChanges == 1)
     }

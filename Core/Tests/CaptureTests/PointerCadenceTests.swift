@@ -32,16 +32,25 @@ import Timeline
 
     /// The point of the type in one assertion: the reader never changes its answer — a
     /// pointer that is not moving — and samples arrive anyway.
+    ///
+    /// **Waits for five samples rather than for 60 ms**, for the sibling test's reason below: a
+    /// fixed 60 ms window failed on CI (2026-11-08, run 42453560357) on a loaded hosted runner.
+    /// The claim is that an unchanging answer still ticks, not how fast; a sampler that ticked
+    /// only on change would stop at one and fail here after the deadline.
     @Test func aStationaryPointerStillProducesSamples() async {
         let counter = Counter()
         let sampler = PointerSampler(interval: Nanoseconds(2_000_000),
                                      read: { (x: 400, y: 300) })
         sampler.start(epoch: epoch) { _, location in counter.note(location) }
-        try? await Task.sleep(for: .milliseconds(60))
+        var waited = 0
+        while counter.count < 5, waited < 2_000 {
+            try? await Task.sleep(for: .milliseconds(10))
+            waited += 10
+        }
         sampler.stop()
 
         #expect(counter.count >= 5,
-                "a 2 ms cadence over 60 ms should tick many times, saw \(counter.count)")
+                "\(counter.count) sample(s) in about \(waited) ms at a 2 ms cadence")
         #expect(counter.all.allSatisfy { $0.x == 400 && $0.y == 300 })
     }
 
