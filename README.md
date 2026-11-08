@@ -14,6 +14,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/status-public%20beta%200.9-c47f00?style=flat-square" alt="Public beta, version 0.9">
   <img src="https://img.shields.io/badge/macOS-26%2B-111?style=flat-square" alt="macOS 26 or later">
   <img src="https://img.shields.io/badge/Apple%20Silicon-only-111?style=flat-square" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=flat-square" alt="Swift 6.4">
@@ -26,7 +27,7 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#a-tour">A tour</a> ·
   <a href="#features">Features</a> ·
-  <a href="#build-it">Build it</a> ·
+  <a href="#download-or-build-it">Download</a> ·
   <a href="#for-contributors">Contributing</a>
 </p>
 
@@ -185,9 +186,18 @@ observation entirely.
 | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd> | Edit captions |
 | <kbd>⌥</kbd><kbd>↑</kbd> <kbd>⌥</kbd><kbd>↓</kbd> | Previous · next caption |
 
-## Build it
+## Download or build it
 
-There is no signed download yet. Build it with Xcode 27 on macOS 26:
+**Soredemo is in public beta.** Versions below 1.0 are betas: they record, edit and export end to
+end, but a project saved by one beta is not promised to open in the next, and things will change. 1.0 is
+the first version whose project format stays readable.
+
+**Download:** the newest beta is on the [Releases](https://github.com/soredemo-dev/soredemo/releases)
+page as `Soredemo.zip` — signed with Developer ID and notarised by Apple, so it opens without a
+warning. Unzip it, move `Soredemo.app` to Applications, and open it. Apple Silicon, macOS 26 or
+later.
+
+**Build it** with Xcode 27 on macOS 26:
 
 ```bash
 git clone https://github.com/soredemo-dev/soredemo.git
