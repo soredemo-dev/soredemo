@@ -16,6 +16,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 
 | Document | What it settles |
 | --- | --- |
+| [2026-11-08-evidence-cut-and-the-agent-surface](2026-11-08-evidence-cut-and-the-agent-surface.md) | the director's cut as evidence-carrying proposals; the CLI, MCP and agent panel that may propose and never accept; the layers |
 | [2026-10-25-beyond-a-screen-recorder](2026-10-25-beyond-a-screen-recorder.md) | what only the observation log makes possible, ranked, and the market for it |
 | [2026-10-22-audit-and-how-to-stand-out](2026-10-22-audit-and-how-to-stand-out.md) | a full audit, and how a free recorder beats the paid ones |
 | [2026-10-22-what-macos-27-makes-possible](2026-10-22-what-macos-27-makes-possible.md) | the macOS 27 APIs read in the SDK, and features only the observation log allows |

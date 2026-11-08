@@ -129,6 +129,29 @@ Sources: [Cardboard](https://www.ycombinator.com/companies/cardboard), [Widefram
 [Product Hunt 2025 leaderboard](https://www.producthunt.com/leaderboard/yearly/2025),
 [Product Hunt recording category](https://www.producthunt.com/categories/screenshots-and-screen-recording?order=recent_launches).
 
+## November 2026: agents that edit became ordinary
+
+Re-surveyed 2026-11-08, after `v0.1.0` shipped. In one month:
+
+| What shipped | What it means here |
+| --- | --- |
+| a free recorder relaunched with an agent that edits the take over MCP, transcript-word cutting, zooms planned from clicks, and a CLI for scripts and agents | the closest neighbour; it plans from clicks and words, with no record of what was pressed or why a click was not framed |
+| a native macOS video editor exposing its timeline to Claude, Codex and Cursor over MCP on `127.0.0.1`, with an in-app agent beside it | an agent on the timeline is now expected of an editor on this platform |
+| MCP servers that let a coding agent write a demo's script, perform it, film it and cut it | the agent can be the performer as well as the editor — web first, desktop with permissions |
+| recorders whose agent records and returns a share link with an event log | outside the publishing rule; not followed |
+| a hosted agentic editor (YC W26): footage plus a goal gives a first cut, then a timeline, with FCP and Premiere XML out | goal-driven first cuts are a product people pay for; Soredemo already hands a cut to FCPXML |
+| an agent-written slide framework whose comment mode pins a note on an element and has the agent address every note at once, driving the coding agent the person already has | the interaction model for asking an agent to fix one place, without keys of our own |
+
+**What it changes.** Nothing about the direction, and the window is narrower. Agents that edit
+are ordinary; **an agent whose every cut names the step it removed and why, that proposes and
+never accepts, on native Mac applications, locally** is still unclaimed. That is
+`../design/2026-11-08-evidence-cut-and-the-agent-surface.md`.
+
+Distribution, measured the same day: the official Homebrew cask repository asks a project
+submitted by its own author for 225 stars, 90 forks or 90 watchers; a tap the owner creates has
+no threshold. A disk image is the platform's usual drag-to-Applications install, notarised as
+the outermost container.
+
 ## Platform: what WWDC26 gives an editor like this one
 
 Read in the macOS 27.0 SDK and Apple's "What's new in SwiftUI" (WWDC26, session 269). The capture

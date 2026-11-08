@@ -1,0 +1,233 @@
+# Evidence Cut, and the surface an agent edits through
+
+*Written 2026-11-08, after `v0.1.0` shipped as a public beta. Settles what the director's cut
+is, what an agent may do to a take, and in what order the work lands. The market it answers is
+`../research/landscape.md`, "November 2026".*
+
+## The question
+
+In the month before this was written, letting an agent edit a recording stopped being unusual:
+recorders now edit over MCP and cut by deleting transcript words, video editors expose their
+timeline to Claude, Codex and Cursor on `127.0.0.1`, tools have a coding agent write, film and
+cut its own demo, and hosted editors turn footage plus a goal into a first cut. **Every one of
+them cuts from pixels and words.** None can say which step a cut removed, or why; none works
+from what was pressed in a native Mac application; and the ones with agents apply the edit and
+offer an undo.
+
+Soredemo has the thing they lack — a log of what was pressed, in which application, and why
+each click was or was not framed — and a thesis they do not: *automation proposes; the person
+decides.* So the question is not whether to add an agent. It is:
+
+1. What is a cut proposal, as a value, so that it can carry its evidence?
+2. Who may produce one — a rule, the on-device model, an outside agent — and what may each see?
+3. How does an outside agent reach a take at all, and what can it never do?
+4. In what order does this land, so that each step is observable in the product?
+
+## What a proposal is
+
+**A proposal is a `Derived` value whose evidence is steps, not seconds.** One proposal says:
+
+| Field | What it holds |
+| --- | --- |
+| the change | remove a span, or speed it up by a factor |
+| the span | **from one step's origin to another's**, never a bare time — `RecordedStep.origin` is a `HostInstant`, the same key a zoom carries |
+| the reason | a closed code: `deadAirBetweenSteps`, `repeatedAttempt`, `pointerIdle`, `outsideTheGoal` |
+| the evidence | the step numbers and the measured values the reason rests on — "steps 4→5: 9.2 s with no press and the pointer still" |
+| origin / review | `generated`, `pending` — until a person accepts it |
+
+**Why steps and not times.** A time is an answer nothing can check; a step range is a claim the
+log can confirm or refute. Re-deriving the steps after the observation log is re-read gives the
+same origins, so a proposal still lands on the same press. `ChapterSuggester` already holds
+this line for the model: it returns a sentence *number*, and the time comes from the
+transcript in `ChapterSuggestions.validate`. Proposals take the same shape for the same reason.
+
+**Accepting one is an authored edit.** It becomes an ordinary cut in `EditState.timeline`,
+undoable like any other, and the producer-value rule applies unchanged: a span a person kept is
+never re-proposed for removal by a later run, and a person's own cut is never replaced by a
+derived one. Test form, as the rule asks: author a keep over a span the proposer would remove,
+re-run the proposer, assert the keep wins.
+
+**A proposal with no evidence cannot reach `pending`.** That is the evaluation this project's
+testing section already names — "a claim with no valid supporting evidence cannot reach an
+approvable state" — and it is a validating constructor, not a review step: a proposal whose
+step numbers do not exist in the take, or whose span runs backwards, is refused with its reason
+rather than shown.
+
+## Who proposes
+
+Three producers, in the order they are built, each seeing less of the world than the last:
+
+1. **Rules over the log** — deterministic, no model. Dead air between two steps beyond a
+   threshold; the same element pressed again after a short gap (a missed first try); a span
+   where the pointer track is still. These need nothing but `RecordedSteps` and `PointerTrack`,
+   they are exact, and they are testable with fixtures whose answers are known independently.
+   **Their thresholds are uncalibrated until measured** against real takes, like every gate
+   constant in this repository (`ARCHITECTURE.md` D4).
+2. **The on-device model, for the goal.** "A 45-second launch cut", "the tutorial", "a vertical
+   short" are choices among steps, not among seconds. The model is shown the numbered steps —
+   label, application, length — and the numbered transcript sentences, and returns step numbers
+   to keep. Everything it returns is validated against the numbers it was shown, exactly as
+   chapters are. **`SystemLanguageModel.default` only**: the source test that forbids
+   `PrivateCloudComputeLanguageModel` covers this producer too.
+3. **An outside agent**, over the CLI or MCP, through the same validated proposal constructor.
+   It may propose; it may not accept.
+
+### Grounding, and why there is no vector store
+
+What gets called retrieval-augmented generation elsewhere is, here, **grounding by key**. The
+corpus is one take: tens of steps, a few hundred sentences. Every fact the model may use is
+handed to it by number, and every number it returns is checked against that set. A vector
+index would add an approximate lookup in front of a corpus small enough to show whole, and an
+approximate lookup is the one thing a proposal's evidence must not rest on. **Revisit when the
+library of takes is searchable** (`beyond-a-screen-recorder` idea 8): searching many takes by
+what happened is a real retrieval problem, and the step records are its documents.
+
+## The surface an agent edits through
+
+**One registry of verbs, two front ends.** Each verb is a function from a request to a
+response, both `Codable`, defined once:
+
+| Verb | Kind | What it returns |
+| --- | --- | --- |
+| `status` | read | the project's take, its length, its steps' count, which proposals are pending |
+| `steps` | read | the numbered steps, with label, application and span |
+| `explain-framing` | read | for each click, the zoom it got or the gate that refused it, by name |
+| `propose-cut` | propose | proposals from the rule producers, or the model's for a stated goal — **not applied** |
+| `export` | read | a render of the edit as it stands, to a path the caller names |
+
+The front ends are **a CLI inside the app's own executable** — `Soredemo.app/Contents/MacOS/
+Soredemo cut steps demo.soredemo --json`, newline-delimited JSON when asked — and **an MCP
+server over stdio** started by the same executable. stdio rather than a listening socket: a
+port on `127.0.0.1` is reachable by every process on the machine, while a stdio server is
+reachable only by the client that started it. The ROADMAP's `mcp-server` row said `NWListener`;
+that changes here, for that reason.
+
+**What no front end can do, ever:** accept a proposal, apply an edit without a person seeing it
+in the editor, or publish. Accepting happens in the editor's review list, by a person. This is
+`agent-review-tools`' "review posture, not generative" made into the type of the registry: there
+is no accept verb to call.
+
+**No argument-parsing dependency.** The `cli-surface` row named Swift Argument Parser.
+Architecture rule 4 holds every manifest at zero dependencies, the README advertises zero, and
+the verbs above are five with a handful of flags each. A small hand-written parser in the app
+target, tested like any other code, costs less than the rule it would break. The row is
+corrected in the same commit as this document.
+
+**Text from outside is data.** A proposal's goal and an agent's arguments are attacker-
+controllable (`agentic-threat-model`): they are quoted into the model's prompt as data under a
+fixed instruction, never concatenated into it, and nothing they say can widen what a verb does.
+
+## The agent panel: bring the agent you already use
+
+A panel beside the editor where a person types what they want — "cut this to 45 seconds",
+"why is step 6 not zoomed" — and an agent answers by calling the verbs above. **Which agent is
+the person's choice, behind one protocol**:
+
+| Provider | Where it runs | What leaves the Mac |
+| --- | --- | --- |
+| the on-device model (default) | `SystemLanguageModel.default` | nothing |
+| the person's own Claude Code or Codex | their installed CLI, started headless by the app with Soredemo's MCP server attached, under **their** login — no API key is typed into Soredemo | what that agent sends its provider, which is the person's existing arrangement with it; the panel says so in one line before the first message |
+| a local server the person runs | an OpenAI-compatible endpoint on `localhost` (LM Studio, Ollama) | nothing |
+
+Driving the coding agent a person already has, rather than shipping keys of our own, is an
+idea already proven elsewhere. What differs here is what the agent may do — the same verbs as
+every other front end, so it can read and propose and **cannot accept**. Its proposals arrive
+in the same review list as the rules' proposals, marked with which provider made them.
+
+**What goes along with each message** is what is on screen, and only that: the playhead's
+step, the selected step or zoom, and the take's step list. Never the video, never a frame,
+never typed text that the privacy rules already keep out of the log.
+
+## Pin a note where it is wrong
+
+Pressing a key, clicking where something is wrong, leaving a note, and having an agent address
+every note in one pass is a pattern already proven for agent-written documents. Here: **press `N`,
+click the preview or a lane, and write a note** — "zoom tighter here", "this pause is too
+long", "blur this". A note is an **authored** value anchored to what the click hit:
+
+- on the preview: the instant under the playhead, the step it falls in, and a normalised point;
+- on the zoom lane: that zoom's click key;
+- on the steps lane: that step's origin.
+
+Anchoring to step origins and click keys rather than seconds means a note still points at the
+right press after a cut moves everything after it. **"Address the notes"** hands every open
+note to the selected provider as one request; each note comes back as zero or more proposals,
+each naming the note it answers, and a note stays open until a person resolves it. A note
+whose request produced nothing says so, rather than closing silently.
+
+## The layers
+
+The user of this document asked for SOLID, MVVM and a clean architecture explicitly; this is
+where each sits, and the dependency arrows only point down.
+
+```
+SwiftUI views            ProposalReviewList · AgentPanel · NoteOverlay        (app)
+    │ observe
+@Observable view models  ProposalReviewModel · AgentPanelModel · NotesModel    (app)
+    │ call
+use cases                ProposeCut · AcceptProposal · AddressNotes           (app, thin)
+    │ depend on protocols
+domain                   CutProposal · Note · RecordedStep · EditTimeline      (SoredemoCore, Foundation only)
+    ▲ implemented by
+adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvider ·
+                         LocalEndpointProvider · VerbRegistry → CLI front end, MCP front end
+```
+
+- **Single responsibility**: a proposer proposes; validation is the proposal's constructor;
+  applying is `AcceptProposal`, and only it writes the timeline.
+- **Open / closed**: a new producer or a new provider is a new conformance to `CutProposer` or
+  `AgentProvider`; nothing that exists changes. A new verb is one entry in the registry and
+  appears in both the CLI and MCP.
+- **Liskov**: every provider returns proposals through the same validated constructor, so the
+  review list cannot tell — and need not care — which one produced them.
+- **Interface segregation**: the read verbs and the propose verb are separate protocols; a
+  front end that only reads holds no proposing capability.
+- **Dependency inversion**: the domain owns the protocols; the app's adapters implement them.
+  `SoredemoCore` keeps importing Foundation only, which architecture rule 1 already enforces at
+  build time — this layering is held by the checker, not by convention.
+
+## Order, and where each step becomes observable
+
+| # | Lands | Observable as |
+| --- | --- | --- |
+| 1 | this document; the landscape update; the ROADMAP rows | — |
+| 2 | `CutProposal` and the rule producers, in the package | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
+| 3 | the review list in the editor: each proposal, its evidence, accept / dismiss | a person accepts one and the timeline changes, undoably |
+| 4 | the CLI's read verbs and `propose-cut` | a terminal prints a take's steps and its proposals as JSON |
+| 5 | MCP over stdio, the same registry | Claude Code lists Soredemo's tools and calls `steps` |
+| 6 | the model producer, for a goal | "45 seconds" yields a pending set of step-ranged proposals, each validated |
+| 7 | the agent panel, with the on-device provider, then the person's CLI agent | a typed request produces proposals in the review list, marked with their provider |
+| 8 | notes pinned on the preview and lanes, and "address the notes" | a note on a pause comes back as a proposal that names it |
+
+Each row is a merge point. Rows 2 and 3 together are the first that a person can see, and the
+completion rule holds the ROADMAP row at ◐ until row 3 lands.
+
+Beside this, independent of it: **the release ships as a disk image** (drag to Applications,
+the outer image notarised and stapled), and a **Homebrew cask in a tap the owner creates**,
+since the official cask repository asks a self-submitted project for 225 stars.
+
+## Alternatives considered
+
+- **Let the agent apply the cut and offer undo.** What the others do. Rejected: it is the one
+  thing the thesis forbids, and an undo shown after the fact is a person reviewing a change
+  already made — the posture the publishing rule exists to refuse.
+- **Proposals keyed to seconds.** Simpler, and every competitor's. Rejected for the reason
+  above: a time cannot be checked against the log, and survives a re-derivation only by luck.
+- **A cloud model for better goals.** Rejected: nothing leaves the machine unless a person
+  sends it, and the on-device model's 4096-token context fits one take's steps.
+- **A vector store over transcripts.** Rejected for one take (above); kept open for the library.
+- **MCP on `127.0.0.1` over HTTP**, the common choice. Rejected for stdio: no port, no other
+  local process can reach it. Revisit if a client that cannot spawn a process needs it.
+- **Containerising the build.** Docker images run Linux; ScreenCaptureKit, AppKit and the macOS
+  SDK do not exist there, and nothing in this app could be built or tested inside one. The
+  reproducibility a container would give is held instead by the CI gate's measured toolchain
+  check (`.github/workflows/gates.yml`) and the determinism tests. Not adopted, and the reason
+  is written down so that it is a decision rather than an absence.
+
+## Defaults this depends on and has not decided
+
+- The dead-air threshold, the repeated-attempt gap and the pointer-still window: uncalibrated.
+- Whether a speed-up is offered at all, or only removal, in the first producer.
+- How a pending proposal survives a project being closed: stored as authored dismissals only,
+  re-derived on open — the shape `framingOverrideData` already has — is the expectation, not a
+  decision yet.
