@@ -183,17 +183,60 @@ note to the selected provider as one request; each note comes back as zero or mo
 each naming the note it answers, and a note stays open until a person resolves it. A note
 whose request produced nothing says so, rather than closing silently.
 
+## The review list
+
+*Landed 2026-11-08, stage 3: `Core/Sources/Framing/CutReview.swift`,
+`Core/Sources/Compositing/TakeActivityReader.swift`, `Soredemo/Editor/CutProposalsModel.swift`,
+`Soredemo/Inspector/CutProposalsPanel.swift`, the Cuts tab in the inspector.*
+
+### How others review a proposed removal
+
+| Approach | How a person decides | What it costs |
+| --- | --- | --- |
+| a transcript editor's filler-word sidebar | every detection listed with its time, previewable, and each one deleted, replaced by a gap, or ignored; "remove all" beside them | the list says *what* was found, not what bounded it, so a pause cannot be checked without listening |
+| a transcript editor's pauses, in a desktop NLE | each pause selectable and deleted, or all at once | editors report that "delete all" ruins pacing and that some pauses are kept on purpose — the bulk path is the risky one |
+| a browser silence cutter | one threshold, one pass | no per-item decision at all |
+| this project's own silence and stillness buttons | find, look at the lane, then remove all as one undo step | all-or-nothing, and nothing remembers a span a person meant to keep |
+
+**What was combined.** The sidebar's per-item decision, with the bulk action kept beside it as
+*one* undo step whose total is on screen before it is pressed. What none of them do, and this
+does: **each row says what bounded the span** — "nothing happens for 9.2 s during step 4; after
+the pointer stops, until step 5" — so a row can be checked against the recording, and **a "no" is
+remembered**, so the next derivation does not offer the same pause again.
+
+### What was decided
+
+- **The list is derived from the edit, every time.** `CutReview.listing` places each proposal on
+  the recording's clock and asks the timeline how much of it still plays: `.gone` leaves the list,
+  `.partly` stays and says so. Nothing remembers an acceptance — the cut is the record, so ⌘Z on an
+  acceptance puts the proposal back by restoring the span.
+- **Every proposal goes exactly one way** — listed, already cut, dismissed, or unplaceable (an
+  anchor from another boot) — and each way is counted, so the counts sum to the proposals given.
+- **A dismissal is an undo step in the same history as the cuts** (`TimelineEdits.dismissedCuts`),
+  and it is saved: `EditState.dismissedCutData`, the keys only, in a fixed order so the same
+  dismissals are the same bytes. Proposals themselves are re-derived on open, the shape
+  `framingOverrideData` already had. This closes the default that stood open below.
+- **Every history write goes through one copy-and-replace** (`TimelineEdits.with`), because each
+  constructor call that named the parts one by one was a place a new part could be dropped;
+  `aCutAfterADismissalKeepsTheDismissal` is the test that it is not.
+- **What was heard comes from the transcript when there is one, from the waveform when not.** The
+  waveform's non-silent stretches (`SilenceFinder.sounding`) count any sound as something
+  happening — music with nobody talking is not dead air — and the panel says which source it
+  used, because without a transcript a narrated pause is kept only because it made a sound.
+- **Accepting is the one place a proposal becomes a cut**: `CutReview.accepting`, recorded by
+  `TimelineEditorModel.acceptCut` under a name that says what it cut ("Cut 9.2s Pause").
+
 ## The layers
 
 The user of this document asked for SOLID, MVVM and a clean architecture explicitly; this is
 where each sits, and the dependency arrows only point down.
 
 ```
-SwiftUI views            ProposalReviewList · AgentPanel · NoteOverlay        (app)
+SwiftUI views            CutProposalsPanel · AgentPanel · NoteOverlay         (app)
     │ observe
-@Observable view models  ProposalReviewModel · AgentPanelModel · NotesModel    (app)
+@Observable view models  CutProposalsModel · AgentPanelModel · NotesModel      (app)
     │ call
-use cases                ProposeCut · AcceptProposal · AddressNotes           (app, thin)
+use cases                CutReview.listing · CutReview.accepting · AddressNotes (pure, in Framing)
     │ depend on protocols
 domain                   CutProposal · Note · RecordedStep · EditTimeline      (SoredemoCore, Foundation only)
     ▲ implemented by
@@ -202,7 +245,9 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 ```
 
 - **Single responsibility**: a proposer proposes; validation is the proposal's constructor;
-  applying is `AcceptProposal`, and only it writes the timeline.
+  applying is `CutReview.accepting`, and only `TimelineEditorModel.acceptCut` records it.
+  (Named `AcceptProposal` in the first draft; it is a pure function in the package rather than
+  an app-side use case, so it is tested without the app.)
 - **Open / closed**: a new producer or a new provider is a new conformance to `CutProposer` or
   `AgentProvider`; nothing that exists changes. A new verb is one entry in the registry and
   appears in both the CLI and MCP.
@@ -220,7 +265,7 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | --- | --- | --- |
 | 1 | this document; the landscape update; the ROADMAP rows | — |
 | 2 | `CutProposal` and the rule producers, in the package — **dead air landed 2026-11-08** | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
-| 3 | the review list in the editor: each proposal, its evidence, accept / dismiss | a person accepts one and the timeline changes, undoably |
+| 3 | the review list in the editor: each proposal, its evidence, accept / dismiss — **landed 2026-11-08** | a person accepts one and the timeline changes, undoably |
 | 4 | the CLI's read verbs and `propose-cut` | a terminal prints a take's steps and its proposals as JSON |
 | 5 | MCP over stdio, the same registry | Claude Code lists Soredemo's tools and calls `steps` |
 | 6 | the model producer, for a goal | "45 seconds" yields a pending set of step-ranged proposals, each validated |
@@ -256,6 +301,8 @@ since the official cask repository asks a self-submitted project for 225 stars.
 
 - The dead-air threshold, the repeated-attempt gap and the pointer-still window: uncalibrated.
 - Whether a speed-up is offered at all, or only removal, in the first producer.
-- How a pending proposal survives a project being closed: stored as authored dismissals only,
-  re-derived on open — the shape `framingOverrideData` already has — is the expectation, not a
-  decision yet.
+- ~~How a pending proposal survives a project being closed.~~ Decided in stage 3: dismissals
+  only, re-derived on open (see "The review list").
+- The breath kept on each side (0.5 s) and whether a person can change it per recording.
+- Which silence threshold stands in for speech when there is no transcript: the toolbar's own
+  `silenceSettings`, so the two features agree, and so uncalibrated in the same way.

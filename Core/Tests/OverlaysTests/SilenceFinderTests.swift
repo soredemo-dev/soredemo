@@ -118,4 +118,42 @@ import Timeline
                                        end: Nanoseconds(1_000_000_000))
         #expect(SilenceFinder.removing([empty], from: whole) == whole)
     }
+
+    // MARK: - what could be heard
+
+    private func span(_ from: Int64, _ to: Int64) -> SilenceFinder.Span {
+        SilenceFinder.Span(start: Nanoseconds(from * 1_000_000_000), end: Nanoseconds(to * 1_000_000_000))
+    }
+
+    private func seconds(_ from: Int64, _ to: Int64) -> Range<Int64> {
+        (from * 1_000_000_000)..<(to * 1_000_000_000)
+    }
+
+    @Test func soundIsTheRecordingOutsideEverySilence() {
+        let sounding = SilenceFinder.sounding(outside: [span(6, 10), span(2, 4)],
+                                              duration: Nanoseconds(10 * 1_000_000_000))
+        #expect(sounding == [seconds(0, 2), seconds(4, 6)], "unsorted in, in time order out; silent to the end")
+    }
+
+    @Test func aRecordingWithNoSilenceSoundsThroughout() {
+        #expect(SilenceFinder.sounding(outside: [], duration: Nanoseconds(10 * 1_000_000_000)) == [seconds(0, 10)])
+    }
+
+    @Test func overlappingSilencesLeaveNoSliverOfSoundBetweenThem() {
+        // 2–3 sits inside 1–5 and 4–7 begins inside it too: a cursor moved BACK by the nested
+        // one would find "sound" from 3 to 4.
+        let sounding = SilenceFinder.sounding(outside: [span(1, 5), span(2, 3), span(4, 7)],
+                                              duration: Nanoseconds(10 * 1_000_000_000))
+        #expect(sounding == [seconds(0, 1), seconds(7, 10)])
+    }
+
+    @Test func aSilenceBeginningAfterTheEndAddsNoSoundPastIt() {
+        let sounding = SilenceFinder.sounding(outside: [span(12, 15)], duration: Nanoseconds(10 * 1_000_000_000))
+        #expect(sounding == [seconds(0, 10)])
+    }
+
+    @Test func aSilenceRunningPastTheEndIsClampedToIt() {
+        let sounding = SilenceFinder.sounding(outside: [span(8, 30)], duration: Nanoseconds(10 * 1_000_000_000))
+        #expect(sounding == [seconds(0, 8)])
+    }
 }

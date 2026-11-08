@@ -89,7 +89,7 @@ struct StageWindow: View {
         // icons over one subject — what was said — and the two lists look alike enough that a
         // person had to know which icon held which. One tab, one segmented control inside it;
         // see `CaptionsPanel.Words` for why the two lists stay two.
-        case project, selection, captions, chapters, text, hide, mark
+        case project, selection, cuts, captions, chapters, text, hide, mark
 
         var title: String {
             switch self {
@@ -97,6 +97,7 @@ struct StageWindow: View {
             // export sheet (2026-10-25).
             case .project: "Look"
             case .selection: "Zooms"
+            case .cuts: "Cuts"
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
             // "Overlays" was already a poor name for a tab whose contents were captions.
             case .captions: "Captions"
@@ -118,6 +119,7 @@ struct StageWindow: View {
             // decoration. A zoom here moves the camera onto a point somebody clicked, which
             // is what a viewfinder with a dot in it says and a magnifier does not.
             case .selection: "dot.viewfinder"
+            case .cuts: "scissors"
             case .captions: "captions.bubble"
             case .chapters: "list.bullet.rectangle"
             case .text: "textformat"
@@ -130,6 +132,7 @@ struct StageWindow: View {
             switch self {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
+            case .cuts: Theme.accent
             case .captions: Theme.Lane.caption
             case .chapters: Theme.Lane.chapter
             case .text: Theme.Lane.text
@@ -711,6 +714,22 @@ struct StageWindow: View {
                     }
                 }
                 .inspectorList()
+            case .cuts:
+                // What was heard arrives after the recording opens — the waveform a moment
+                // later, the transcript whenever someone transcribes — so the proposals are
+                // re-derived when either changes rather than once on open.
+                CutProposalsPanel(model: editor.cuts, timeline: editor.timeline,
+                                  onChange: { editRevision += 1 })
+                    .task(id: HeardKey(segments: editor.captions.transcript?.segments.count,
+                                       peaks: editor.timeline.waveform?.peaks.count)) {
+                        let timeline = editor.timeline
+                        editor.cuts.hear(
+                            transcript: editor.captions.transcript,
+                            silences: timeline.waveform.map {
+                                SilenceFinder.spans(peaks: $0.peaks, sliceSeconds: $0.sliceDuration,
+                                                    settings: timeline.silenceSettings)
+                            })
+                    }
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes
@@ -1063,5 +1082,9 @@ struct StageWindow: View {
 
 }
 
-
-
+/// What the cut proposals were last derived from hearing: how many transcript segments, how many
+/// waveform slices. A change in either re-derives them.
+private struct HeardKey: Hashable {
+    let segments: Int?
+    let peaks: Int?
+}

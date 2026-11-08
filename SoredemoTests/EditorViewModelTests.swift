@@ -43,7 +43,8 @@ private let everything = EditState(
     cameraPace: CameraPace.snappy.rawValue,
     noiseReductionData: encoded(NoiseReduction.Settings(strength: 2, floor: 0.1)),
     spokenTerms: ["Soredemo"],
-    chapterTrackData: encoded(ChapterTrack().adding(title: "Intro", start: ns(0))))
+    chapterTrackData: encoded(ChapterTrack().adding(title: "Intro", start: ns(0))),
+    dismissedCutData: encoded([CutProposal.Key(reason: .deadAir, quietStart: HostInstant(epoch: epoch, hostTime: ns(9)))]))
 
 /// The fields of two edits that differ, by name — so a failure says which decision was lost.
 private func differingFields(_ a: EditState, _ b: EditState) -> [String] {

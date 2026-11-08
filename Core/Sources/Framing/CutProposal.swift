@@ -37,6 +37,23 @@ public struct CutProposal: Hashable, Sendable {
     public struct Key: Hashable, Sendable, Codable {
         public let reason: Reason
         public let quietStart: HostInstant
+
+        /// Public so a saved dismissal can be built and compared; a key that matches no proposal
+        /// dismisses nothing, so a made-up one is harmless.
+        public init(reason: Reason, quietStart: HostInstant) {
+            self.reason = reason
+            self.quietStart = quietStart
+        }
+
+        /// In a fixed order — boot, instant, reason — for writing to a file. A `Set` encodes in
+        /// hash order, which differs between processes, so the same dismissals would save as
+        /// different bytes and every open-and-save would read as a change.
+        public static func fileOrder(_ keys: Set<Key>) -> [Key] {
+            keys.sorted {
+                ($0.quietStart.epoch.id.uuidString, $0.quietStart.hostTime.rawValue, $0.reason.rawValue)
+                    < ($1.quietStart.epoch.id.uuidString, $1.quietStart.hostTime.rawValue, $1.reason.rawValue)
+            }
+        }
     }
 
     public let reason: Reason

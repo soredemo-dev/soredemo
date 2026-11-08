@@ -92,6 +92,30 @@ public enum SilenceFinder {
                           end: Nanoseconds(Int64(endSeconds * 1_000_000_000))))
     }
 
+    /// **Where something could be heard**: the recording from zero to `duration` outside every
+    /// silent span — what a cut producer reads as sound when there is no transcript to say what
+    /// was spoken. Music with nobody talking is sound here, which is the point: a stretch with a
+    /// track playing is not dead air.
+    ///
+    /// Spans are sorted and clamped first; overlapping ones cover each other rather than leaving
+    /// a sliver of "sound" between two silences that met.
+    public static func sounding(outside silences: [Span], duration: Nanoseconds) -> [Range<Int64>] {
+        let end = duration.rawValue
+        guard end > 0 else { return [] }
+        var sounding: [Range<Int64>] = []
+        var cursor: Int64 = 0
+        for span in silences.sorted(by: { $0.start.rawValue < $1.start.rawValue }) {
+            let start = min(max(span.start.rawValue, 0), end)
+            if start > cursor { sounding.append(cursor..<start) }
+            // Unclamped: a cursor past the end only stops the tail below from being appended,
+            // which is right. The START needs the clamp, or a silence beginning after the end
+            // would append "sound" up to a time the recording does not have.
+            cursor = max(cursor, span.end.rawValue)
+        }
+        if end > cursor { sounding.append(cursor..<end) }
+        return sounding
+    }
+
     /// `timeline` with every span removed.
     ///
     /// **Removed back to front.** `EditTimeline.removing(sourceRange:)` takes SOURCE times and

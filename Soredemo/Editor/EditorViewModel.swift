@@ -39,6 +39,8 @@ final class EditorViewModel {
     let chapters = ChaptersModel()
     /// What the person did, step by step, read from the same log as the zooms.
     let steps = RecordedStepsModel()
+    /// The cuts the producers propose, for the Cuts tab. Read from the same log as the steps.
+    let cuts = CutProposalsModel()
 
     // MARK: - authored values
 
@@ -245,7 +247,9 @@ final class EditorViewModel {
             noiseReductionData: noiseReduction.flatMap { try? EditState.encoding($0) },
             // An empty list is nothing to say either.
             spokenTerms: captions.spokenTerms.isEmpty ? nil : captions.spokenTerms,
-            chapterTrackData: chapters.track.isEmpty ? nil : try? EditState.encoding(chapters.track))
+            chapterTrackData: chapters.track.isEmpty ? nil : try? EditState.encoding(chapters.track),
+            dismissedCutData: timeline.dismissedCuts.isEmpty
+                ? nil : try? EditState.encoding(CutProposal.Key.fileOrder(timeline.dismissedCuts)))
     }
 
     /// Applies a saved edit to the models, and returns the parts that could not be read.
@@ -361,6 +365,11 @@ final class EditorViewModel {
                 chapters.restore(track)
             }
         } catch { failures.append("the chapters") }
+        do {
+            if let keys = try EditState.decoding(edit.dismissedCutData, as: [CutProposal.Key].self) {
+                timeline.restoreDismissedCuts(Set(keys))
+            }
+        } catch { failures.append("the dismissed cut suggestions") }
         savedEdit = edit
         if !failures.isEmpty {
             projectStatus = String(localized: "Opened, but could not read \(failures.joined(separator: ", ")).")

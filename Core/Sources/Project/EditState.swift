@@ -88,6 +88,11 @@ public struct EditState: Codable, Sendable, Equatable {
     /// The chapters, as an encoded `ChapterTrack` — `Data` for `annotationTrackData`'s reason.
     /// Authored: a suggestion is stored only once a person has added it. Absent means none.
     public var chapterTrackData: Data?
+    /// The cut proposals a person said no to, as encoded keys — `Data` for
+    /// `annotationTrackData`'s reason, since `CutProposal` lives in `Framing`. **Only the "no"
+    /// is stored**: proposals are re-derived from the log on open and an acceptance is already
+    /// in `timeline` as the cut it became. Absent means none.
+    public var dismissedCutData: Data?
 
     public init(timeline: EditTimeline? = nil,
                 audioMix: AudioMix = .unchanged,
@@ -110,7 +115,8 @@ public struct EditState: Codable, Sendable, Equatable {
                 cameraPace: String? = nil,
                 noiseReductionData: Data? = nil,
                 spokenTerms: [String]? = nil,
-                chapterTrackData: Data? = nil) {
+                chapterTrackData: Data? = nil,
+                dismissedCutData: Data? = nil) {
         self.timeline = timeline
         self.audioMix = audioMix
         self.zoomAdjustmentData = zoomAdjustmentData
@@ -133,6 +139,7 @@ public struct EditState: Codable, Sendable, Equatable {
         self.noiseReductionData = noiseReductionData
         self.spokenTerms = spokenTerms
         self.chapterTrackData = chapterTrackData
+        self.dismissedCutData = dismissedCutData
     }
 
     /// A recording nobody has edited.
@@ -162,6 +169,7 @@ public struct EditState: Codable, Sendable, Equatable {
             // who added a term and removed it again has an untouched project.
             || (spokenTerms.map { !$0.isEmpty } ?? false)
             || chapterTrackData != nil
+            || dismissedCutData != nil
     }
 
     // MARK: - the tiers that own these values

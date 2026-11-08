@@ -407,7 +407,7 @@ final class TimelineEditorModel {
     /// whatever was open before it, and a person must not be able to ⌘Z their way from one
     /// project into another.
     func restoreSavedEdit(_ saved: EditTimeline) {
-        history.reset(to: TimelineEdits(timeline: saved, zooms: history.current.zooms))
+        history.reset(to: history.current.with(timeline: saved))
         original = saved
         selection = nil
         selectedClip = nil
@@ -417,7 +417,7 @@ final class TimelineEditorModel {
     /// The saved zoom corrections. **`reset`, not `record`**, for `restoreSavedEdit`'s reason —
     /// and it forgets the steps before it, which belonged to whatever was open.
     func restoreZoomAdjustments(_ adjustments: [ZoomAdjustment]) {
-        history.reset(to: TimelineEdits(timeline: history.current.timeline, zooms: adjustments))
+        history.reset(to: history.current.with(zooms: adjustments))
         publish()
     }
 
@@ -443,8 +443,7 @@ final class TimelineEditorModel {
         // a person must not be able to ⌘Z their way back into a different video. The zooms
         // stay: they arrive separately, and the host's order of calls depends on this keeping
         // them.
-        history.reset(to: TimelineEdits(timeline: EditTimeline.whole(duration: total),
-                                        zooms: history.current.zooms))
+        history.reset(to: history.current.with(timeline: EditTimeline.whole(duration: total)))
         window = .whole(total)
         original = edit
         movePlayhead(to: Nanoseconds(0))
@@ -666,6 +665,36 @@ final class TimelineEditorModel {
         record(name, edit.removing(sourceRange: range))
     }
 
+    // MARK: - cut proposals
+
+    /// The proposals a person said no to. Read by `CutReview.listing`, written only below.
+    var dismissedCuts: Set<CutProposal.Key> { history.current.dismissedCuts }
+
+    /// **A proposal becomes a cut here and nowhere else**, as an ordinary undoable edit named by
+    /// the caller — "Cut 9.2 s After Step 4" says which of several acceptances ⌘Z will undo.
+    func acceptCut(_ row: CutReview.Row, named name: String) {
+        record(name, CutReview.accepting(row, in: edit))
+    }
+
+    /// Every listed proposal at once: one decision, so one undo step.
+    func acceptCuts(_ rows: [CutReview.Row], named name: String) {
+        guard !rows.isEmpty else { return }
+        record(name, CutReview.acceptingAll(rows, in: edit))
+    }
+
+    /// A "no", recorded in the same history as the cuts, so ⌘Z brings the proposal back.
+    func dismissCut(_ key: CutProposal.Key, named name: String) {
+        guard !dismissedCuts.contains(key) else { return }
+        history.record(name, history.current.with(dismissedCuts: dismissedCuts.union([key])))
+        publish()
+    }
+
+    /// The saved dismissals. **`reset`, not `record`**, for `restoreSavedEdit`'s reason.
+    func restoreDismissedCuts(_ keys: Set<CutProposal.Key>) {
+        history.reset(to: history.current.with(dismissedCuts: keys))
+        publish()
+    }
+
     func keepOnlySelection() {
         guard let selection else { return }
         apply("Keep Only Selection", edit.trimmed(toSource: selection))
@@ -773,15 +802,14 @@ final class TimelineEditorModel {
 
     /// For a name that arrives already localised — a caller outside this file built it.
     private func record(_ name: String, _ updated: EditTimeline) {
-        history.record(name, TimelineEdits(timeline: updated, zooms: history.current.zooms))
+        history.record(name, history.current.with(timeline: updated))
         clearSelectionsThatNoLongerExist()
         publish()
     }
 
     /// The zoom twin of `apply`: one step, the clips unchanged.
     private func recordZooms(_ name: LocalizedStringResource, _ zooms: [ZoomAdjustment]) {
-        history.record(String(localized: name),
-                       TimelineEdits(timeline: history.current.timeline, zooms: zooms))
+        history.record(String(localized: name), history.current.with(zooms: zooms))
         publish()
     }
 
@@ -811,4 +839,19 @@ final class TimelineEditorModel {
 nonisolated struct TimelineEdits: Equatable, Sendable {
     var timeline: EditTimeline
     var zooms: [ZoomAdjustment]
+    /// The cut proposals a person said no to. **In the same history as the cuts**, so ⌘Z after
+    /// a dismissal brings the proposal back, and ⌘Z after an acceptance brings it back too — by
+    /// restoring the span, which is what puts it back on the list (`CutReview`).
+    var dismissedCuts: Set<CutProposal.Key> = []
+
+    /// This value with one part replaced, so an edit to one part cannot drop another: every
+    /// constructor call that named the parts one by one was a place a new part could be lost.
+    func with(timeline: EditTimeline? = nil, zooms: [ZoomAdjustment]? = nil,
+              dismissedCuts: Set<CutProposal.Key>? = nil) -> TimelineEdits {
+        var next = self
+        if let timeline { next.timeline = timeline }
+        if let zooms { next.zooms = zooms }
+        if let dismissedCuts { next.dismissedCuts = dismissedCuts }
+        return next
+    }
 }
