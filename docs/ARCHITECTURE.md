@@ -448,7 +448,7 @@ A rule you have to disambiguate by document name is a rule nobody can cite.
 | 1 | The package imports Foundation only, plus each target's declared siblings | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
 | 2 | No `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package** — not merely in its public API | `Plugins/ArchitectureCheck`, source text | `swift build` **and** `xcodebuild` |
 | 3 | No ambient time or randomness | `Tests/DeterminismTests`, link-time symbols (package) · `Tests/AppSourceTests`, source text (app) | `swift test` only |
-| 4 | No manifest declares a package dependency — this is what keeps rule 1's allow-list complete | `Plugins/ArchitectureCheck`, scans every `Package*.swift` | `swift build` **and** `xcodebuild` |
+| 4 | A package dependency only from an admitted official organisation (`apple`, `swiftlang`, `modelcontextprotocol`), pinned with `exact:` or `revision:` — changed 2026-11-08 from none at all; rule 1 still keeps a dependency's module out of every core target | `Plugins/ArchitectureCheck`, scans every `Package*.swift`; `theXcodeProjectsPackageReferencesFollowRuleFour` runs the same check on the Xcode project | `swift build` **and** `xcodebuild`; the Xcode project's half fails `swift test` only |
 | 5 | **No app source names a CG geometry type at all** (zero-permit since Phase 3A-3 — `CGGeometryBridge.swift` left the app target, so the app tier holds no conversion boundary of its own); in the runnable tier the four types appear only in `Sources/Capture/CGGeometryBridge.swift` (the entry) and `Sources/Compositing/HeadlessGeometryBridge.swift` (the exit), which since Phase 3A-4 are in targets that cannot see each other, and which a further test forbids from sharing a function signature | `Tests/AppSourceTests`, source text — the plugin cannot see the Xcode target | `swift test` only |
 | 6 | One owner for the observation-log → graph join | **inert** — the code does not exist yet | nothing |
 | 7 | `applyingProduced` is the sole writer of a `Derived` | **inert** — see the note in D4 below | nothing |
@@ -546,8 +546,9 @@ Sources/                Graph/ Framing/ Timeline/ Variants/ Project/   ← Found
 
 **2. `Plugins/ArchitectureCheck`** for what the compiler cannot see. As of Phase 1 that is rule 2 —
 no `CGRect`/`CGPoint`/`CGSize`/`CGFloat` **anywhere in the package**, not merely in its public API,
-because the conversion belongs at the app boundary — and rule 4, no package dependency in any
-`Package*.swift`, which is what keeps rule 1's allow-list complete. Rule 6 (one owner for the
+because the conversion belongs at the app boundary — and rule 4, which admits a package
+dependency in a `Package*.swift` only from an official organisation and pinned (no dependency at
+all until 2026-11-08). Rule 6 (one owner for the
 log→graph join) and rule 7 (`applyingProduced` is the sole writer of a `Derived`) are **inert**: the
 code they constrain does not exist yet, and an unwritten rule is not an enforced one.
 

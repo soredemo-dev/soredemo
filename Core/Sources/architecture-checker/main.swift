@@ -463,19 +463,40 @@ enum ArchitectureChecker {
             failed = true
         }
 
-        // Rule 4: no manifest may declare a package dependency, which keeps rule 1's
-        // allow-list complete. Scans every `Package*.swift` — SwiftPM prefers a
-        // versioned manifest over `Package.swift`.
+        // Rule 4: a manifest may declare a package dependency only from an official organisation
+        // on GitHub, pinned to an exact version or revision (`PackageDependencyRule`). Scans every
+        // `Package*.swift` — SwiftPM prefers a versioned manifest over `Package.swift`.
         if let manifestDir = value(of: "--manifests", in: arguments) {
             let names = (try? FileManager.default.contentsOfDirectory(atPath: manifestDir))?.sorted() ?? []
             for name in names where name.hasPrefix("Package") && name.hasSuffix(".swift") {
                 let path = manifestDir + "/" + name
                 guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-                for (index, line) in SwiftSourceLexer.codeViewLines(of: text).enumerated() where line.contains(".package(") {
-                    report(path, index + 1,
-                           "the package must declare no package dependencies. This is what keeps rule 1's import allow-list complete; see ARCHITECTURE.md D6.")
+                let code = SwiftSourceLexer.codeViewLines(of: text)
+                for (index, line) in code.enumerated() where line.contains(".package(") {
+                    // The whole declaration, which may run over several lines: up to its closing
+                    // parenthesis, counted through `.upToNextMajor(…)` and the like. Read from the
+                    // RAW text, because the code view blanks the URL string this rule is about.
+                    let raw = text.components(separatedBy: "\n")
+                    let declaration = PackageDependencyRule.declaration(startingAt: index, in: raw)
+                    if let refusal = PackageDependencyRule.refusal(of: declaration) {
+                        report(path, index + 1, refusal)
+                    }
                 }
             }
+        }
+
+        // Rule 4 for the Xcode project, which the plugin cannot see: every remote package reference
+        // in a `project.pbxproj` is held to the same rule, read as the declaration it stands for.
+        if let project = value(of: "--xcode-project", in: arguments) {
+            guard let text = try? String(contentsOfFile: project, encoding: .utf8) else {
+                return fail("could not read \(project)")
+            }
+            for reference in PackageDependencyRule.remoteReferences(inXcodeProject: text) {
+                if let refusal = PackageDependencyRule.refusal(of: reference.declaration) {
+                    report(project, reference.line, refusal)
+                }
+            }
+            guard value(of: "--target-name", in: arguments) != nil else { return failed ? 1 : 0 }
         }
 
         guard let targetName = value(of: "--target-name", in: arguments),
@@ -610,3 +631,81 @@ enum ArchitectureChecker {
 }
 
 exit(ArchitectureChecker.run(arguments: CommandLine.arguments))
+
+/// Rule 4, which packages a manifest may depend on. **Inverted from a list of what is checked to a
+/// list of what is admitted**, as the project's rule about hand-written lists asks: a dependency
+/// from anywhere not named here fails the build, and adding an organisation is an edit a reviewer
+/// sees. See `ARCHITECTURE.md` D6 and `AGENTS.md`.
+enum PackageDependencyRule {
+    /// Each admitted GitHub organisation, with why it is trusted.
+    static let organisations: [String: String] = [
+        "apple": "Apple's own packages — the platform vendor",
+        "swiftlang": "the Swift project's own packages — the language vendor",
+        "modelcontextprotocol": "the Model Context Protocol's official SDKs — the protocol's own maintainers",
+    ]
+
+    /// The declaration beginning on `line`, through its matching parenthesis.
+    static func declaration(startingAt line: Int, in lines: [String]) -> String {
+        var depth = 0
+        var started = false
+        var collected = ""
+        for text in lines[line...] {
+            for character in text {
+                if !started {
+                    collected.append(character)
+                    if collected.hasSuffix(".package(") { started = true; depth = 1; collected = ".package(" }
+                    continue
+                }
+                collected.append(character)
+                if character == "(" { depth += 1 }
+                if character == ")" { depth -= 1; if depth == 0 { return collected } }
+            }
+            collected.append(" ")
+        }
+        return collected
+    }
+
+    /// Why the declaration is refused, stating what was found — or `nil` when it is admitted.
+    static func refusal(of declaration: String) -> String? {
+        let admitted = organisations.keys.sorted().joined(separator: ", ")
+        guard let url = quoted(after: "url:", in: declaration) else {
+            return "a package dependency must be a GitHub URL from \(admitted); this one has no url: (a local path or a registry id is never admitted). See ARCHITECTURE.md D6."
+        }
+        let prefix = "https://github.com/"
+        guard url.hasPrefix(prefix), let organisation = url.dropFirst(prefix.count).split(separator: "/").first.map(String.init),
+              organisations[organisation] != nil else {
+            return "the dependency \(url) is not from an admitted organisation (\(admitted)). See ARCHITECTURE.md D6."
+        }
+        guard declaration.contains("exact:") || declaration.contains("revision:") else {
+            return "the dependency \(url) must be pinned with exact: or revision:, so it never changes without a commit that says so."
+        }
+        return nil
+    }
+
+    /// Each `XCRemoteSwiftPackageReference` in a project file, rewritten as the manifest
+    /// declaration it is equivalent to, so one `refusal` judges both. An exact version or a
+    /// revision becomes `exact:`; any other requirement — a range, a branch — stays unpinned.
+    static func remoteReferences(inXcodeProject text: String) -> [(line: Int, declaration: String)] {
+        let lines = text.components(separatedBy: "\n")
+        var found: [(Int, String)] = []
+        for (index, line) in lines.enumerated() where line.contains("isa = XCRemoteSwiftPackageReference;") {
+            var url = ""
+            var pinned = false
+            for following in lines[index...].prefix(12) {
+                if let value = quoted(after: "repositoryURL =", in: following) { url = value }
+                if following.contains("kind = exactVersion;") || following.contains("kind = revision;") { pinned = true }
+                if following.trimmingCharacters(in: .whitespaces) == "};" { break }
+            }
+            found.append((index + 1, ".package(url: \"\(url)\", \(pinned ? "exact" : "from"): \"\")"))
+        }
+        return found
+    }
+
+    private static func quoted(after label: String, in text: String) -> String? {
+        guard let labelRange = text.range(of: label),
+              let open = text[labelRange.upperBound...].firstIndex(of: "\"") else { return nil }
+        let rest = text[text.index(after: open)...]
+        guard let close = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<close])
+    }
+}

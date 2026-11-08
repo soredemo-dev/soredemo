@@ -619,6 +619,72 @@ func acceptsCGTypeMention(_ line: String) throws {
     #expect(try runManifestChecker(files: ["Package.swift": manifestWithoutDependency]).status == 0)
 }
 
+/// The admitted shape: an official organisation, pinned, written over several lines.
+@Test func acceptsAPinnedDependencyFromAnAdmittedOrganisation() throws {
+    let manifest = manifestWithoutDependency.replacingOccurrences(of: "    targets: [", with: """
+        dependencies: [
+            .package(
+                url: "https://github.com/apple/swift-argument-parser.git",
+                exact: "1.5.0"),
+        ],
+        targets: [
+    """)
+    let result = try runManifestChecker(files: ["Package.swift": manifest])
+    #expect(result.status == 0, "\(result.stderr)")
+}
+
+/// Each way a dependency is refused, and the refusal names what it found.
+@Test(arguments: [
+    (#".package(url: "https://github.com/somebody/swift-thing.git", exact: "1.0.0")"#, "not from an admitted organisation"),
+    (#".package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0")"#, "must be pinned"),
+    (#".package(url: "https://gitlab.com/apple/swift-collections.git", exact: "1.1.0")"#, "not from an admitted organisation"),
+    (#".package(id: "apple.swift-collections", exact: "1.1.0")"#, "has no url:"),
+    (#".package(path: "../Local")"#, "has no url:"),
+])
+func refusesADependencyOutsideTheRule(declaration: String, reason: String) throws {
+    let manifest = manifestWithoutDependency.replacingOccurrences(of: "    targets: [", with: "    dependencies: [\(declaration)],\n    targets: [")
+    let result = try runManifestChecker(files: ["Package.swift": manifest])
+    #expect(result.status == 1)
+    #expect(result.stderr.contains(reason), "\(result.stderr)")
+}
+
+/// The app's Xcode project, which the plugin never sees, is held to the same rule by the same code.
+@Test func theXcodeProjectsPackageReferencesFollowRuleFour() throws {
+    let checker = packageRoot.appending(path: ".build/debug/architecture-checker")
+    func run(_ project: URL) throws -> (Int32, String) {
+        let process = Process()
+        process.executableURL = checker
+        process.arguments = ["--xcode-project", project.path(percentEncoded: false)]
+        let err = Pipe()
+        process.standardError = err
+        try process.run()
+        let data = err.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+    let real = packageRoot.deletingLastPathComponent().appending(path: "Soredemo.xcodeproj/project.pbxproj")
+    let (status, stderr) = try run(real)
+    #expect(status == 0, "\(stderr)")
+
+    // And it can fail: a planted reference from an unadmitted organisation, unpinned.
+    let planted = FileManager.default.temporaryDirectory.appending(path: "rule4-\(UUID().uuidString).pbxproj")
+    defer { try? FileManager.default.removeItem(at: planted) }
+    try (try String(contentsOf: real, encoding: .utf8) + """
+
+        AAAA /* XCRemoteSwiftPackageReference "thing" */ = {
+            isa = XCRemoteSwiftPackageReference;
+            repositoryURL = "https://github.com/somebody/thing";
+            requirement = {
+                kind = upToNextMajorVersion;
+                minimumVersion = 1.0.0;
+            };
+        };
+    """).write(to: planted, atomically: true, encoding: .utf8)
+    let (plantedStatus, plantedError) = try run(planted)
+    #expect(plantedStatus == 1)
+    #expect(plantedError.contains("https://github.com/somebody/thing is not from an admitted organisation"))
+}
+
 @Test func acceptsPackageMentionInComment() throws {
     let clean = manifestWithoutDependency + "\n// no .package( entries here\n"
     #expect(try runManifestChecker(files: ["Package.swift": clean]).status == 0)
