@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-public%20beta%200.9-c47f00?style=flat-square" alt="Public beta, version 0.9">
+  <img src="https://img.shields.io/badge/status-public%20beta%200.1-c47f00?style=flat-square" alt="Public beta, version 0.1">
   <img src="https://img.shields.io/badge/macOS-26%2B-111?style=flat-square" alt="macOS 26 or later">
   <img src="https://img.shields.io/badge/Apple%20Silicon-only-111?style=flat-square" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/Swift-6.4-F05138?style=flat-square" alt="Swift 6.4">
