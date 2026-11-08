@@ -360,7 +360,7 @@ An MCP and CLI surface over the recorder. Not the current work; these rows wait.
 
 | State | Row | Outcome | Depends on |
 | --- | --- | --- | --- |
-| ☐ | `mcp-server` | **Over stdio, started by the app's own executable** — not `NWListener` on `127.0.0.1`, which every local process can reach, and no MCP SDK dependency (architecture rule 4). Tools come from the one verb registry the CLI also uses. Changed 2026-11-08: `docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md` | `app-shell` |
+| ☑ | `mcp-server` | **Shipped 2026-11-08: `Soredemo mcp` answers initialize, tools/list and tools/call over stdio, with four read-only tools; a scripted session against the built binary listed them and called `steps`.** **Over stdio, started by the app's own executable** — not `NWListener` on `127.0.0.1`, which every local process can reach, and no MCP SDK dependency (architecture rule 4). Tools come from the one verb registry the CLI also uses. Changed 2026-11-08: `docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md` | `app-shell` |
 | ☐ | `agent-read-tools` | `get_*` returns state; `inspect_*` returns a rendered prose overview | `mcp-server`, `review-ui` |
 | ☐ | `agent-review-tools` | `explain_framing`, `approve_beat`, `override_value`, `list_stale` — review posture, not generative | `agent-read-tools` |
 | ☐ | `agent-edit-tools` | Mutations return deltas, not whole documents | `agent-review-tools`, `basic-edit` |

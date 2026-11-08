@@ -28,6 +28,7 @@
   <a href="#a-tour">A tour</a> ·
   <a href="#features">Features</a> ·
   <a href="#download-or-build-it">Download</a> ·
+  <a href="#use-it-from-a-terminal-or-an-agent">Agents</a> ·
   <a href="#for-contributors">Contributing</a>
 </p>
 
@@ -207,6 +208,30 @@ open Soredemo.xcodeproj      # then ⌘R
 
 [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md) explains why the floor is where it is — and why you do
 **not** need a macOS 27 volume. `scripts/build-release.sh` signs and notarises a Developer ID copy.
+
+## Use it from a terminal or an agent
+
+The app's own executable answers questions about a saved project, and proposes cuts. It never
+changes a project and never publishes: a proposed cut is accepted or kept by a person, in the
+editor's Cuts tab.
+
+```sh
+app=/Applications/Soredemo.app/Contents/MacOS/Soredemo
+$app cli verbs                                  # what exists
+$app cli steps       demo.soredemo              # each step: number, span, label, application
+$app cli propose-cut demo.soredemo --json       # one versioned JSON envelope per line
+```
+
+As an MCP server for an agent — over stdio, so no port is opened and only the agent that
+started it can reach it. Every tool is read-only:
+
+```sh
+claude mcp add soredemo -- /Applications/Soredemo.app/Contents/MacOS/Soredemo mcp
+```
+
+The tools are `status`, `steps`, `explain_framing` and `propose_cut`, each taking a `project`
+path. Why it is built this way is in
+[`docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md`](docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md).
 
 ## Status, honestly
 

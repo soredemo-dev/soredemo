@@ -16,8 +16,13 @@ enum CommandLineSurface {
     /// launch flags the app already takes (`--open-project`, `--show-countdown`) cannot collide.
     static let word = "cli"
 
-    /// Runs and exits when the process was started as `… cli …`; returns otherwise.
+    /// The first argument that makes this process an MCP server over stdio, for the agent that
+    /// started it: `claude mcp add soredemo -- <app>/Contents/MacOS/Soredemo mcp`.
+    static let mcpWord = "mcp"
+
+    /// Runs and exits when the process was started as `… cli …` or `… mcp`; returns otherwise.
     static func runIfAsked(_ arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
+        if arguments.first == mcpWord { serveMCP() }
         guard arguments.first == word else { return }
         let rest = Array(arguments.dropFirst())
         // **A semaphore, on purpose.** This runs inside `App.init`, which is synchronous, and the
@@ -37,8 +42,28 @@ enum CommandLineSurface {
         exit(output.exitCode)
     }
 
+    /// **One line in, at most one line out, until the client closes stdin** — stdio's framing.
+    /// Nothing but replies goes to stdout; the one log line goes to stderr, which the protocol
+    /// leaves to the server. No port is opened, so only the process that started this one can
+    /// reach it.
+    private static func serveMCP() -> Never {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let server = MCPServer(reader: PackageProjectReader(), hearing: WaveformHearing(), version: version)
+        write("soredemo \(version): MCP over stdio, read-only tools\n", to: .standardError)
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            while let line = readLine(strippingNewline: true) {
+                guard !line.isEmpty, let reply = await server.handle(line) else { continue }
+                write(reply + "\n", to: .standardOutput)
+            }
+            done.signal()
+        }
+        done.wait()
+        exit(0)
+    }
+
     /// A closed pipe — `… --json | head -c 1` — is the reader's choice, not an error worth a crash.
-    private static func write(_ text: String, to handle: FileHandle) {
+    private nonisolated static func write(_ text: String, to handle: FileHandle) {
         guard !text.isEmpty else { return }
         try? handle.write(contentsOf: Data(text.utf8))  // a closed pipe is the reader's choice
     }

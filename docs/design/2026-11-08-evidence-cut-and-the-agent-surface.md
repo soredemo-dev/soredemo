@@ -180,6 +180,36 @@ the writes**, and says so in the listing an agent reads first.
 - **`export` is not built yet.** It is the one verb that renders, and it waits for stage 5's need
   for it; `cli-surface` stays ◐ until it lands.
 
+### The MCP server, as built (stage 5, 2026-11-08)
+
+*`Core/Sources/Surface/MCPServer.swift`; the stdio loop in `Soredemo/App/CommandLineSurface.swift`,
+started as `Soredemo mcp`.*
+
+**How others serve one, and what was taken.** Three comparable recorders ship an MCP server.
+One serves over stdio *and* inside the app, annotates every tool with `readOnlyHint` /
+`destructiveHint` / `openWorldHint`, and hands the agent a block of server `instructions`; both
+were taken. One gates its writes behind a `confirmed: true` argument — which the agent itself
+can set, so the gate keeps out nothing an agent would not walk through; this has no writes to
+gate. One listens on a local port over HTTP with sessions, the design this document already
+turned down for the reason above. The protocol is the 2025-11-25 revision, read from the
+specification rather than from an SDK.
+
+- **No SDK; one message in, at most one out.** The server answers `initialize` (agreeing the
+  client's version when it is one of three it knows, offering the newest otherwise), `ping`,
+  `tools/list` and `tools/call`, and never answers a notification. It is a value type mapping a
+  line to a reply, so every rule is a unit test; the loop that reads stdin is twelve lines.
+- **The tools are the registry's verbs**, run through `SurfaceCommand.answer` — the function the
+  terminal calls — so `propose_cut` and `cli propose-cut --json` are tested to return the same
+  object. `verbs` is not a tool: `tools/list` is that listing.
+- **Every tool is annotated read-only, non-destructive, idempotent and closed-world**, and the
+  annotations are true because no verb writes, not because a hint says so.
+- **The two kinds of error the specification separates, kept separate**: an unknown tool or a
+  malformed request is a JSON-RPC error; a missing `project`, an unexpected argument or a
+  project with no log is a tool result with `isError`, which the model reads and can correct.
+  A tool name that sounds like a write — `accept_cut` — is refused saying who accepts instead.
+- **stdout carries replies only**, one line each with no embedded newline, as stdio framing
+  requires; the one log line goes to stderr. A client closing stdin ends the process.
+
 ## The agent panel: bring the agent you already use
 
 A panel beside the editor where a person types what they want — "cut this to 45 seconds",
@@ -302,7 +332,7 @@ adapters                 RuleProposer · OnDeviceModelProvider · CLIAgentProvid
 | 2 | `CutProposal` and the rule producers, in the package — **dead air landed 2026-11-08** | `swift test`; a fixture take with a known dead span yields exactly that proposal with its evidence |
 | 3 | the review list in the editor: each proposal, its evidence, accept / dismiss — **landed 2026-11-08** | a person accepts one and the timeline changes, undoably |
 | 4 | the CLI's read verbs and `propose-cut` — **landed 2026-11-08, `export` still to come** | a terminal prints a take's steps and its proposals as JSON |
-| 5 | MCP over stdio, the same registry | Claude Code lists Soredemo's tools and calls `steps` |
+| 5 | MCP over stdio, the same registry — **landed 2026-11-08** | Claude Code lists Soredemo's tools and calls `steps` |
 | 6 | the model producer, for a goal | "45 seconds" yields a pending set of step-ranged proposals, each validated |
 | 7 | the agent panel, with the on-device provider, then the person's CLI agent | a typed request produces proposals in the review list, marked with their provider |
 | 8 | notes pinned on the preview and lanes, and "address the notes" | a note on a pause comes back as a proposal that names it |

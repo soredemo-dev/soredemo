@@ -233,3 +233,104 @@ private func json(_ output: SurfaceCommand.Output) throws -> [String: Any] {
         #expect(Text.seconds(20 * second) == "20.0s")
     }
 }
+
+// MARK: - MCP over stdio
+
+private let server = MCPServer(reader: FixtureReader(), hearing: deaf, version: "0.1.0")
+
+/// One request through the server, its reply decoded.
+private func send(_ request: [String: Any], to server: MCPServer = server) async throws -> [String: Any] {
+    let line = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
+    let reply = try #require(await server.handle(line), "a request with an id is always answered")
+    #expect(!reply.contains("\n"), "stdio frames by newline, so a reply must not contain one")
+    return try #require(try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+}
+
+private func call(_ tool: String, _ arguments: [String: Any], server: MCPServer = server) async throws -> [String: Any] {
+    try #require(try await send(["jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                                 "params": ["name": tool, "arguments": arguments]], to: server)["result"] as? [String: Any])
+}
+
+@Suite struct MCPServerTests {
+    @Test func aSupportedVersionIsAgreedAndAnUnknownOneGetsTheNewest() async throws {
+        let agreed = try #require(try await send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                                  "params": ["protocolVersion": "2025-06-18"]])["result"] as? [String: Any])
+        #expect(agreed["protocolVersion"] as? String == "2025-06-18")
+        let other = try #require(try await send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                                 "params": ["protocolVersion": "1999-01-01"]])["result"] as? [String: Any])
+        #expect(other["protocolVersion"] as? String == MCPServer.protocolVersions[0])
+        #expect((other["serverInfo"] as? [String: Any])?["name"] as? String == "soredemo")
+        #expect((other["instructions"] as? String)?.contains("by a person in Soredemo's editor") == true)
+        #expect((other["capabilities"] as? [String: Any])?["tools"] != nil)
+    }
+
+    @Test func aNotificationIsNeverAnswered() async {
+        #expect(await server.handle(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#) == nil)
+    }
+
+    @Test func aStringIdIsEchoedAsAString() async throws {
+        let reply = try await send(["jsonrpc": "2.0", "id": "abc", "method": "ping"])
+        #expect(reply["id"] as? String == "abc")
+        #expect((reply["result"] as? [String: Any])?.isEmpty == true)
+    }
+
+    /// Every verb that takes a project is a tool, and every tool says it reads and changes nothing.
+    @Test func theToolsAreTheRegistrysVerbsAndAllAreReadOnly() async throws {
+        let result = try #require(try await send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])["result"] as? [String: Any])
+        let tools = try #require(result["tools"] as? [[String: Any]])
+        #expect(tools.compactMap { $0["name"] as? String } == ["status", "steps", "explain_framing", "propose_cut"])
+        for tool in tools {
+            let hints = try #require(tool["annotations"] as? [String: Bool])
+            #expect(hints == ["readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false])
+            #expect((tool["inputSchema"] as? [String: Any])?["required"] as? [String] == ["project"])
+        }
+    }
+
+    @Test func aCallReturnsTheVerbsAnswerAsStructuredContentAndAsText() async throws {
+        let result = try await call("steps", ["project": "demo.soredemo"])
+        #expect(result["isError"] as? Bool == false)
+        let structured = try #require(result["structuredContent"] as? [String: Any])
+        #expect((structured["steps"] as? [[String: Any]])?.compactMap { $0["label"] as? String } == ["Export", "Done"])
+        let text = try #require(((result["content"] as? [[String: Any]])?.first)?["text"] as? String)
+        let fromText = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        #expect(NSDictionary(dictionary: fromText).isEqual(to: structured), "the text is the same JSON")
+    }
+
+    /// The same function as the terminal, so the same answer.
+    @Test func aToolAndTheTerminalAgree() async throws {
+        let structured = try #require(try await call("propose_cut", ["project": "demo.soredemo"])["structuredContent"] as? [String: Any])
+        let terminal = try #require(try json(await run(["propose-cut", "demo.soredemo", "--json"]))["result"] as? [String: Any])
+        #expect(NSDictionary(dictionary: structured).isEqual(to: terminal))
+    }
+
+    /// Input validation is the model's to fix, so it comes back as a tool error it can read.
+    @Test func aMissingOrExtraArgumentIsAToolErrorTheModelCanRead() async throws {
+        #expect(try await call("steps", [:])["isError"] as? Bool == true)
+        let extra = try await call("steps", ["project": "demo.soredemo", "apply": true])
+        #expect(extra["isError"] as? Bool == true)
+        #expect((((extra["content"] as? [[String: Any]])?.first)?["text"] as? String)?.contains("`apply`") == true)
+    }
+
+    @Test func aVerbThatFailsSaysWhyAsAToolError() async throws {
+        let noLog = MCPServer(reader: FixtureReader(hasLog: false), hearing: deaf, version: "0.1.0")
+        let result = try await call("steps", ["project": "demo.soredemo"], server: noLog)
+        #expect(result["isError"] as? Bool == true)
+        #expect(((result["structuredContent"] as? [String: Any])?["error"] as? [String: Any])?["code"] as? String
+                == "noObservationLog")
+    }
+
+    @Test func aToolThatWouldWriteIsRefusedByNameAsAProtocolError() async throws {
+        let reply = try await send(["jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                                    "params": ["name": "accept_cut", "arguments": ["project": "x"]]])
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? Int == -32602)
+        #expect((error["message"] as? String)?.contains("a person does that in Soredemo's editor") == true)
+    }
+
+    @Test func malformedInputAndUnknownMethodsGetTheirJSONRPCCodes() async throws {
+        let parse = try #require(await server.handle("{not json"))
+        #expect(parse.contains(#""code":-32700"#) && parse.contains(#""id":null"#))
+        let unknown = try await send(["jsonrpc": "2.0", "id": 3, "method": "resources/list"])
+        #expect((unknown["error"] as? [String: Any])?["code"] as? Int == -32601)
+    }
+}
