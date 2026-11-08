@@ -89,7 +89,7 @@ struct StageWindow: View {
         // icons over one subject — what was said — and the two lists look alike enough that a
         // person had to know which icon held which. One tab, one segmented control inside it;
         // see `CaptionsPanel.Words` for why the two lists stay two.
-        case project, selection, cuts, captions, chapters, text, hide, mark
+        case project, selection, cuts, agent, captions, chapters, text, hide, mark
 
         var title: String {
             switch self {
@@ -98,6 +98,7 @@ struct StageWindow: View {
             case .project: "Look"
             case .selection: "Zooms"
             case .cuts: "Cuts"
+            case .agent: "Agent"
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
             // "Overlays" was already a poor name for a tab whose contents were captions.
             case .captions: "Captions"
@@ -120,6 +121,7 @@ struct StageWindow: View {
             // is what a viewfinder with a dot in it says and a magnifier does not.
             case .selection: "dot.viewfinder"
             case .cuts: "scissors"
+            case .agent: "sparkles"
             case .captions: "captions.bubble"
             case .chapters: "list.bullet.rectangle"
             case .text: "textformat"
@@ -133,6 +135,7 @@ struct StageWindow: View {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
             case .cuts: Theme.accent
+            case .agent: Theme.accent
             case .captions: Theme.Lane.caption
             case .chapters: Theme.Lane.chapter
             case .text: Theme.Lane.text
@@ -190,7 +193,11 @@ struct StageWindow: View {
             // **Stopped, not left to the player's release.** The sound of a recording played on
             // after its window was closed (2026-09-28); whatever else still holds the player, a
             // closed editor does not play.
-            .onDisappear { preview.player?.pause() }
+            .onDisappear {
+                preview.player?.pause()
+                // The agent's session ends with the window: its process, socket and directory.
+                editor.agent.close()
+            }
             .onChange(of: undoManager) { editor.captions.undoRecorder = undoManager }
             // **The caption editor REPLACES the stage rather than floating over it.** A sheet
             // would have kept the timeline and the inspector behind it, which is exactly the
@@ -279,6 +286,9 @@ struct StageWindow: View {
                                     onCommit: { reviewRevision += 1 })
                     }
                 }
+                // The panel's agent, seen where the person is looking: who is editing, what it is
+                // doing now, and a sweep of light as each cut lands.
+                .overlay { AgentPresence(model: editor.agent) }
                 // **The picture's area is dark in both themes**, backdrop and everything drawn
                 // over it: its ground is black whatever the window is, so a handle or a label in
                 // the light theme's dark lane colours would vanish into it.
@@ -734,6 +744,8 @@ struct StageWindow: View {
                                 }
                             })
                     }
+            case .agent:
+                AgentPanel(model: editor.agent, editor: editor)
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes

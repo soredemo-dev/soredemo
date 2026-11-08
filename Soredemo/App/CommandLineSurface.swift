@@ -22,7 +22,11 @@ enum CommandLineSurface {
 
     /// Runs and exits when the process was started as `… cli …` or `… mcp`; returns otherwise.
     static func runIfAsked(_ arguments: [String] = Array(CommandLine.arguments.dropFirst())) {
-        if arguments.first == mcpWord { serveMCP() }
+        if arguments.first == mcpWord {
+            // `mcp --relay <socket>`: started by the panel's own agent, a pipe to the open editor.
+            if arguments.count == 3, arguments[1] == "--relay" { AgentRelay.pipe(socketPath: arguments[2]) }
+            serveMCP()
+        }
         guard arguments.first == word else { return }
         let rest = Array(arguments.dropFirst())
         // **A semaphore, on purpose.** This runs inside `App.init`, which is synchronous, and the

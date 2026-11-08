@@ -173,6 +173,12 @@ xcrun swiftc \
   Soredemo/Editor/EditorPreview.swift \
   Soredemo/Editor/RecordedStepsModel.swift \
   Soredemo/Editor/CutProposalsModel.swift \
+  Soredemo/Agent/AgentRelay.swift \
+  Soredemo/Agent/AgentEditorBridge.swift \
+  Soredemo/Agent/ClaudeCodeProvider.swift \
+  Soredemo/Agent/AgentPanelModel.swift \
+  Soredemo/Agent/AgentPanel.swift \
+  Soredemo/Agent/AgentPresence.swift \
   Soredemo/Inspector/CutProposalsPanel.swift \
   Soredemo/Editor/FinalCutXMLExport.swift \
   Soredemo/Inspector/CameraOverlayControls.swift \

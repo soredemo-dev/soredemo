@@ -1,0 +1,358 @@
+import Foundation
+import Observation
+import Surface
+import Timeline
+
+/// The agent panel's state: the conversation, the turn running now, what the agent is doing this
+/// moment, and each turn's checkpoint.
+///
+/// **Streamed text is coalesced**, not drawn per delta: a model writes in fragments of a few
+/// characters, many times a second, and laying the panel out for each one is what makes a chat
+/// stutter. Fragments gather here and reach the view every `flushInterval`.
+///
+/// **A turn is checkpointed at the history depth it began at**, and "revert this turn" undoes back
+/// to it — but only while every step above that mark is one of this turn's own, which the recorded
+/// step names and the depth together check. See the design document's "How it works".
+@Observable
+@MainActor
+final class AgentPanelModel {
+    /// One thing shown in a turn, in the order it happened.
+    enum Item: Identifiable, Equatable {
+        case text(id: Int, String)
+        case thinking(id: Int, String, done: Bool)
+        case tool(id: String, name: String, input: String?, state: ToolState, output: String?)
+        case edit(AgentEditRecord)
+
+        var id: String {
+            switch self {
+            case .text(let id, _): "text-\(id)"
+            case .thinking(let id, _, _): "thinking-\(id)"
+            case .tool(let id, _, _, _, _): id
+            case .edit(let record): "edit-\(record.id)"
+            }
+        }
+    }
+
+    enum ToolState: Equatable { case running, done, failed }
+
+    /// What the agent is doing right now, for the live line under the turn and the pill over the
+    /// preview.
+    enum Activity: Equatable {
+        case starting, thinking, writing
+        case tool(String)
+    }
+
+    struct Turn: Identifiable, Equatable {
+        /// Counted by the panel: the app reads no ambient value.
+        let id: Int
+        let request: String
+        var items: [Item] = []
+        var running = true
+        var failure: String?
+        var seconds: Double?
+        /// The history depth before the turn's first edit.
+        let checkpoint: Int
+        var edits: [AgentEditRecord] {
+            items.compactMap { if case .edit(let record) = $0 { record } else { nil } }
+        }
+    }
+
+    enum Availability: Equatable { case checking, ready(String), notInstalled }
+
+    /// How often streamed fragments reach the view.
+    static let flushInterval: Duration = .milliseconds(50)
+
+    private(set) var turns: [Turn] = []
+    private(set) var availability = Availability.checking
+    private(set) var activity: Activity?
+    /// Whole seconds the running turn has taken, counted by a ticking task rather than read from a
+    /// clock — for "Thinking · 6s" while it works.
+    private(set) var elapsed = 0
+    /// Bumped once per edit the agent lands, so the preview can sweep a band of light across.
+    private(set) var editsLanded = 0
+    /// `nil` is the person's own default model in their Claude Code.
+    var model: String?
+    /// Whether what is on screen goes with the next message.
+    var includesContext = true
+
+    var isRunning: Bool { turns.last?.running == true }
+
+    @ObservationIgnored private let provider: any AgentProvider
+    @ObservationIgnored private var session: String?
+    @ObservationIgnored private var relay: AgentRelay?
+    @ObservationIgnored private var bridge: AgentEditorBridge?
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var ticker: Task<Void, Never>?
+    @ObservationIgnored private var counted = 0
+    @ObservationIgnored private var pendingText = ""
+    @ObservationIgnored private var pendingThinking = ""
+    @ObservationIgnored private var flush: Task<Void, Never>?
+
+    init(provider: any AgentProvider = ClaudeCodeProvider()) {
+        self.provider = provider
+    }
+
+    var providerName: String { provider.name }
+
+    func checkAvailability() async {
+        availability = .checking
+        switch await provider.availability() {
+        case .ready(let version): availability = .ready(version)
+        case .notInstalled: availability = .notInstalled
+        }
+    }
+
+    /// Sends one message. The relay is started on the first, against this editor.
+    func send(_ text: String, editor: EditorViewModel, context: AgentPrompt.Context?) {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, !isRunning, case .ready = availability else { return }
+        do {
+            try connect(to: editor)
+        } catch {
+            turns.append(Turn(id: nextID(), request: words, running: false, failure: "\(error)",
+                              checkpoint: editor.timeline.historyDepth))
+            return
+        }
+        guard let relay else { return }
+        turns.append(Turn(id: nextID(), request: words, checkpoint: editor.timeline.historyDepth))
+        activity = .starting
+        startTicking()
+        let message = AgentPrompt.message(words, context: includesContext ? context : nil)
+        let stream = provider.run(message: message, session: session, model: model, mcpConfigPath: relay.configPath)
+        task = Task { [weak self] in
+            for await event in stream { self?.receive(event) }
+            self?.finishTurn()
+        }
+    }
+
+    func stop() {
+        provider.stop()
+    }
+
+    /// Clears the conversation and starts a new session; edits already made stay in the history.
+    func startOver() {
+        guard !isRunning else { return }
+        turns = []
+        session = nil
+    }
+
+    /// Undoes the turn's edits, newest first, while each is still the step on top.
+    /// Returns why it could not, or `nil` when it did.
+    func revert(_ turn: Turn, editor: EditorViewModel) -> String? {
+        let names = turn.edits.map(\.stepName)
+        guard !names.isEmpty else { return nil }
+        guard editor.timeline.historyDepth == turn.checkpoint + names.count,
+              editor.timeline.undoStepName == names.last else {
+            return String(localized: "Something was edited after this turn, so it cannot be reverted at once. Undo its steps one at a time instead.")
+        }
+        for _ in names { editor.timeline.undo() }
+        if let index = turns.firstIndex(where: { $0.id == turn.id }) {
+            turns[index].items.removeAll { if case .edit = $0 { true } else { false } }
+        }
+        return nil
+    }
+
+    /// An edit the agent just made, listed under the running turn.
+    func record(_ edit: AgentEditRecord) {
+        flushNow()
+        appendToCurrent(.edit(edit))
+        editsLanded += 1
+    }
+
+    /// Ends the session: the relay's socket and its directory are removed.
+    func close() {
+        provider.stop()
+        task?.cancel()
+        ticker?.cancel()
+        flush?.cancel()
+        relay?.close()
+        relay = nil
+        bridge = nil
+        session = nil
+        activity = nil
+    }
+
+    // MARK: - events
+
+    private func connect(to editor: EditorViewModel) throws {
+        guard relay == nil else { return }
+        let bridge = AgentEditorBridge(editor: editor, agentName: provider.name)
+        bridge.onEdit = { [weak self] record in self?.record(record) }
+        let executable = Bundle.main.executableURL?.path(percentEncoded: false) ?? CommandLine.arguments[0]
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        relay = try AgentRelay(toolbox: bridge.toolbox(), version: version, executable: executable)
+        self.bridge = bridge
+    }
+
+    private func receive(_ event: AgentEvent) {
+        switch event {
+        case .started(let id, _, _):
+            session = id
+        case .textDelta(let delta):
+            activity = .writing
+            pendingText += delta
+            scheduleFlush()
+        case .text(let text):
+            // The finished block replaces what its deltas built, so a dropped delta heals.
+            pendingText = ""
+            settleThinking()
+            replaceOrAppendText(text)
+        case .thinkingDelta(let delta):
+            activity = .thinking
+            pendingThinking += delta
+            scheduleFlush()
+        case .thinking(let text):
+            pendingThinking = ""
+            replaceOrAppendThinking(text)
+        case .toolStarted(let id, let name):
+            flushNow()
+            settleThinking()
+            let short = ClaudeStream.shortName(name)
+            activity = .tool(short)
+            appendToCurrent(.tool(id: id, name: short, input: nil, state: .running, output: nil))
+        case .toolCalled(let id, let name, let input):
+            updateTool(id) { _ in .tool(id: id, name: ClaudeStream.shortName(name), input: input, state: .running, output: nil) }
+        case .toolFinished(let id, let isError, let output):
+            activity = .thinking
+            updateTool(id) { item in
+                guard case .tool(_, let name, let input, _, _) = item else { return item }
+                return .tool(id: id, name: name, input: input, state: isError ? .failed : .done, output: output)
+            }
+        case .finished(let isError, let milliseconds, _, let id):
+            if let id { session = id }
+            updateCurrent { turn in
+                turn.seconds = milliseconds.map { Double($0) / 1000 }
+                if isError, turn.failure == nil { turn.failure = String(localized: "The agent stopped with an error.") }
+            }
+        case .failed(let message):
+            updateCurrent { $0.failure = message }
+        }
+    }
+
+    private func finishTurn() {
+        flushNow()
+        settleThinking()
+        updateCurrent { $0.running = false }
+        activity = nil
+        ticker?.cancel()
+    }
+
+    // MARK: - coalescing
+
+    private func scheduleFlush() {
+        guard flush == nil else { return }
+        flush = Task { [weak self] in
+            try? await Task.sleep(for: Self.flushInterval)
+            self?.flushNow()
+        }
+    }
+
+    private func flushNow() {
+        flush?.cancel()
+        flush = nil
+        if !pendingThinking.isEmpty {
+            let more = pendingThinking
+            pendingThinking = ""
+            appendThinking(more)
+        }
+        if !pendingText.isEmpty {
+            let more = pendingText
+            pendingText = ""
+            appendText(more)
+        }
+    }
+
+    private func appendText(_ more: String) {
+        let fresh = nextID()
+        updateCurrent { turn in
+            if case .text(let id, let text)? = turn.items.last {
+                turn.items[turn.items.count - 1] = .text(id: id, text + more)
+            } else {
+                turn.items.append(.text(id: fresh, more))
+            }
+        }
+    }
+
+    private func replaceOrAppendText(_ whole: String) {
+        let fresh = nextID()
+        updateCurrent { turn in
+            if case .text(let id, _)? = turn.items.last {
+                turn.items[turn.items.count - 1] = .text(id: id, whole)
+            } else {
+                turn.items.append(.text(id: fresh, whole))
+            }
+        }
+    }
+
+    private func appendThinking(_ more: String) {
+        let fresh = nextID()
+        updateCurrent { turn in
+            if case .thinking(let id, let text, false)? = turn.items.last {
+                turn.items[turn.items.count - 1] = .thinking(id: id, text + more, done: false)
+            } else {
+                turn.items.append(.thinking(id: fresh, more, done: false))
+            }
+        }
+    }
+
+    private func replaceOrAppendThinking(_ whole: String) {
+        let fresh = nextID()
+        updateCurrent { turn in
+            if let index = turn.items.lastIndex(where: { if case .thinking(_, _, false) = $0 { true } else { false } }),
+               case .thinking(let id, _, _) = turn.items[index] {
+                turn.items[index] = .thinking(id: id, whole, done: true)
+            } else {
+                turn.items.append(.thinking(id: fresh, whole, done: true))
+            }
+        }
+    }
+
+    /// Reasoning that has been followed by anything else is finished, whatever the stream said.
+    private func settleThinking() {
+        updateCurrent { turn in
+            for index in turn.items.indices {
+                if case .thinking(let id, let text, false) = turn.items[index] {
+                    turn.items[index] = .thinking(id: id, text, done: true)
+                }
+            }
+        }
+    }
+
+    private func startTicking() {
+        elapsed = 0
+        ticker?.cancel()
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self?.elapsed += 1
+            }
+        }
+    }
+
+    // MARK: - turns
+
+    private func nextID() -> Int {
+        counted += 1
+        return counted
+    }
+
+    private func appendToCurrent(_ item: Item) {
+        updateCurrent { $0.items.append(item) }
+    }
+
+    private func updateTool(_ id: String, _ change: (Item) -> Item) {
+        updateCurrent { turn in
+            if let index = turn.items.firstIndex(where: { $0.id == id }) {
+                turn.items[index] = change(turn.items[index])
+            } else {
+                turn.items.append(change(.tool(id: id, name: "", input: nil, state: .running, output: nil)))
+            }
+        }
+    }
+
+    private func updateCurrent(_ change: (inout Turn) -> Void) {
+        guard !turns.isEmpty else { return }
+        change(&turns[turns.count - 1])
+    }
+}

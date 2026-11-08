@@ -239,7 +239,7 @@ func theDisplayScanTellsAMarkedSiteFromAnUnmarkedOne(source: String, isUnmarked:
     #expect(sites.isEmpty, """
         A literal handed straight to AppKit is shown as written, in every language:
         \(sites.joined(separator: "\n"))
-        Wrap it in String(localized:) and add the key to the ten tables.
+        Wrap it in String(localized:) and add the key to every table.
         """)
 }
 
@@ -281,16 +281,14 @@ func theDisplayScanTellsAMarkedSiteFromAnUnmarkedOne(source: String, isUnmarked:
 /// The CLDR plural categories each shipped language distinguishes for integers — what a
 /// `.stringsdict` rule has to supply for the language to choose a form at all.
 private let pluralCategories: [String: Set<String>] = [
-    "en": ["one", "other"], "de": ["one", "other"], "es": ["one", "other"],
-    "fr": ["one", "other"], "pt-BR": ["one", "other"], "ru": ["one", "few", "many", "other"],
-    "ja": ["other"], "ko": ["other"], "zh-Hans": ["other"], "zh-Hant": ["other"],
+    "en": ["one", "other"], "ja": ["other"], "zh-Hans": ["other"], "zh-Hant": ["other"],
 ]
 
 /// **Every plural is complete in every language, and has a plain fallback.**
 ///
 /// "1 captions", "%lld субтитр(ов)" and "sous-titre(s)" were the tables' answer to a count
 /// until 2026-09-27. The counts now go through `Localizable.stringsdict`; this checks its shape
-/// — the same keys in all ten, each also in `Localizable.strings` (what the source scans read,
+/// — the same keys in every language, each also in `Localizable.strings` (what the source scans read,
 /// and the fallback), and each rule carrying every category its language has. Whether the rules
 /// produce the right sentence is `everyPluralReadsAsASentenceInEveryLanguage`, in the app.
 @Test func everyPluralIsCompleteInEveryLanguage() throws {
@@ -309,7 +307,11 @@ private let pluralCategories: [String: Set<String>] = [
     }
     let english = Set(try plist("en").keys)
     try #require(english.count >= 21, "only \(english.count) plural keys in English — the file stopped parsing")
-    try #require(pluralCategories.count == 10)
+    // The table covers exactly the languages on disk: one added without its plural categories, or
+    // one removed and left here, fails rather than being skipped or checked against nothing.
+    let onDisk = Set(try FileManager.default.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "lproj" }.map { $0.deletingPathExtension().lastPathComponent })
+    try #require(Set(pluralCategories.keys) == onDisk, "plural categories for \(pluralCategories.keys.sorted()), tables for \(onDisk.sorted())")
     for (language, categories) in pluralCategories {
         let table = try plist(language)
         #expect(Set(table.keys) == english, "\(language)'s plural keys differ from English's")
@@ -361,7 +363,11 @@ private func specifiers(_ text: String) -> [String] {
             }
         }
     }
-    try #require(compared > 5000, "only \(compared) entries compared across ten tables")
+    // Every table read, at about its real size (858 keys each on 2026-11-08) — a guard on the
+    // parse, not a count to keep in step: it was a fixed 5000 for ten tables until the owner kept
+    // four, and a fixed number would have failed the day the languages changed.
+    try #require(compared >= pluralCategories.count * 800,
+                 "only \(compared) entries compared across \(pluralCategories.count) tables")
     #expect(mismatches.isEmpty, """
         \(mismatches.count) translation(s) take different arguments from their key:
         \(mismatches.sorted().joined(separator: "\n"))

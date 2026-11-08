@@ -17,19 +17,24 @@ public struct MCPServer: Sendable {
     /// is what the lifecycle's version negotiation asks a server to answer.
     public static let protocolVersions = ["2025-11-25", "2025-06-18", "2025-03-26"]
 
-    let reader: any ProjectReading
-    let hearing: any Hearing
+    let toolbox: any MCPToolbox
     let version: String
+    let instructions: String
 
-    public init(reader: any ProjectReading, hearing: any Hearing, version: String) {
-        self.reader = reader
-        self.hearing = hearing
+    public init(toolbox: any MCPToolbox, version: String, instructions: String = MCPServer.instructions) {
+        self.toolbox = toolbox
         self.version = version
+        self.instructions = instructions
+    }
+
+    /// The read-only server over a saved package — what `Soredemo mcp` runs on its own.
+    public init(reader: any ProjectReading, hearing: any Hearing, version: String) {
+        self.init(toolbox: ReadOnlyToolbox(reader: reader, hearing: hearing), version: version)
     }
 
     /// What the server tells the agent once, at `initialize`. Said here rather than left to each
     /// tool's description, because it is the one thing every call shares.
-    static let instructions = """
+    public static let instructions = """
         Soredemo is a screen recorder that keeps an observation log beside each recording — the \
         steps a person took, where they clicked, why each click was or was not zoomed. These tools \
         read a saved .soredemo project and propose cuts. None of them changes a project: a \
@@ -55,7 +60,7 @@ public struct MCPServer: Sendable {
         switch method {
         case "initialize": return Self.reply(id: id, result: initialize(params))
         case "ping": return Self.reply(id: id, result: [:])
-        case "tools/list": return Self.reply(id: id, result: ["tools": Self.tools])
+        case "tools/list": return Self.reply(id: id, result: ["tools": toolbox.tools.map(Self.listing)])
         case "tools/call": return await call(id: id, params)
         default: return Self.reply(id: id, error: (-32601, "Method not found: \(method)"))
         }
@@ -69,65 +74,56 @@ public struct MCPServer: Sendable {
             // `listChanged: false`: the tools are this build's verbs and do not change while it runs.
             "capabilities": ["tools": ["listChanged": false]],
             "serverInfo": ["name": "soredemo", "title": "Soredemo", "version": version],
-            "instructions": Self.instructions,
+            "instructions": instructions,
         ]
     }
 
     // MARK: - tools
 
-    /// Each verb that takes a project, as a tool. `verbs` is not one: `tools/list` is that listing.
-    static var tools: [[String: Any]] {
-        Verb.allCases.filter(\.takesProject).map { verb in
-            [
-                "name": verb.toolName,
-                "title": verb.title,
-                "description": verb.summary,
-                "inputSchema": [
-                    "type": "object",
-                    "properties": ["project": ["type": "string",
-                                               "description": "Path to a saved .soredemo project package."]],
-                    "required": ["project"],
-                    "additionalProperties": false,
-                ] as [String: Any],
-                // All four, stated: an agent's client decides whether to ask the person before a
-                // call from these, and an absent hint is read as the cautious default.
-                "annotations": ["readOnlyHint": true, "destructiveHint": false,
-                                "idempotentHint": true, "openWorldHint": false],
-            ]
-        }
+    /// A tool as `tools/list` carries it. All four hints, stated: a client decides from them
+    /// whether to ask the person before a call, and an absent hint is read as the cautious default.
+    /// An edit is not destructive — it is one undo step — and not idempotent: twice is two cuts.
+    static func listing(_ tool: MCPTool) -> [String: Any] {
+        [
+            "name": tool.name,
+            "title": tool.title,
+            "description": tool.description,
+            "inputSchema": (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) ?? ["type": "object"],
+            "annotations": ["readOnlyHint": tool.readOnly, "destructiveHint": false,
+                            "idempotentHint": tool.readOnly, "openWorldHint": false],
+        ]
     }
 
     private func call(id: Any, _ params: [String: Any]) async -> String {
         guard let name = params["name"] as? String else {
             return Self.reply(id: id, error: (-32602, "Invalid params: tools/call needs a tool name."))
         }
-        guard let verb = Verb.allCases.first(where: { $0.takesProject && $0.toolName == name }) else {
-            // An unknown tool is a protocol error. A write — accept, publish — is named as such,
-            // so an agent does not go looking for one under another spelling.
-            let refused = Verb.refused.contains(where: { name.lowercased().contains($0) })
-            return Self.reply(id: id, error: (-32602, refused
-                ? "Unknown tool: \(name). No tool accepts, applies or publishes; a person does that in Soredemo's editor."
-                : "Unknown tool: \(name)."))
-        }
         let arguments = params["arguments"] as? [String: Any] ?? [:]
-        // Input validation is a tool execution error, not a protocol one, so the model sees it
-        // and can correct itself.
-        if let extra = arguments.keys.sorted().first(where: { $0 != "project" }) {
-            return Self.reply(id: id, result: Self.toolError("Unexpected argument `\(extra)`; the only one is `project`."))
+        let argumentsJSON = (try? JSONSerialization.data(withJSONObject: arguments)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        guard let result = await toolbox.call(name, argumentsJSON: argumentsJSON) else {
+            // An unknown tool is a protocol error. A publish is named as such, so an agent does
+            // not go looking for one under another spelling; an edit outside the panel likewise.
+            let lowered = name.lowercased()
+            let message: String
+            if ["publish", "post", "share", "upload"].contains(where: lowered.contains) {
+                message = "Unknown tool: \(name). Nothing publishes: a person does that, always."
+            } else if Verb.refused.contains(where: lowered.contains) {
+                message = "Unknown tool: \(name). Edits are made only by the agent in Soredemo's own panel, where a person is watching; this server reads."
+            } else {
+                message = "Unknown tool: \(name)."
+            }
+            return Self.reply(id: id, error: (-32602, message))
         }
-        guard let project = arguments["project"] as? String, !project.isEmpty else {
-            return Self.reply(id: id, result: Self.toolError("`project` is required: the path to a .soredemo package."))
+        switch result {
+        case .failure(let message, let code):
+            return Self.reply(id: id, result: Self.toolError(message, code: code))
+        case .success(let json):
+            let structured = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) ?? [:]
+            // The JSON as text too: the spec asks a server returning structured content to, for
+            // clients that read only `content`.
+            return Self.reply(id: id, result: ["content": [["type": "text", "text": json]],
+                                               "structuredContent": structured, "isError": false])
         }
-        let answer = await SurfaceCommand.answer(verb, project: project, reader: reader, hearing: hearing)
-        if let failure = answer.failure {
-            return Self.reply(id: id, result: Self.toolError(failure.message, code: failure.code.rawValue))
-        }
-        let resultJSON = answer.resultJSON ?? "{}"
-        let structured = (try? JSONSerialization.jsonObject(with: Data(resultJSON.utf8))) ?? [:]
-        // The JSON as text too: the spec asks a server returning structured content to, for
-        // clients that read only `content`.
-        return Self.reply(id: id, result: ["content": [["type": "text", "text": resultJSON]],
-                                           "structuredContent": structured, "isError": false])
     }
 
     private static func toolError(_ message: String, code: String = "usage") -> [String: Any] {

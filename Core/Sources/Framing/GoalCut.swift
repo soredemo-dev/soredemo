@@ -116,6 +116,13 @@ public enum GoalCut {
         return (accepted, refusals)
     }
 
+    /// What cutting the step numbered `number` removes — the span `plan` would cut for it, for an
+    /// agent asked to cut one step by hand. `nil` for a step that does not exist or has no length.
+    public static func removal(ofStep number: Int, in steps: [RecordedStep]) -> HostRange? {
+        guard let index = steps.firstIndex(where: { $0.number == number }) else { return nil }
+        return proposal(cutting: index, of: steps, reason: "")?.removes
+    }
+
     /// The step at `index`, as a cut: from a lead-in before its press — never before the previous
     /// press — to a lead-in before the next press, or to the recording's end for the last step.
     private static func proposal(cutting index: Int, of steps: [RecordedStep], reason: String) -> CutProposal? {

@@ -324,7 +324,11 @@ private func call(_ tool: String, _ arguments: [String: Any], server: MCPServer 
                                     "params": ["name": "accept_cut", "arguments": ["project": "x"]]])
         let error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? Int == -32602)
-        #expect((error["message"] as? String)?.contains("a person does that in Soredemo's editor") == true)
+        #expect((error["message"] as? String)?.contains("only by the agent in Soredemo's own panel, where a person is watching") == true)
+        // And a publish is refused as one, whatever is being watched.
+        let publish = try await send(["jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                                      "params": ["name": "publish_post", "arguments": [:] as [String: Any]]])
+        #expect(((publish["error"] as? [String: Any])?["message"] as? String)?.contains("Nothing publishes") == true)
     }
 
     @Test func malformedInputAndUnknownMethodsGetTheirJSONRPCCodes() async throws {

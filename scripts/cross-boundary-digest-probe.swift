@@ -7331,9 +7331,10 @@ enum CrossBoundaryProbe {
                 .filter { $0.pathExtension == "lproj" }
                 .map { $0.deletingPathExtension().lastPathComponent }
                 .sorted()
-            check(languages.count >= 10,
+            // Four since 2026-11-08, when the owner kept en, ja, zh-Hans and zh-Hant.
+            check(languages == ["en", "ja", "zh-Hans", "zh-Hant"],
                   "26.2 the string tables were found",
-                  actual: "\(languages.count) languages", expected: "at least 10")
+                  actual: languages.joined(separator: ", "), expected: "en, ja, zh-Hans, zh-Hant")
 
             var missing: [String] = []
             for language in languages {

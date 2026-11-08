@@ -36,6 +36,7 @@ final class CutProposalsModel {
     private(set) var failure: String?
 
     @ObservationIgnored private let proposer: any CutProposer
+    @ObservationIgnored private var derivations = 0
 
     init(proposer: any CutProposer = DeadAirProposer()) {
         self.proposer = proposer
@@ -81,12 +82,29 @@ final class CutProposalsModel {
             speech = []
             hearing = .nothing
         }
-        do {
-            let take = try TakeActivityReader.take(fromObservationLogAt: log.url, anchor: log.anchor,
-                                                   duration: log.duration, speech: speech)
-            proposals = proposer.proposals(for: take)
+        // **Off the main actor**: the whole log is read and decoded here — about 0.4 s for ten
+        // minutes in a Debug build, measured 2026-11-08 — and the editor must not stop for it.
+        // A newer derivation supersedes an older one still running; only the latest lands.
+        derivations += 1
+        let mine = derivations
+        let proposer = self.proposer
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let outcome: Result<[CutProposal], any Error> = Result {
+                let take = try TakeActivityReader.take(fromObservationLogAt: log.url, anchor: log.anchor,
+                                                       duration: log.duration, speech: speech)
+                return proposer.proposals(for: take)
+            }
+            await self?.land(outcome, derivation: mine)
+        }
+    }
+
+    private func land(_ outcome: Result<[CutProposal], any Error>, derivation: Int) {
+        guard derivation == derivations else { return }
+        switch outcome {
+        case .success(let found):
+            proposals = found
             failure = nil
-        } catch {
+        case .failure(let error):
             proposals = []
             failure = "\(error)"
         }

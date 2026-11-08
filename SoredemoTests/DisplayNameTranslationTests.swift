@@ -70,8 +70,10 @@ private func missing(_ names: [String], from tables: [String: [String: String]])
 
 @MainActor @Test func everyNameLookedUpAtRunTimeIsInEveryStringTable() throws {
     let tables = try stringTables()
-    // Ten, not "some": a bundle that lost its tables would pass the check below vacuously.
-    try #require(tables.count == 10, "found \(tables.count) string tables: \(tables.keys.sorted())")
+    // Four, not "some": a bundle that lost its tables would pass the check below vacuously. Four
+    // since 2026-11-08, when the owner kept en, ja, zh-Hans and zh-Hant; a stale build that still
+    // carries the six removed shows here as a count of ten.
+    try #require(tables.count == 4, "found \(tables.count) string tables: \(tables.keys.sorted())")
     let names = namesLookedUpAtRunTime
     try #require(names.count > 60, "only \(names.count) names were gathered")
     let gaps = missing(names, from: tables)
@@ -134,5 +136,5 @@ private func missing(_ names: [String], from tables: [String: [String: String]])
             }
         }
     }
-    #expect(languages == 10, "checked \(languages) languages")
+    #expect(languages == 4, "checked \(languages) languages")
 }

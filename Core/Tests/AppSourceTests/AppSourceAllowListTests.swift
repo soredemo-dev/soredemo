@@ -2176,7 +2176,7 @@ func longestLiteralRun(of key: String) -> String? {
     }
     #expect(verbatim.isEmpty, """
         These assign a bare literal to the status line, which SwiftUI draws verbatim — wrap them \
-        in String(localized:) and add the key to the ten tables:
+        in String(localized:) and add the key to every table:
         \(verbatim.joined(separator: "\n"))
         """)
 }

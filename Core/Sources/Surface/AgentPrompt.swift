@@ -1,0 +1,83 @@
+import Foundation
+
+/// What goes to the person's agent with each message, and how it is started.
+///
+/// **What is on screen goes along, as data**: the playhead, the step it is in, the selected
+/// proposal. It sits in its own tagged block with `<` escaped, so a step label — text another
+/// application put on screen — cannot close the block and speak as an instruction
+/// (`agentic-threat-model`). Never a frame, never the video.
+public enum AgentPrompt {
+    /// What the panel knows the person is looking at.
+    public struct Context: Equatable, Sendable {
+        public let playheadNanos: Int64
+        public let step: (number: Int, label: String)?
+        public let selectedProposal: String?
+        public let recordingNanos: Int64
+        public let playsNanos: Int64
+
+        public init(playheadNanos: Int64, step: (number: Int, label: String)?, selectedProposal: String?,
+                    recordingNanos: Int64, playsNanos: Int64) {
+            self.playheadNanos = playheadNanos
+            self.step = step
+            self.selectedProposal = selectedProposal
+            self.recordingNanos = recordingNanos
+            self.playsNanos = playsNanos
+        }
+
+        public static func == (a: Context, b: Context) -> Bool {
+            a.playheadNanos == b.playheadNanos && a.step?.number == b.step?.number && a.step?.label == b.step?.label
+                && a.selectedProposal == b.selectedProposal && a.recordingNanos == b.recordingNanos
+                && a.playsNanos == b.playsNanos
+        }
+    }
+
+    /// Appended to the agent's own system prompt: what it is driving and how to work in it.
+    public static let systemPrompt = [
+        "You are running inside Soredemo, a macOS screen recorder, driven from its agent panel beside the editor. The person is watching the editor while you work.",
+        "Every recording has an observation log: numbered steps (presses on named elements), clicks, and spans where nothing happened. Read steps and propose_cut before you edit, and base every edit on them.",
+        "Your edits apply to the open timeline immediately, each as one undo step named by your reason. Give every edit a reason that names the step or proposal it rests on, in one short sentence.",
+        "Prefer accept_proposal for dead air, cut_step for a whole step, and cut_span only when neither fits. Use seek to show the person the moment you mean.",
+        "Times are integer nanoseconds on the recording's clock. You cannot publish, share or export anything, and must not offer to.",
+        "Keep replies short and in plain text with no Markdown: the panel is narrow and shows text as written. Say what you changed in one line at the end.",
+    ].joined(separator: " ")
+
+    /// The message as sent: the person's words, then what was on screen.
+    public static func message(_ text: String, context: Context?) -> String {
+        guard let context else { return text }
+        var lines = [
+            "The playhead is at \(context.playheadNanos) ns on the recording's clock.",
+            "The recording is \(context.recordingNanos) ns long and the edit plays \(context.playsNanos) ns.",
+        ]
+        if let step = context.step {
+            lines.append("That is during step \(step.number), labelled <step-label>\(escaped(step.label))</step-label>.")
+        }
+        if let proposal = context.selectedProposal {
+            lines.append("They have selected the proposed cut <proposal-id>\(escaped(proposal))</proposal-id>; \"this\" refers to it.")
+        }
+        return "\(text)\n\n<soredemo-context>\n\(lines.joined(separator: "\n"))\n</soredemo-context>"
+    }
+
+    /// `<` and `&` escaped, so content cannot open or close a tag.
+    static func escaped(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+    }
+
+    /// The arguments that start the person's `claude` for one turn.
+    ///
+    /// **`--tools ""` is the safety line**: the session holds no built-in tool — no shell, no file
+    /// edits, no web — only Soredemo's, from `--strict-mcp-config`, so nothing else on the Mac is
+    /// reachable through it. Measured against Claude Code 2.1.318: `init` listed Soredemo's tools
+    /// and no others. Never `--permission-mode bypassPermissions`, and nothing here can add it.
+    public static func claudeArguments(message: String, session: String?, mcpConfigPath: String,
+                                       model: String?) -> [String] {
+        var arguments = ["-p", message,
+                         "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                         "--strict-mcp-config", "--mcp-config", mcpConfigPath,
+                         "--tools", "",
+                         "--allowedTools", "mcp__soredemo",
+                         "--append-system-prompt", systemPrompt]
+        if let session { arguments += ["--resume", session] }
+        if let model { arguments += ["--model", model] }
+        return arguments
+    }
+}

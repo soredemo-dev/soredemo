@@ -51,7 +51,7 @@ Every recorder zooms. **This one can say why it did not, and let you disagree.**
 - **Nothing leaves the machine.** No account, no upload, no share button. Transcription runs on the
   device. See [the publishing rule](#the-rules-that-matter-most).
 - **Native, and small.** Swift and SwiftUI on Apple's own frameworks, zero package dependencies,
-  in ten languages.
+  in English, Traditional and Simplified Chinese, and Japanese.
 
 ## How it works
 
@@ -150,7 +150,7 @@ changes. What is recorded is this project's own website, so nobody's screen is i
 - **Final Cut XML** — the edit, for finishing in Final Cut Pro
 
 **Everywhere**
-- Ten languages; three app icons; light and dark
+- Four languages — English, Traditional and Simplified Chinese, Japanese; three app icons; light and dark
 
 </td></tr>
 </table>

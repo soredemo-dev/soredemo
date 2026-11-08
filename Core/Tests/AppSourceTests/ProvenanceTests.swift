@@ -36,6 +36,18 @@ import Testing
         let named = networking.filter { text.contains($0) }
         guard !named.isEmpty else { continue }
         if file.lastPathComponent == "UpdateCheck.swift" { theCheckItself = true; continue }
+        // The agent relay is a pipe between two of this app's own processes, over a Unix socket in
+        // a directory only this user can open. Admitted only while that is all it is: no host, no
+        // port, no endpoint but `.unix(path:)`.
+        if file.lastPathComponent == "AgentRelay.swift" {
+            let code = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            let reaches = ["NWEndpoint.Host", ".hostPort", "NWEndpoint.Port", ".service(", "URLSession", "URLRequest"].filter(code.contains)
+            #expect(reaches.isEmpty && code.contains(".unix(path:"), """
+                AgentRelay.swift is admitted as a local Unix-socket pipe, and it now names \(reaches) — \
+                something that reaches past this Mac. The privacy pane would no longer be true.
+                """)
+            continue
+        }
         found.append("\(pathRelativeToRepositoryRoot(file)): \(named.joined(separator: ", "))")
     }
     try #require(theCheckItself, "UpdateCheck.swift names no networking API — the scan's positive control is gone")
@@ -44,6 +56,17 @@ import Testing
         the only request:
         \(found.joined(separator: "\n"))
         """)
+}
+
+/// **Starting the person's own agent is said in the privacy pane.** The Agent tab hands what a
+/// person types to their Claude Code, which sends it to its provider; the pane's promise that
+/// nothing is sent unless you ask stays true only while it says this one does, when you ask.
+@Test func thePrivacyPaneSaysWhatTheAgentTabSends() throws {
+    let provider = repositoryRoot.appending(path: "Soredemo/Agent/ClaudeCodeProvider.swift")
+    try #require(FileManager.default.fileExists(atPath: provider.path(percentEncoded: false)),
+                 "ClaudeCodeProvider.swift is gone — rewrite this check for whatever starts an agent now")
+    let pane = try String(contentsOf: repositoryRoot.appending(path: "Soredemo/Settings/SettingsWindow.swift"), encoding: .utf8)
+    #expect(pane.contains("The Agent tab sends what you type"), "the privacy pane does not say what the Agent tab sends")
 }
 
 /// **The language model that suggests chapters is the one on this Mac.** FoundationModels also

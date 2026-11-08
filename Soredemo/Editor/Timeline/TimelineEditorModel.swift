@@ -771,6 +771,10 @@ final class TimelineEditorModel {
 
     // MARK: - undo
 
+    /// How many steps can be undone — the mark an agent turn's checkpoint is taken at.
+    var historyDepth: Int { history.depth }
+    /// The name of the step ⌘Z would undo, as recorded rather than as the menu shows it.
+    var undoStepName: String? { history.undoName }
     var canUndo: Bool { history.canUndo }
     var canRedo: Bool { history.canRedo }
     /// What a menu item should say. `nil` when there is nothing to undo, so the caller can

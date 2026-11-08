@@ -41,6 +41,8 @@ final class EditorViewModel {
     let steps = RecordedStepsModel()
     /// The cuts the producers propose, for the Cuts tab. Read from the same log as the steps.
     let cuts = CutProposalsModel()
+    /// The person's own agent, editing this recording from the Agent tab.
+    let agent = AgentPanelModel()
 
     // MARK: - authored values
 

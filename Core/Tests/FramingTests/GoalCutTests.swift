@@ -145,4 +145,11 @@ private func plan(target seconds: Int64, verdicts: [GoalCut.Verdict] = exportGoa
     @Test func askingAgainGivesTheSameKeysSoAKeepHolds() throws {
         #expect(try plan(target: 40).proposals.map(\.key) == (try plan(target: 40)).proposals.map(\.key))
     }
+
+    /// One step cut by hand removes exactly what the plan would cut for it.
+    @Test func aStepCutByHandRemovesWhatThePlanWould() throws {
+        #expect(GoalCut.removal(ofStep: 3, in: steps()) == range(123, 133))
+        #expect(GoalCut.removal(ofStep: 5, in: steps()) == range(143, 160))
+        #expect(GoalCut.removal(ofStep: 9, in: steps()) == nil)
+    }
 }

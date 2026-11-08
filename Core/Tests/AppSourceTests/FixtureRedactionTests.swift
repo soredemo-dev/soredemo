@@ -199,6 +199,12 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
     return found
 }
 
+/// Committed `.jsonl` fixtures that are not observation logs, each with what it is. The gate
+/// below checks they carry no observation record at all before it skips them.
+let fixturesThatAreNotObservationLogs: [String: String] = [
+    "claude-code-2.1.318-steps.jsonl": "a recorded Claude Code stream-json session for SurfaceTests' parser, with personal paths replaced and the owner's own configuration (skills, plugins, usage) removed before it was committed",
+]
+
 /// **Gate 1 — content.** No `REDACT`-marked field in any committed fixture holds a value other
 /// than the placeholder. The vacuity guard is per fixture, summed across every redacted field,
 /// so a REDACT field with no occurrence in a fixture cannot fail the guard on its own.
@@ -216,6 +222,16 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
         // `components(separatedBy:)`, not `split(omittingEmptySubsequences:)` — the latter
         // shifts every reported line number past any blank line.
         let lines = text.components(separatedBy: "\n")
+        // A fixture that is not an observation log has none of its fields, so this gate has
+        // nothing in it to examine. **Proved, not asserted**: it must carry no observation
+        // record's `kind` at all, or it is an observation log under a misleading name.
+        if let reason = fixturesThatAreNotObservationLogs[fixture.lastPathComponent] {
+            let kinds = lines.filter { line in
+                (line.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["kind"] != nil
+            }
+            #expect(kinds.isEmpty, "\(fixture.lastPathComponent) is exempt as \"\(reason)\", but \(kinds.count) line(s) carry an observation record's kind")
+            continue
+        }
         var occurrencesInThisFixture = 0
 
         for (index, rawLine) in lines.enumerated() {
