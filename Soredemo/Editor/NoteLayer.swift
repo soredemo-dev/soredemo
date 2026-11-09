@@ -19,9 +19,9 @@ struct NoteLayer: View {
             let video = PreviewOverlay.videoRect(in: geometry.size.width, geometry.size.height,
                                                  outputWidth: outputWidth, outputHeight: outputHeight)
             ZStack(alignment: .topLeading) {
+                // The playhead is on the recording's clock, which is the clock a note is pinned on.
                 AtPlayhead(model: timeline) { playhead in
-                    let source = timeline.edit.sourceTime(atOutput: playhead) ?? Nanoseconds(0)
-                    ForEach(notes.board.near(source, within: NotesModel.visibleWithin)) { note in
+                    ForEach(notes.board.near(playhead, within: NotesModel.visibleWithin)) { note in
                         if let x = note.x, let y = note.y {
                             NotePin(note: note, number: number(of: note))
                                 .position(x: video.x + x * video.width, y: video.y + y * video.height)
@@ -54,8 +54,7 @@ struct NoteLayer: View {
                     let x = (location.x - video.x) / video.width
                     let y = (location.y - video.y) / video.height
                     guard (0...1).contains(x), (0...1).contains(y) else { return }
-                    let at = timeline.edit.sourceTime(atOutput: timeline.playhead) ?? Nanoseconds(0)
-                    notes.begin(at: at, x: x, y: y)
+                    notes.begin(at: timeline.playhead, x: x, y: y)
                 }
             Text("Click where the note goes. Esc to cancel.")
                 .font(Type.detail.weight(.semibold))

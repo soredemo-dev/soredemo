@@ -808,12 +808,19 @@ struct HoverLift: ButtonStyle {
 enum AgentContextReader {
     static func context(of editor: EditorViewModel) -> AgentPrompt.Context? {
         guard let duration = editor.timeline.duration, let anchor = editor.steps.anchor else { return nil }
-        let edit = editor.timeline.edit
-        let source = edit.sourceTime(atOutput: editor.timeline.playhead)?.rawValue ?? 0
-        let step = editor.steps.steps.last { $0.origin.hostTime.rawValue - anchor.hostTime.rawValue <= source }
-        return AgentPrompt.Context(playheadNanos: source, step: step.map { ($0.number, $0.label) },
+        return context(playhead: editor.timeline.playhead, steps: editor.steps.steps, anchor: anchor,
+                       duration: duration, plays: editor.timeline.edit.outputDuration)
+    }
+
+    /// **Everything here is on the recording's clock** — the playhead already is
+    /// (`TimelineEditorModel.playhead`), and so are the steps, so nothing is converted.
+    static func context(playhead: Nanoseconds, steps: [RecordedStep], anchor: EpochAnchor,
+                        duration: Nanoseconds, plays: Nanoseconds) -> AgentPrompt.Context {
+        let at = playhead.rawValue
+        let step = steps.last { $0.origin.hostTime.rawValue - anchor.hostTime.rawValue <= at }
+        return AgentPrompt.Context(playheadNanos: at, step: step.map { ($0.number, $0.label) },
                                    selectedProposal: nil, recordingNanos: duration.rawValue,
-                                   playsNanos: edit.outputDuration.rawValue)
+                                   playsNanos: plays.rawValue)
     }
 
     static func summary(of context: AgentPrompt.Context) -> String {

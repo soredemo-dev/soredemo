@@ -4,6 +4,7 @@ import Network
 import Surface
 import Timeline
 import Framing
+import Geometry
 @testable import Soredemo
 
 // The agent panel's app half: the relay to the open editor, the live tools, and reverting a turn.
@@ -134,6 +135,51 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     _ = bridge.perform(.cutSpan(start: 4 * second, end: 6 * second, reason: "r"))
     guard case .failure(_, let code) = bridge.perform(.seek(5 * second)) else { Issue.record("sought into a cut"); return }
     #expect(code == "cut")
+}
+
+// The playhead is on the RECORDING's clock (`TimelineEditorModel.playhead`). Every test below
+// cuts 2–4 s first, so after it the two clocks differ by two seconds — without the cut they agree,
+// and a conversion done the wrong way round passes. This happened: three sites converted it and
+// every test before these sat at the identity.
+
+/// The agent asks for a moment on the recording's clock and the playhead goes to that moment.
+@Test @MainActor func aSeekPutsThePlayheadAtThatMomentOfTheRecording() {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.cutSpan(start: 2 * second, end: 4 * second, reason: "r"))
+    guard case .success(let json) = bridge.perform(.seek(8 * second)) else { Issue.record("refused"); return }
+    #expect(editor.timeline.playhead == Nanoseconds(8 * second), "not two seconds early")
+    #expect(json.contains(#""playheadNanos":8000000000"#), "\(json)")
+    #expect(json.contains(#""playsAtNanos":6000000000"#), "and where that moment plays in the edit: \(json)")
+}
+
+/// What the agent is told of the playhead is on the clock it reads every other time on.
+@Test @MainActor func theStatusReportsThePlayheadOnTheRecordingsClock() {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.cutSpan(start: 2 * second, end: 4 * second, reason: "r"))
+    editor.timeline.movePlayhead(to: Nanoseconds(8 * second))
+    guard case .success(let json) = bridge.perform(.status) else { Issue.record("no status"); return }
+    #expect(json.contains(#""playheadNanos":8000000000"#), "\(json)")
+}
+
+/// The context that goes with a message: the playhead and the step it is in, both on the
+/// recording's clock — the step is found by recording time, not by where it plays.
+@Test @MainActor func theContextSentWithAMessageIsOnTheRecordingsClock() {
+    let epoch = BootEpoch(id: UUID(uuidString: "7C2D3E4F-5061-4728-9ABC-DE0F1A2B3C4D")!)
+    let anchor = EpochAnchor(epoch: epoch, hostTime: Nanoseconds(500 * second), wallClockUnixNanos: 0)
+    func step(_ number: Int, at seconds: Int64, _ label: String) -> RecordedStep {
+        let origin = HostInstant(epoch: epoch, hostTime: Nanoseconds(500 * second + seconds * second))
+        return RecordedStep(origin: origin, end: origin, number: number, label: label, role: "AXButton", application: "Keynote",
+                            frame: NormalizedFrame(origin: NormalizedPoint(x: 0.5, y: 0.5), size: NormalizedSize(width: 0.1, height: 0.1),
+                                                   revision: GeometryRevision(id: 1)))
+    }
+    let context = AgentContextReader.context(playhead: Nanoseconds(7 * second),
+                                             steps: [step(1, at: 1, "Open"), step(2, at: 6, "Export"), step(3, at: 9, "Done")],
+                                             anchor: anchor, duration: Nanoseconds(20 * second), plays: Nanoseconds(18 * second))
+    #expect(context.playheadNanos == 7 * second)
+    #expect(context.step?.number == 2, "7 s on the recording is in step 2, even though it plays at 5 s")
+    #expect(context.playsNanos == 18 * second)
 }
 
 /// A turn reverts at once — and not over a person's later edit.

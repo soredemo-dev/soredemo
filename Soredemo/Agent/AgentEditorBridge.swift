@@ -51,11 +51,14 @@ final class AgentEditorBridge {
         case .steps: return steps()
         case .proposeCut: return proposals()
         case .seek(let at):
-            guard let output = editor.timeline.edit.outputTime(atSource: Nanoseconds(at)) else {
+            // The playhead is on the recording's clock, the clock `at` is on; where that moment
+            // plays in the edit is reported beside it, and a moment that no longer plays is refused.
+            let moment = Nanoseconds(at)
+            guard let output = editor.timeline.edit.outputTime(atSource: moment) else {
                 return .failure(message: "\(at) ns has been cut from the edit, so the playhead cannot go there.", code: "cut")
             }
-            editor.timeline.movePlayhead(to: output)
-            return .success(json: #"{"playheadOutputNanos":\#(output.rawValue)}"#)
+            editor.timeline.movePlayhead(to: moment)
+            return .success(json: #"{"playheadNanos":\#(at),"playsAtNanos":\#(output.rawValue)}"#)
         case .cutSpan(let start, let end, let reason):
             return cut(start..<end, reason: reason)
         case .cutStep(let number, let reason):
@@ -92,7 +95,7 @@ final class AgentEditorBridge {
         let pending = listing()?.rows.count ?? 0
         return json([
             "recordingNanos": duration, "playsNanos": edit.outputDuration.rawValue,
-            "playheadOutputNanos": editor.timeline.playhead.rawValue,
+            "playheadNanos": editor.timeline.playhead.rawValue,
             "steps": editor.steps.steps.count, "pendingProposals": pending,
         ])
     }
