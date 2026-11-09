@@ -82,18 +82,19 @@ struct AgentPanel: View {
     }
 }
 
-/// The agent's mark beside its name: a small ink disc that breathes while it works.
+/// The agent's mark beside its name, breathing while it works.
 private struct AgentMark: View {
     let running: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathe = false
 
     var body: some View {
-        Image(systemName: "sparkle")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Theme.Ink.onAccent)
+        // The agent's own mark, so the person sees whose agent this is (see
+        // docs/third-party-marks.md for where it came from and what it is used for).
+        Image("ClaudeMark")
+            .resizable()
+            .scaledToFit()
             .frame(width: 22, height: 22)
-            .background(Theme.accent, in: Circle())
             .scaleEffect(running && breathe && !reduceMotion ? 1.08 : 1)
             .animation(running && !reduceMotion ? .easeInOut(duration: 0.9).repeatForever() : .default, value: breathe)
             .onAppear { breathe = true }

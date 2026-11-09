@@ -87,6 +87,11 @@ final class ClaudeCodeProvider: AgentProvider {
             process.standardOutput = out
             process.standardError = err
             process.standardInput = FileHandle.nullDevice
+            // An allow-list, never the app's whole environment: a cloud key or a token left in it
+            // would be readable by every process the agent starts (`AgentEnvironment`).
+            process.environment = AgentEnvironment.forAgent(ProcessInfo.processInfo.environment,
+                                                            prefixes: ["ANTHROPIC_", "CLAUDE_"],
+                                                            home: NSHomeDirectory())
             let lines = LineBuffer()
             out.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
