@@ -230,7 +230,16 @@ claude mcp add soredemo -- /Applications/Soredemo.app/Contents/MacOS/Soredemo mc
 ```
 
 The tools are `status`, `steps`, `explain_framing` and `propose_cut`, each taking a `project`
-path. Why it is built this way is in
+path.
+
+Inside the editor, the **Agent** tab drives your own Claude Code or Codex, under your own login —
+Soredemo holds no key. It reads the open recording's steps and cuts its timeline while you watch:
+every cut is one undo step named for the agent and its reason, and a whole turn reverts at once.
+The agent gets Soredemo's tools and nothing else — no shell, no file edits, no web — and under the
+message box the panel shows how full the conversation is and how much of your account's usage
+windows your agent's provider reports used. It cannot publish anything.
+
+Why it is built this way is in
 [`docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md`](docs/design/2026-11-08-evidence-cut-and-the-agent-surface.md).
 
 ## Status, honestly

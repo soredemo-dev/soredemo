@@ -52,5 +52,5 @@ struct AgentPresence: View {
         .shadow(color: .black.opacity(0.3), radius: 10, y: 3)
     }
 
-    private var phrase: LocalizedStringKey { AgentPhrase.activity(model.activity) }
+    private var phrase: LocalizedStringKey { AgentPhrase.activity(model.activity, agent: model.providerName) }
 }

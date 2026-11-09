@@ -146,7 +146,7 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     _ = bridge.perform(.cutSpan(start: 2 * second, end: 4 * second, reason: "one"))
     _ = bridge.perform(.cutSpan(start: 8 * second, end: 10 * second, reason: "two"))
     let turn = AgentPanelModel.Turn(id: 1, request: "tighten", items: records.map { .edit($0) }, running: false, checkpoint: mark)
-    let panel = AgentPanelModel(provider: ClaudeCodeProvider())
+    let panel = AgentPanelModel(providers: [ClaudeCodeProvider()])
 
     editor.timeline.removeSourceRange(15 * second..<16 * second, named: "A person's cut")
     #expect(panel.revert(turn, editor: editor) != nil, "a person's later edit is not undone with the turn")
@@ -171,9 +171,97 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     records = []
     _ = bridge.perform(.cutSpan(start: 8 * second, end: 10 * second, reason: "Tighten the pause"))
 
-    let panel = AgentPanelModel(provider: ClaudeCodeProvider())
+    let panel = AgentPanelModel(providers: [ClaudeCodeProvider()])
     #expect(panel.revert(first, editor: editor) != nil)
     #expect(editor.timeline.edit.outputDuration == Nanoseconds(16 * second), "both cuts stand")
+}
+
+/// An agent that says what it is told to: the panel's own handling of a turn, with no CLI.
+@MainActor
+private final class ScriptedProvider: AgentProvider {
+    let name: String
+    let mark = "ClaudeMark"
+    let markIsTemplate = false
+    let events: [AgentEvent]
+    private(set) var closed = 0
+
+    init(name: String, events: [AgentEvent]) {
+        self.name = name
+        self.events = events
+    }
+
+    func models() async -> [AgentModel] { [AgentModel(id: "m", label: "M")] }
+    func availability() async -> AgentAvailability { .ready(version: "1") }
+    func run(message: String, session: String?, model: String?, tools: AgentTurnTools) -> AsyncStream<AgentEvent> {
+        let events = events
+        return AsyncStream { continuation in
+            for event in events { continuation.yield(event) }
+            continuation.finish()
+        }
+    }
+    func stop() {}
+    func close() { closed += 1 }
+}
+
+/// A suite of its own, so choosing an agent in a test never touches the person's own settings.
+private func scratchDefaults() -> UserDefaults {
+    let defaults = UserDefaults(suiteName: "soredemo-tests-agent-panel")!
+    defaults.removePersistentDomain(forName: "soredemo-tests-agent-panel")
+    return defaults
+}
+
+@MainActor private func finish(_ panel: AgentPanelModel) async throws {
+    var waited = 0
+    while panel.isRunning, waited < 5_000 {
+        try await Task.sleep(for: .milliseconds(10))
+        waited += 10
+    }
+    #expect(!panel.isRunning, "the turn did not end within five seconds")
+}
+
+private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, limited: false)
+
+/// What the agent reports of its usage is kept from turn to turn; a new conversation forgets how
+/// full the old one was and keeps the account's windows, which are the same account's.
+@Test @MainActor func theReportedUsageIsKeptAndANewConversationForgetsOnlyItsContext() async throws {
+    let provider = ScriptedProvider(name: "A", events: [
+        .started(session: "s", tools: [], model: nil),
+        .contextUsage(usedTokens: 12_000, windowTokens: nil),
+        .contextUsage(usedTokens: nil, windowTokens: 400_000),
+        .limits([fiveHours]),
+        .finished(isError: false, durationMilliseconds: 10, costUSD: nil, session: "s"),
+    ])
+    let panel = AgentPanelModel(providers: [provider], defaults: scratchDefaults())
+    await panel.checkAvailability()
+    panel.send("tighten", editor: editor(), context: nil)
+    try await finish(panel)
+    #expect(panel.usage.contextUsed == 12_000, "a window arriving later does not erase the count")
+    #expect(panel.usage.contextPercent == 3)
+    #expect(panel.usage.windows == [fiveHours])
+
+    panel.startOver()
+    #expect(panel.usage.contextUsed == nil)
+    #expect(panel.usage.windows == [fiveHours])
+    panel.close()
+}
+
+/// Another agent is a new conversation with nothing reported yet, and the choice is remembered.
+@Test @MainActor func choosingAnotherAgentStartsCleanAndIsRemembered() async throws {
+    let defaults = scratchDefaults()
+    let first = ScriptedProvider(name: "A", events: [.limits([fiveHours]), .finished(isError: false, durationMilliseconds: 1, costUSD: nil, session: "s")])
+    let second = ScriptedProvider(name: "B", events: [])
+    let panel = AgentPanelModel(providers: [first, second], defaults: defaults)
+    await panel.checkAvailability()
+    panel.send("go", editor: editor(), context: nil)
+    try await finish(panel)
+    #expect(panel.usage.windows == [fiveHours])
+
+    panel.choose(1)
+    #expect(panel.providerName == "B")
+    #expect(panel.usage == AgentPanelModel.Usage(), "B has reported nothing")
+    #expect(first.closed > 0, "A's process and relay end with the switch")
+    #expect(AgentPanelModel(providers: [first, second], defaults: defaults).providerName == "B")
+    panel.close()
 }
 
 /// With the app gone, nothing answers at the socket; the relay child must exit rather than wait

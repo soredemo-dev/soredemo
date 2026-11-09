@@ -62,6 +62,31 @@ final class AgentPanelModel {
 
     enum Availability: Equatable { case checking, ready(String), notInstalled }
 
+    /// How full the conversation is and how much of the account's windows are used, as the
+    /// agent's provider last said. Each part is `nil` until it has been said.
+    struct Usage: Equatable {
+        var contextUsed: Int?
+        var contextWindow: Int?
+        var windows: [UsageWindow] = []
+
+        /// The share of the window in use, 0–100, unclamped; `nil` without both counts.
+        var contextPercent: Double? {
+            guard let contextUsed, let contextWindow, contextWindow > 0 else { return nil }
+            return Double(contextUsed) / Double(contextWindow) * 100
+        }
+    }
+
+    /// One agent the panel can drive, as the picker lists it.
+    struct Choice: Identifiable, Equatable {
+        let id: Int
+        let name: String
+        let mark: String
+        let markIsTemplate: Bool
+    }
+
+    /// Where the chosen agent is remembered between launches: a per-person convenience, not data.
+    static let providerDefaultsKey = "agentPanelProvider"
+
     /// How often streamed fragments reach the view.
     static let flushInterval: Duration = .milliseconds(50)
 
@@ -73,17 +98,24 @@ final class AgentPanelModel {
     private(set) var elapsed = 0
     /// Bumped once per edit the agent lands, so the preview can sweep a band of light across.
     private(set) var editsLanded = 0
-    /// `nil` is the person's own default model in their Claude Code.
+    /// `nil` is the person's own default model in their agent.
     var model: String?
+    /// The models the chosen agent offers, beside the person's default.
+    private(set) var models: [AgentModel] = []
+    private(set) var usage = Usage()
+    private(set) var providerIndex: Int
     /// Whether what is on screen goes with the next message.
     var includesContext = true
 
     var isRunning: Bool { turns.last?.running == true }
 
-    @ObservationIgnored private let provider: any AgentProvider
+    @ObservationIgnored private let providers: [any AgentProvider]
+    @ObservationIgnored private let defaults: UserDefaults
+    private var provider: any AgentProvider { providers[providerIndex] }
     @ObservationIgnored private var session: String?
     @ObservationIgnored private var relay: AgentRelay?
     @ObservationIgnored private var bridge: AgentEditorBridge?
+    @ObservationIgnored private var toolbox: (any MCPToolbox)?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var counted = 0
@@ -91,18 +123,46 @@ final class AgentPanelModel {
     @ObservationIgnored private var pendingThinking = ""
     @ObservationIgnored private var flush: Task<Void, Never>?
 
-    init(provider: any AgentProvider = ClaudeCodeProvider()) {
-        self.provider = provider
+    init(providers: [any AgentProvider] = [ClaudeCodeProvider(), CodexProvider()], defaults: UserDefaults = .standard) {
+        self.providers = providers
+        self.defaults = defaults
+        let remembered = defaults.string(forKey: Self.providerDefaultsKey)
+        providerIndex = providers.firstIndex { $0.name == remembered } ?? 0
     }
 
     var providerName: String { provider.name }
+    var providerMark: String { provider.mark }
+    var providerMarkIsTemplate: Bool { provider.markIsTemplate }
+    var choices: [Choice] {
+        providers.enumerated().map { Choice(id: $0.offset, name: $0.element.name, mark: $0.element.mark,
+                                            markIsTemplate: $0.element.markIsTemplate) }
+    }
 
     func checkAvailability() async {
         availability = .checking
-        switch await provider.availability() {
+        let checked = provider
+        let found = await checked.availability()
+        let offered = await checked.models()
+        // The person may have switched agents while this one was being looked for.
+        guard checked === provider else { return }
+        models = offered
+        switch found {
         case .ready(let version): availability = .ready(version)
         case .notInstalled: availability = .notInstalled
         }
+    }
+
+    /// Drives another agent from the next message. A new conversation, since one agent cannot
+    /// resume another's; the turns already shown stay, and so do their cuts and their revert.
+    func choose(_ index: Int) {
+        guard !isRunning, providers.indices.contains(index), index != providerIndex else { return }
+        close()
+        providerIndex = index
+        defaults.set(provider.name, forKey: Self.providerDefaultsKey)
+        model = nil
+        models = []
+        usage = Usage()
+        Task { await checkAvailability() }
     }
 
     /// Sends one message. The relay is started on the first, against this editor.
@@ -116,12 +176,13 @@ final class AgentPanelModel {
                               checkpoint: editor.timeline.historyDepth))
             return
         }
-        guard let relay else { return }
+        guard let relay, let toolbox else { return }
         turns.append(Turn(id: nextID(), request: words, checkpoint: editor.timeline.historyDepth))
         activity = .starting
         startTicking()
         let message = AgentPrompt.message(words, context: includesContext ? context : nil)
-        let stream = provider.run(message: message, session: session, model: model, mcpConfigPath: relay.configPath)
+        let stream = provider.run(message: message, session: session, model: model,
+                                  tools: AgentTurnTools(relayConfigPath: relay.configPath, toolbox: toolbox))
         task = Task { [weak self] in
             for await event in stream { self?.receive(event) }
             self?.finishTurn()
@@ -137,6 +198,8 @@ final class AgentPanelModel {
         guard !isRunning else { return }
         turns = []
         session = nil
+        // A new conversation reads nothing yet; the account's windows are the same account's.
+        usage.contextUsed = nil
     }
 
     /// Undoes the turn's edits, newest first, while each is still the step on top.
@@ -164,13 +227,14 @@ final class AgentPanelModel {
 
     /// Ends the session: the relay's socket and its directory are removed.
     func close() {
-        provider.stop()
+        provider.close()
         task?.cancel()
         ticker?.cancel()
         flush?.cancel()
         relay?.close()
         relay = nil
         bridge = nil
+        toolbox = nil
         session = nil
         activity = nil
     }
@@ -187,8 +251,10 @@ final class AgentPanelModel {
         }
         let executable = Bundle.main.executableURL?.path(percentEncoded: false) ?? CommandLine.arguments[0]
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-        relay = try AgentRelay(toolbox: bridge.toolbox(), version: version, executable: executable)
+        let toolbox = bridge.toolbox()
+        relay = try AgentRelay(toolbox: toolbox, version: version, executable: executable)
         self.bridge = bridge
+        self.toolbox = toolbox
     }
 
     private func receive(_ event: AgentEvent) {
@@ -233,6 +299,11 @@ final class AgentPanelModel {
             }
         case .failed(let message):
             updateCurrent { $0.failure = message }
+        case .contextUsage(let used, let window):
+            if let used { usage.contextUsed = used }
+            if let window { usage.contextWindow = window }
+        case .limits(let windows):
+            usage.windows = windows
         }
     }
 

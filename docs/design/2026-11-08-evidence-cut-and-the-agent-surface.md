@@ -266,8 +266,81 @@ give it a share button, and there is none to give.
 | Provider | Where it runs | What leaves the Mac |
 | --- | --- | --- |
 | the person's own Claude Code (first) | their CLI, under **their** login | what that agent sends its provider, which is the person's existing arrangement; the panel says so before the first message |
-| the person's Codex (next) | `codex exec --json`, same relay | the same |
+| the person's Codex | `codex app-server`, tools answered in-process — see below | the same |
 | the on-device model | `SystemLanguageModel.default` | nothing |
+
+### Codex, as designed (2026-11-09)
+
+**Questions.** Can the person's Codex be held to Soredemo's tools the way `--tools ""` holds Claude
+Code? Through which of its two headless forms? And what does the host do with the parts it cannot
+close by configuration?
+
+**Alternatives.** `codex exec --json` takes an MCP server like Claude Code does, but measured it
+kept `functions.exec`, `apply_patch`, web and connected apps with every documented flag set, and a
+one-shot process gives the host nothing to answer an approval with. `codex app-server` is a
+long-lived JSON-RPC server: the host answers every request it sends, and Soredemo's tools can be
+given to it as **dynamic tools**, called back over the same pipe, so no relay or second process is
+involved. Chosen: `app-server`. What it took to close, measured three times
+(`docs/research/agent-native-designs.md`, "Codex, measured"), is three layers, none sufficient
+alone:
+
+1. **Configuration, before anything starts.** Plugins, apps, hooks, web search, the shell and
+   unified exec, browser, computer use and multi-agent are switched off on the command line, and
+   **every MCP server the person has configured** is switched off by name — read at start from
+   `codex mcp list --json` under the same switches, never from a list written here, because a list
+   of what we close rots by omission. A listing that cannot be read refuses the turn; it does not
+   start Codex with whatever it found.
+2. **The thread, stated in full.** `approvalPolicy: untrusted`, `sandbox: read-only`, `ephemeral`,
+   an empty working directory, and Soredemo's instructions as `developerInstructions` — every
+   field set on `thread/start`, so nothing in the person's `config.toml` can loosen it.
+3. **The host, as the second line.** Every request Codex sends is answered: a dynamic tool call
+   whose name is one of Soredemo's runs in the editor; **every approval, elicitation and
+   permission request is declined, and a method this host does not know is refused** rather than
+   left waiting. Every item Codex starts is checked against the few kinds a Soredemo turn consists
+   of — the message, reasoning, plans, Soredemo's own tools and Codex's read-only listing of MCP
+   resources (empty, since every server is off). **Anything else interrupts the turn** and the
+   panel says which tool it was. The check is after the fact for a call that asks nothing, which is
+   why it is the second line and not the first.
+
+Dynamic tools are reached through Codex's code mode, so `code_mode_host` stays on; in every
+measured run it had no filesystem.
+
+**One process per conversation, one thread.** Unlike `claude -p`, the server stays up across turns
+and each message is a `turn/start` on the same thread; Stop is `turn/interrupt`, New conversation
+starts a new thread, closing the editor ends the process. The tools are named `soredemo_<tool>` on
+the wire and shown without the prefix.
+
+**Where it is checked.** The arguments, the listing's parse, every reply to a request and every
+event the panel sees are one value type in `Surface`, `CodexSession`, tested against a recorded
+session of Codex 0.163.0. None of it is a documented contract: this is the D6b shape, and a
+Codex update re-runs the measurement.
+
+**Hooks.** The person's own Codex hooks ran in the recorded session. They were written for a
+terminal agent, and a hook is an arbitrary command, so the panel's Codex runs with hooks off. The
+same question for Claude Code is open: `claude -p` reads the person's settings, hooks included.
+
+### What the panel shows of the person's usage (2026-11-09)
+
+**Question.** Should the panel say how much of the person's account the agent is using, and from
+what? **Decided:** yes — under the message box, the conversation's share of the model's window and
+each account window (five hours, a week) with when it resets — and **only as the provider
+reported it**. Both agents report both: Claude Code's `assistant.message.usage` and
+`result.modelUsage[…].contextWindow`, and its `rate_limit_event`; Codex's
+`thread/tokenUsage/updated` and `account/rateLimits/updated`, plus an `account/rateLimits/read`
+sent with every turn, because a turn the account refuses at once brings no update and that is the
+turn whose windows matter most. Each provider turns its own format into two provider-free events,
+`contextUsage` and `limits`, so the strip reads one shape.
+
+**Alternatives.** Estimating from token counts and a published price list was rejected: it is a
+number the person cannot check, inside the legal range of the true one. Polling a usage endpoint
+of our own was rejected: Soredemo makes no request of its own to anyone's account, and the agent
+already says. A window the provider did not measure is left out, not drawn as 0 %, which would read
+as room to spare. **No cost is shown**: Claude Code's `total_cost_usd` is an API-price estimate,
+and under a subscription it is not a bill (`AgentEvent.finished`).
+
+**Where a reading crosses 80 %**, or the provider says requests are refused, it takes the caution
+colour and an icon, so the state is not carried by colour alone. A reset time is the provider's own
+epoch seconds, formatted — not a clock read by the app.
 
 ## Pin a note where it is wrong
 

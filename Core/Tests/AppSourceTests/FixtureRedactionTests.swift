@@ -203,6 +203,7 @@ func stringValues(named fieldNames: Set<String>, in json: Any) -> [String] {
 /// below checks they carry no observation record at all before it skips them.
 let fixturesThatAreNotObservationLogs: [String: String] = [
     "claude-code-2.1.318-steps.jsonl": "a recorded Claude Code stream-json session for SurfaceTests' parser, with personal paths replaced and the owner's own configuration (skills, plugins, usage) removed before it was committed",
+    "codex-0.167.0-steps.jsonl": "a recorded `codex app-server` JSON-RPC session for SurfaceTests' CodexSession, both directions, with personal paths replaced and the account, usage and moderation lines removed before it was committed",
 ]
 
 /// **Gate 1 — content.** No `REDACT`-marked field in any committed fixture holds a value other

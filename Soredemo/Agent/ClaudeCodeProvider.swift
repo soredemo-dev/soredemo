@@ -1,29 +1,13 @@
 import Foundation
 import Surface
 
-/// Something that runs one turn of an agent and reports what it said and did. The panel holds one
-/// of these and never a wire format, so a second agent — Codex, the on-device model — is a new
-/// conformance and nothing in the panel changes.
-protocol AgentProvider: AnyObject {
-    var name: String { get }
-    /// Whether it can run here, and why not.
-    func availability() async -> AgentAvailability
-    /// Runs one turn. Events arrive on the main actor; the stream ends when the turn does.
-    func run(message: String, session: String?, model: String?, mcpConfigPath: String) -> AsyncStream<AgentEvent>
-    /// Ends the running turn. What it already did stays, and is revertible.
-    func stop()
-}
-
-enum AgentAvailability: Equatable {
-    case ready(version: String)
-    case notInstalled
-}
-
 /// The person's own Claude Code, started headless for each turn under their own login. No API key
 /// is held by Soredemo. See `AgentPrompt.claudeArguments` for what it is allowed to do.
 @MainActor
 final class ClaudeCodeProvider: AgentProvider {
     let name = "Claude Code"
+    let mark = "ClaudeMark"
+    let markIsTemplate = false
     private var process: Process?
 
     /// Where a GUI app looks, because it does not inherit a shell's `PATH`: the native installer's
@@ -43,34 +27,21 @@ final class ClaudeCodeProvider: AgentProvider {
     }
 
     nonisolated static func locate() async -> String? {
-        let fileManager = FileManager.default
-        for candidate in candidates {
-            let path = NSString(string: candidate).expandingTildeInPath
-            if fileManager.isExecutableFile(atPath: path) { return path }
-        }
-        // The person's login shell, for an install somewhere else on their PATH.
-        let found = await output(of: "/bin/zsh", ["-lc", "command -v claude"])?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return found.flatMap { fileManager.isExecutableFile(atPath: $0) ? $0 : nil }
+        await AgentExecutable.locate("claude", candidates: candidates)
     }
 
     nonisolated static func output(of executable: String, _ arguments: [String]) async -> String? {
-        await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { _ in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                continuation.resume(returning: String(decoding: data, as: UTF8.self))
-            }
-            do { try process.run() } catch { continuation.resume(returning: nil) }
-        }
+        await AgentExecutable.output(of: executable, arguments)
     }
 
-    func run(message: String, session: String?, model: String?, mcpConfigPath: String) -> AsyncStream<AgentEvent> {
-        AsyncStream { continuation in
+    /// The aliases Claude Code takes for `--model`; each is its newest model of that tier.
+    func models() async -> [AgentModel] {
+        [AgentModel(id: "sonnet", label: "Sonnet"), AgentModel(id: "opus", label: "Opus")]
+    }
+
+    func run(message: String, session: String?, model: String?, tools: AgentTurnTools) -> AsyncStream<AgentEvent> {
+        let mcpConfigPath = tools.relayConfigPath
+        return AsyncStream { continuation in
             guard let executable else {
                 continuation.yield(.failed("Claude Code was not found on this Mac."))
                 continuation.finish()
@@ -126,13 +97,7 @@ final class ClaudeCodeProvider: AgentProvider {
         process?.terminate()
         process = nil
     }
-}
 
-/// The last line Claude Code wrote to stderr — what a failed turn is reported with. **`@unchecked
-/// Sendable` with its reason**: every access holds `lock`.
-nonisolated private final class LastLine: @unchecked Sendable {
-    private let lock = NSLock()
-    private var line: String?
-    func set(_ text: String) { lock.withLock { line = text } }
-    var value: String? { lock.withLock { line } }
+    /// One process per turn, so ending everything is ending the turn.
+    func close() { stop() }
 }

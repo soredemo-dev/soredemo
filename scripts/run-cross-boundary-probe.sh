@@ -176,6 +176,9 @@ xcrun swiftc \
   Soredemo/Agent/AgentRelay.swift \
   Soredemo/Agent/AgentEditorBridge.swift \
   Soredemo/Agent/ClaudeCodeProvider.swift \
+  Soredemo/Agent/AgentProvider.swift \
+  Soredemo/Agent/CodexProvider.swift \
+  Soredemo/Agent/AgentUsageStrip.swift \
   Soredemo/Agent/AgentPanelModel.swift \
   Soredemo/Agent/AgentPanel.swift \
   Soredemo/Agent/AgentPresence.swift \

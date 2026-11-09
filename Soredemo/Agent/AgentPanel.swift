@@ -30,7 +30,8 @@ struct AgentPanel: View {
             // Pinned to the newest line while it grows, and left alone when the person scrolls up
             // to read — the sticky-bottom behaviour every chat has.
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
-            NotesBar(notes: editor.notes, timeline: editor.timeline, canAddress: !model.isRunning && model.availability != .checking) {
+            NotesBar(notes: editor.notes, timeline: editor.timeline, agentName: model.providerName,
+                     canAddress: !model.isRunning && model.availability != .checking) {
                 draft = String(localized: "Address my open notes.")
                 send()
             }
@@ -42,11 +43,31 @@ struct AgentPanel: View {
 
     private var header: some View {
         HStack(spacing: Space.snug) {
-            AgentMark(running: model.isRunning)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: model.providerName).font(Type.label.weight(.semibold))
-                Text(statusText).font(Type.detail).foregroundStyle(Theme.Ink.tertiary)
+            AgentMark(mark: model.providerMark, isTemplate: model.providerMarkIsTemplate, running: model.isRunning)
+            Menu {
+                Picker("Agent", selection: Binding(get: { model.providerIndex }, set: { model.choose($0) })) {
+                    ForEach(model.choices) { choice in
+                        Label { Text(verbatim: choice.name) } icon: { Image(choice.mark) }.tag(choice.id)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: Space.tight) {
+                        Text(verbatim: model.providerName).font(Type.label.weight(.semibold))
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(Theme.Ink.tertiary)
+                    }
+                    Text(statusText).font(Type.detail).foregroundStyle(Theme.Ink.tertiary)
+                }
+                .foregroundStyle(Theme.Ink.primary)
             }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(model.isRunning)
+            .help("Which agent this panel drives. Switching starts a new conversation; cuts already made stay.")
             Spacer()
             Button {
                 model.startOver()
@@ -65,7 +86,7 @@ struct AgentPanel: View {
 
     private var statusText: LocalizedStringKey {
         switch model.availability {
-        case .checking: "Looking for Claude Code…"
+        case .checking: "Looking for \(model.providerName)…"
         case .ready(let version): model.isRunning ? "Working · \(model.elapsed)s" : "Ready · \(version)"
         case .notInstalled: "Not found on this Mac"
         }
@@ -84,6 +105,9 @@ struct AgentPanel: View {
 
 /// The agent's mark beside its name, breathing while it works.
 private struct AgentMark: View {
+    let mark: String
+    /// A one-colour mark is drawn in the text colour, so it reads on both themes.
+    let isTemplate: Bool
     let running: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathe = false
@@ -91,10 +115,12 @@ private struct AgentMark: View {
     var body: some View {
         // The agent's own mark, so the person sees whose agent this is (see
         // docs/third-party-marks.md for where it came from and what it is used for).
-        Image("ClaudeMark")
+        Image(mark)
+            .renderingMode(isTemplate ? .template : .original)
             .resizable()
             .scaledToFit()
             .frame(width: 22, height: 22)
+            .foregroundStyle(Theme.Ink.primary)
             .scaleEffect(running && breathe && !reduceMotion ? 1.08 : 1)
             .animation(running && !reduceMotion ? .easeInOut(duration: 0.9).repeatForever() : .default, value: breathe)
             .onAppear { breathe = true }
@@ -135,13 +161,13 @@ private struct AgentWelcome: View {
         VStack(alignment: .leading, spacing: Space.regular) {
             switch model.availability {
             case .notInstalled:
-                Text("Claude Code isn't installed on this Mac.").font(Type.heading)
+                Text("\(model.providerName) isn't installed on this Mac.").font(Type.heading)
                 Text("Install it, sign in once in Terminal, then check again. Soredemo uses your own login and holds no key.")
                     .font(Type.label).foregroundStyle(Theme.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Check again") { Task { await model.checkAvailability() } }
             default:
-                Text("Edit with Claude Code").font(.title3.weight(.semibold))
+                Text("Edit with \(model.providerName)").font(.title3.weight(.semibold))
                 Text("It runs on this Mac under your own login and can read this recording's steps and cut its timeline while you watch. Every cut is one undo step, and a whole turn reverts at once. It cannot publish anything.")
                     .font(Type.label).foregroundStyle(Theme.Ink.secondary)
                     .lineSpacing(2)
@@ -203,7 +229,7 @@ private struct TurnView: View {
             .transition(.opacity)
             // The live line only when no tool row is already saying what is happening — one
             // indicator of "now", never two.
-            if turn.running, !Self.isUsingATool(model.activity) { LiveStatus(activity: model.activity) }
+            if turn.running, !Self.isUsingATool(model.activity) { LiveStatus(activity: model.activity, agent: model.providerName) }
             if let failure = turn.failure {
                 Label { Text(verbatim: failure).textSelection(.enabled) } icon: { Image(systemName: "exclamationmark.triangle") }
                     .font(Type.detail).foregroundStyle(Theme.Ink.caution)
@@ -288,6 +314,7 @@ private struct TurnView: View {
 /// The running turn's live line while it thinks or writes: what it is doing now, shimmering.
 private struct LiveStatus: View {
     let activity: AgentPanelModel.Activity?
+    let agent: String
 
     var body: some View {
         HStack(spacing: Space.snug) {
@@ -297,7 +324,7 @@ private struct LiveStatus: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var phrase: LocalizedStringKey { AgentPhrase.activity(activity) }
+    private var phrase: LocalizedStringKey { AgentPhrase.activity(activity, agent: agent) }
 }
 
 /// The reasoning, shown while the model thinks and folded to one line when it is done.
@@ -489,6 +516,7 @@ private struct NoteCard: View {
 private struct NotesBar: View {
     let notes: NotesModel
     let timeline: TimelineEditorModel
+    let agentName: String
     let canAddress: Bool
     let onAddress: () -> Void
     @State private var open = false
@@ -504,7 +532,7 @@ private struct NotesBar: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Ink.tertiary)
-                .help("Press N, click where something should change, and write what. Then ask Claude Code to address your notes.")
+                .help("Press N, click where something should change, and write what. Then ask \(agentName) to address your notes.")
             } else {
                 HStack(spacing: Space.snug) {
                     Button {
@@ -533,7 +561,7 @@ private struct NotesBar: View {
                         .controlSize(.small)
                         .tint(Theme.accent)
                         .disabled(!canAddress || notes.open.isEmpty)
-                        .help("Ask Claude Code to make the change each open note asks for")
+                        .help("Ask \(agentName) to make the change each open note asks for")
                 }
                 if open {
                     VStack(alignment: .leading, spacing: Space.tight) {
@@ -609,7 +637,7 @@ private struct AgentComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.snug) {
             VStack(alignment: .leading, spacing: Space.snug) {
-                TextField("Ask Claude Code to edit this recording…", text: $draft, axis: .vertical)
+                TextField("Ask \(model.providerName) to edit this recording…", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(Type.label)
                     .lineLimit(1...8)
@@ -622,8 +650,9 @@ private struct AgentComposer: View {
                     Menu {
                         Picker("Model", selection: Binding(get: { model.model ?? "" }, set: { model.model = $0.isEmpty ? nil : $0 })) {
                             Text("Your default").tag("")
-                            Text(verbatim: "Sonnet").tag("sonnet")
-                            Text(verbatim: "Opus").tag("opus")
+                            ForEach(model.models, id: \.id) { choice in
+                                Text(verbatim: choice.label).tag(choice.id)
+                            }
                         }
                         .pickerStyle(.inline)
                     } label: {
@@ -632,7 +661,7 @@ private struct AgentComposer: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     .disabled(model.isRunning)
-                    .help("Which model your Claude Code uses for this panel")
+                    .help("Which model your \(model.providerName) uses for this panel")
                     sendButton
                 }
             }
@@ -640,9 +669,7 @@ private struct AgentComposer: View {
             .background(Theme.Surface.raised, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(focused ? Theme.Ink.tertiary : Theme.Line.divider))
             .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
-            Text("Sent by your Claude Code, under your account.")
-                .font(Type.detail).foregroundStyle(Theme.Ink.tertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
+            AgentUsageStrip(model: model)
         }
         .padding(.horizontal, Space.regular)
         .padding(.bottom, Space.regular)
@@ -650,11 +677,7 @@ private struct AgentComposer: View {
     }
 
     private var modelName: String {
-        switch model.model {
-        case "sonnet": "Sonnet"
-        case "opus": "Opus"
-        default: String(localized: "Your default")
-        }
+        model.models.first { $0.id == model.model }?.label ?? String(localized: "Your default")
     }
 
     @ViewBuilder private var sendButton: some View {
@@ -803,12 +826,12 @@ enum AgentContextReader {
 /// What the agent is doing or did, in words — **one table for the panel and the preview pill**,
 /// so the two cannot describe one tool call differently.
 enum AgentPhrase {
-    static func activity(_ activity: AgentPanelModel.Activity?) -> LocalizedStringKey {
+    static func activity(_ activity: AgentPanelModel.Activity?, agent: String) -> LocalizedStringKey {
         switch activity {
         case .tool(let name)?: present(name)
         case .writing?: "Writing"
         case .thinking?: "Thinking"
-        case .starting?, nil: "Starting Claude Code"
+        case .starting?, nil: "Starting \(agent)"
         }
     }
 

@@ -90,6 +90,18 @@ Next, each a change this reading made the case for:
 Not taken: the app holding API keys (Soredemo holds none and keeps it so); an HTTP MCP server; a
 confirmation flag the agent can set itself.
 
+### What an agent host shows of the person's usage
+
+- **Two numbers, not one.** How full this conversation's context is — the last request's input
+  against the model's window, which is the live size even after compaction — and the account's
+  usage windows, five hours and a week, each with when it resets. A cumulative token total is the
+  thread's spend, a different number, and is not the context.
+- **Read from the agent, never polled from the provider.** One desktop host reads Claude Code's
+  status-line feed rather than a usage endpoint that rate-limits it, and asks Codex's app-server for
+  its windows on the connection it already holds.
+- **No reading is no reading.** A count of zero, or a window with no percentage, is left out, and
+  "allowed" is believed from the provider's own flag rather than inferred from a percentage.
+
 ## Codex, measured: what `app-server` lets a host close — 2026-11-09
 
 Measured with a throwaway JSON-RPC client against the installed `codex app-server`, one ephemeral
