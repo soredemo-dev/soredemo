@@ -136,7 +136,7 @@ public struct TextTrack: Sendable, Equatable, Codable {
                       let outputStart = timeline.outputTime(atSource: SourceTime(nanos: start))?.nanoseconds
                 else { return nil }
                 return TextItem(id: item.id, text: item.text, start: outputStart,
-                                end: Nanoseconds(outputStart.rawValue + (end - start)),
+                                end: Nanoseconds(outputStart.rawValue + clip.playLength(ofSource: Nanoseconds(end - start)).rawValue),
                                 style: item.style, animation: item.animation)
             }
         }, nextID: nextID)

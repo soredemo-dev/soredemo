@@ -128,8 +128,14 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     }
 
     /// How long this clip PLAYS. Every output-space position is a sum of these.
-    public var outputDuration: Nanoseconds {
-        Nanoseconds(Int64((Double(duration.rawValue) / speed).rounded()))
+    public var outputDuration: Nanoseconds { playLength(ofSource: duration) }
+
+    /// How long a span of the recording takes to play in this clip: `1/speed` of it. **The one
+    /// conversion for a length**, used by every track that places something on a clip — the
+    /// caption track had it and the title and annotation tracks did not, so on a 2× clip a title
+    /// played for twice its time.
+    public func playLength(ofSource length: Nanoseconds) -> Nanoseconds {
+        Nanoseconds(Int64((Double(length.rawValue) / speed).rounded()))
     }
 
     /// The same clip at a different speed. Keeps the id, for `spanning`'s reason.

@@ -121,6 +121,25 @@ private func ns(_ seconds: Double) -> Nanoseconds {
         #expect(backwards.duration == Nanoseconds(0))
         #expect(!backwards.contains(ns(3)))
     }
+
+    /// A title on a sped-up clip plays for the time its span takes to play — the caption track's
+    /// fix, which this track had not taken. It had no retiming test at all until this one.
+    @Test func aTitleOnASpedUpClipPlaysForTheTimeItTakesToPlay() {
+        let clip = EditClip(id: ClipID(rawValue: 1), sourceStart: ns(0), duration: ns(10), speed: 2)
+        let track = TextTrack().adding(text: "Step one", start: ns(2), end: ns(4))
+        let retimed = try! #require(track.retimed(through: EditTimeline(clips: [clip])).items.first)
+        #expect(retimed.start == ns(1))
+        #expect(retimed.end == ns(2), "got \(retimed.end.rawValue)")
+    }
+
+    /// And on an ordinary clip after a cut it moves back by what was cut, keeping its length.
+    @Test func aTitleAfterACutMovesBackByWhatWasRemoved() {
+        let cut = EditTimeline.whole(duration: ns(10)).removing(sourceRange: ns(2).rawValue..<ns(5).rawValue)
+        let track = TextTrack().adding(text: "Later", start: ns(8), end: ns(9))
+        let retimed = try! #require(track.retimed(through: cut).items.first)
+        #expect(retimed.start == ns(5))
+        #expect(retimed.end == ns(6))
+    }
 }
 
 @Suite struct TextOverlayStyleTests {

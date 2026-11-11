@@ -42,8 +42,8 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
                 // `outputStart + (end - start)`, which does not. Measured on a 2× clip: a cue at
                 // source 0–2 came out at output 0–2 instead of 0–1, and the cue after it at 1–3
                 // instead of 1–2 — every caption on a sped-up clip drawn for twice its length and
-                // overlapping its successor by half of it. `played(_:)` is the one conversion now.
-                let outputEnd = outputStart.rawValue + played(end - start, at: clip.speed)
+                // overlapping its successor by half of it. `EditClip.playLength(ofSource:)` is the one conversion now.
+                let outputEnd = outputStart.rawValue + clip.playLength(ofSource: Nanoseconds(end - start)).rawValue
                 // Words are clipped to the surviving span too, so a highlight cannot point at a
                 // word the cut removed — and they take the same conversion, or a highlight lands
                 // on the wrong word for the whole of a sped-up clip.
@@ -54,9 +54,9 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
                     return TranscribedWord(
                         text: word.text,
                         start: Nanoseconds(outputStart.rawValue
-                                           + played(wordStart - start, at: clip.speed)),
+                                           + clip.playLength(ofSource: Nanoseconds(wordStart - start)).rawValue),
                         end: Nanoseconds(outputStart.rawValue
-                                         + played(wordEnd - start, at: clip.speed)))
+                                         + clip.playLength(ofSource: Nanoseconds(wordEnd - start)).rawValue))
                 }
                 return CaptionCue(text: cue.text, start: outputStart,
                                   end: Nanoseconds(outputEnd), words: words)
@@ -81,13 +81,6 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
         // Before the first cue, "next" is the first one rather than the second.
         let stepped = anchor < 0 ? (delta > 0 ? 0 : 0) : anchor + delta
         return Swift.min(Swift.max(stepped, 0), cues.count - 1)
-    }
-
-    /// How long a span of the RECORDING takes to PLAY at a clip's speed. The same arithmetic
-    /// `EditTimeline.outputTime(atSource:)` does, spelled once here so a duration and an instant
-    /// cannot disagree about it.
-    private func played(_ sourceSpan: Int64, at speed: Double) -> Int64 {
-        Int64((Double(sourceSpan) / speed).rounded())
     }
 
     /// A cue's text replaced, keeping its timing. What editing a caption is: a recogniser gets a

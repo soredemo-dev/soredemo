@@ -95,6 +95,21 @@ import Timeline
         #expect(retimed.end.rawValue == Int64(6 * second))
     }
 
+    /// **On a sped-up clip an annotation plays for the time its span takes to play.** The start
+    /// went through `outputTime(atSource:)`, which divides by the speed; the end added the SOURCE
+    /// length, which does not — the defect the caption track had and fixed. On a 2× clip an arrow
+    /// at 2–4 s drew for two seconds of video instead of one, over whatever followed it.
+    @Test func anAnnotationOnASpedUpClipPlaysForTheTimeItTakesToPlay() {
+        let clip = EditClip(id: ClipID(rawValue: 1), sourceStart: Nanoseconds(0),
+                            duration: Nanoseconds(Int64(10 * second)), speed: 2)
+        let annotations = AnnotationTrack()
+            .adding(shape: .line, startX: 0, startY: 0, endX: 1, endY: 1,
+                    start: Nanoseconds(Int64(2 * second)), end: Nanoseconds(Int64(4 * second)))
+        let retimed = try! #require(annotations.retimed(through: EditTimeline(clips: [clip])).items.first)
+        #expect(retimed.start.rawValue == Int64(1 * second))
+        #expect(retimed.end.rawValue == Int64(2 * second), "got \(retimed.end.rawValue)")
+    }
+
     /// **A split keeps the id AND the geometry.** Both halves are the same arrow pointing at the
     /// same thing; an inspector showing "this one" should show both, and a half that moved would
     /// be pointing somewhere nobody aimed.

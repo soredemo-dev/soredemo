@@ -256,7 +256,7 @@ public struct AnnotationTrack: Sendable, Equatable, Codable {
                     startX: item.startX, startY: item.startY,
                     endX: item.endX, endY: item.endY,
                     style: item.style, start: outputStart,
-                    end: Nanoseconds(outputStart.rawValue + (end - start)),
+                    end: Nanoseconds(outputStart.rawValue + clip.playLength(ofSource: Nanoseconds(end - start)).rawValue),
                     animation: item.animation)
             }
         }, nextID: nextID)
