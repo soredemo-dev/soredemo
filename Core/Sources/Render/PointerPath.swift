@@ -507,14 +507,56 @@ private struct SplineTarget {
 
 // MARK: - the spring
 
-/// One analytic step of a damped harmonic oscillator with the target held constant across the
-/// step. **Analytic, not Euler**, because the closed form is exact at any `dt` and cannot
-/// blow up when a stiff click profile meets a coarse step.
+/// One step of a damped harmonic oscillator with the target held constant across the step:
+/// x″ = −ω²·(x − target) − 2ζω·x′, solved exactly at `dt` for every ζ ≥ 0 — so the step can be
+/// any size without changing the motion. See `Tests/RenderTests/SpringTests.swift`.
 enum Spring {
-    // Removed from the published history: this step followed another program's code line for
-    // line. The present one was written from the differential equation.
     static func step(position x0: Double, velocity v0: Double, target: Double,
                      omega: Double, zeta: Double, dt: Double) -> (Double, Double) {
-        fatalError("removed from the published history")
+        guard dt > 0 else { return (x0, v0) }
+        // With y = x − target: y″ + 2a·y′ + ω²·y = 0, a = ζω. Every case is
+        //     y(t)  = e^(−at)·[y₀·C(t) + (v₀ + a·y₀)·S(t)]
+        //     y′(t) = e^(−at)·[v₀·C(t) − (ω²·y₀ + a·v₀)·S(t)]
+        // where C(0) = 1, S(0) = 0, S′ = C, C′ = (a² − ω²)·S: cos/sin under critical, cosh/sinh
+        // over it, 1 and t at it. `decayingPair` returns e^(−at)·C and e^(−at)·S.
+        let y0 = x0 - target
+        let a = zeta * omega
+        let (c, s) = decayingPair(a: a, omega: omega, zeta: zeta, t: dt)
+        let y = y0 * c + (v0 + a * y0) * s
+        let v = v0 * c - (omega * omega * y0 + a * v0) * s
+        return (target + y, v)
+    }
+
+    /// e^(−at)·C(t) and e^(−at)·S(t), with u = (ζ² − 1)·ω²·t² deciding the form.
+    ///
+    /// **Near ζ = 1 one power series serves both sides**: C = Σ uᵏ/(2k)! and S = t·Σ uᵏ/(2k+1)!
+    /// are cos/sin when u < 0, cosh/sinh when u > 0 and 1, t at u = 0 — one function of u, so
+    /// there is no seam and no s → 0 division to lose precision in. `ζ² − 1` is formed as
+    /// (ζ − 1)(ζ + 1) so it carries ζ's full precision. Away from 1 the closed forms apply,
+    /// the overdamped one as two decaying exponentials so that a long step cannot overflow
+    /// cosh into ∞ · 0; its slow root is written ω/(ζ + √(ζ² − 1)) to avoid cancellation.
+    private static func decayingPair(a: Double, omega: Double, zeta: Double,
+                                     t: Double) -> (Double, Double) {
+        let detuning = (zeta - 1) * (zeta + 1)
+        let u = detuning * omega * omega * t * t
+        if abs(u) < 1 {
+            var c = 0.0, s = 0.0, term = 1.0
+            for k in 0..<20 {
+                c += term
+                term /= Double(2 * k + 1)
+                s += term
+                term *= u / Double(2 * k + 2)
+            }
+            let decay = exp(-a * t)
+            return (decay * c, decay * s * t)
+        }
+        let root = omega * sqrt(abs(detuning))
+        if detuning < 0 {
+            let decay = exp(-a * t)
+            return (decay * cos(root * t), decay * sin(root * t) / root)
+        }
+        let slow = exp(-omega / (zeta + sqrt(detuning)) * t)
+        let fast = exp(-(a + root) * t)
+        return ((slow + fast) / 2, (slow - fast) / (2 * root))
     }
 }
