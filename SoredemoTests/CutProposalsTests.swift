@@ -68,7 +68,7 @@ private func proposals() throws -> [CutProposal] {
     let rows = try listing(model).rows
     model.dismissCut(rows[0].proposal.key, named: "Keep")
     model.acceptCut(rows[2], named: "Cut")
-    model.movePlayhead(to: Nanoseconds(2 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(2 * second)))
     model.splitAtPlayhead()
     #expect(model.dismissedCuts == [rows[0].proposal.key])
 }

@@ -29,7 +29,7 @@ struct TimelinePlayheadLine: View {
                     .fill(Theme.Ink.primary)
                     .frame(width: 1)
                     .offset(x: TimelineLayout.contentOrigin
-                               + model.window.fraction(of: playhead) * track)
+                               + model.window.fraction(of: playhead.nanoseconds) * track)
             }
             .allowsHitTesting(false)
         }

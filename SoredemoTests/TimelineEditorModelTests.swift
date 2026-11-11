@@ -14,7 +14,7 @@ import Timeline
     let model = TimelineEditorModel()
     #expect(model.duration == nil)
     #expect(model.exportRange == nil)
-    #expect(model.playhead == Nanoseconds(0))
+    #expect(model.playhead.nanoseconds == Nanoseconds(0))
 }
 
 // MARK: - trims and zooms line up
@@ -25,7 +25,7 @@ private let second: Int64 = 1_000_000_000
 @Test @MainActor func aTrimNearThePlayheadLandsOnIt() throws {
     let model = TimelineEditorModel()
     model.load(duration: 10)
-    model.movePlayhead(to: Nanoseconds(3 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(3 * second)))
     let clip = try #require(model.edit.clips.first)
     // The end dragged from 10 s to 3.05 s, with a tenth of a second counting as near.
     model.previewTrim(of: clip.id, edge: .end, byNanoseconds: -(7 * second - second / 20),
@@ -40,7 +40,7 @@ private let second: Int64 = 1_000_000_000
 @Test @MainActor func aTrimWithNoThresholdGoesExactlyWhereItWasDragged() throws {
     let model = TimelineEditorModel()
     model.load(duration: 10)
-    model.movePlayhead(to: Nanoseconds(3 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(3 * second)))
     let clip = try #require(model.edit.clips.first)
     model.previewTrim(of: clip.id, edge: .end, byNanoseconds: -(7 * second - second / 20),
                       snapThreshold: Nanoseconds(0))
@@ -52,7 +52,7 @@ private let second: Int64 = 1_000_000_000
 @Test @MainActor func aSmallTrimIsNotHeldAtItsOwnStartingEdge() throws {
     let model = TimelineEditorModel()
     model.load(duration: 10)
-    model.movePlayhead(to: Nanoseconds(2 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(2 * second)))
     let clip = try #require(model.edit.clips.first)
     model.previewTrim(of: clip.id, edge: .end, byNanoseconds: -(second / 50),
                       snapThreshold: Nanoseconds(second / 10))
@@ -73,7 +73,7 @@ private let second: Int64 = 1_000_000_000
     model.setDerivedZooms([ZoomBlock(origin: origin, start: origin,
                                      end: HostInstant(epoch: epoch, hostTime: Nanoseconds(2 * second)),
                                      target: target, zoom: 2)])
-    model.movePlayhead(to: Nanoseconds(3 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(3 * second)))
 
     // Dragged by 0.97 s: the end would land at 2.97 s, a hundredth short of the playhead.
     model.previewZoomMove(origin, byNanoseconds: 970_000_000, snapThreshold: Nanoseconds(second / 10))

@@ -30,14 +30,14 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func anInPointIsWhereThePlayheadIsInTheEditedVideo() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markIn()
         #expect(model.exportRange == ns(7).rawValue..<ns(17).rawValue)
     }
 
     @Test func anOutPointIsWhereThePlayheadIsInTheEditedVideo() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markOut()
         #expect(model.exportRange == 0..<ns(7).rawValue)
         #expect(model.editForExport.outputDuration == ns(7))
@@ -45,7 +45,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func pressingInTwiceCancelsIt() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markIn()
         #expect(model.exportRange != nil)
         model.markIn()
@@ -55,7 +55,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// No frame of the video is there, so there is nothing to point at.
     @Test func aPlayheadInsideACutMarksNothing() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(3))
+        model.movePlayhead(to: SourceTime(ns(3)))
         model.markIn()
         model.markOut()
         #expect(model.inPoint == nil && model.outPoint == nil)
@@ -63,9 +63,9 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func anOutPointBeforeTheInPointClearsTheInPoint() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(12))
+        model.movePlayhead(to: SourceTime(ns(12)))
         model.markIn()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markOut()
         #expect(model.exportRange == 0..<ns(7).rawValue)
     }
@@ -73,7 +73,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// An in point at the very start is the whole video, not a section of it.
     @Test func aRangeThatIsTheWholeVideoIsNoRange() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(0))
+        model.movePlayhead(to: SourceTime(ns(0)))
         model.markIn()
         #expect(model.exportRange == nil)
         #expect(model.editForExport == model.edit)
@@ -81,7 +81,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func theExportIsRestrictedAndThePreviewIsNot() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markOut()
         #expect(model.editForExport.outputDuration == ns(7))
         #expect(model.edit.outputDuration == ns(17))
@@ -93,7 +93,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// playhead was when I was pressed, not at the output number read as a source one.
     @Test func theShadeIsDrawnWhereTheExportStartsInTheRecording() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.markIn()
         #expect(model.exportRangeInSource == ns(10).rawValue..<ns(20).rawValue)
         model.clearExportRange()
@@ -109,7 +109,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
         model.load(duration: 20)
         model.selection = ns(2).rawValue..<ns(5).rawValue
         model.removeSelection()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         #expect(heard.times.last == ns(10))
     }
 
@@ -119,7 +119,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// the split must land at output 7, and the clip boundary at source 10.
     @Test func aSplitAfterACutLandsWhereThePlayheadIs() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         #expect(model.canSplitAtPlayhead)
         model.splitAtPlayhead()
         #expect(model.edit.clips.map(\.sourceStart) == [ns(0), ns(5), ns(10)])
@@ -128,7 +128,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
 
     @Test func thereIsNothingToSplitInsideACut() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(3))
+        model.movePlayhead(to: SourceTime(ns(3)))
         #expect(!model.canSplitAtPlayhead)
     }
 
@@ -157,7 +157,7 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// Clip would be offered with nothing to delete.
     @Test func undoingPastASplitForgetsTheClipItRemoved() {
         let model = cutTimeline()
-        model.movePlayhead(to: ns(10))
+        model.movePlayhead(to: SourceTime(ns(10)))
         model.splitAtPlayhead()
         model.selectClip(atSource: ns(15))
         #expect(model.selectedClip != nil)
@@ -218,8 +218,8 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64((seconds *
     /// Playback reports OUTPUT time; the playhead is SOURCE time.
     @Test func followingThePlayerConvertsOutputToSource() {
         let model = cutTimeline()
-        model.followPlayer(outputTime: ns(7))
-        #expect(model.playhead == ns(10))
+        model.followPlayer(outputTime: OutputTime(ns(7)))
+        #expect(model.playhead.nanoseconds == ns(10))
     }
 
     // MARK: - what a project saves

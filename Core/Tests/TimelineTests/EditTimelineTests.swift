@@ -14,8 +14,8 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         let timeline = EditTimeline.whole(duration: tenSeconds)
         #expect(timeline.outputDuration == tenSeconds)
         for probe: Int64 in [0, 1, 4_000_000_000, 9_999_999_999] {
-            #expect(timeline.sourceTime(atOutput: ns(probe)) == ns(probe))
-            #expect(timeline.outputTime(atSource: ns(probe)) == ns(probe))
+            #expect(timeline.sourceTime(atOutput: OutputTime(ns(probe))) == SourceTime(ns(probe)))
+            #expect(timeline.outputTime(atSource: SourceTime(ns(probe))) == OutputTime(ns(probe)))
         }
     }
 
@@ -23,9 +23,9 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
     /// exist has a bug, and clamping lets it run undetected.
     @Test func aTimePastTheEndHasNoAnswer() {
         let timeline = EditTimeline.whole(duration: tenSeconds)
-        #expect(timeline.sourceTime(atOutput: tenSeconds) == nil)
-        #expect(timeline.sourceTime(atOutput: ns(-1)) == nil)
-        #expect(timeline.outputTime(atSource: tenSeconds) == nil)
+        #expect(timeline.sourceTime(atOutput: OutputTime(tenSeconds)) == nil)
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(-1))) == nil)
+        #expect(timeline.outputTime(atSource: SourceTime(tenSeconds)) == nil)
     }
 
     // MARK: - cut
@@ -40,11 +40,11 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(timeline.outputDuration == ns(7_000_000_000))
 
         // Before the cut the two clocks still agree…
-        #expect(timeline.sourceTime(atOutput: ns(1_000_000_000)) == ns(1_000_000_000))
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(1_000_000_000))) == SourceTime(ns(1_000_000_000)))
         // …and after it they are three seconds apart.
-        #expect(timeline.sourceTime(atOutput: ns(2_000_000_000)) == ns(5_000_000_000))
-        #expect(timeline.sourceTime(atOutput: ns(6_999_999_999)) == ns(9_999_999_999))
-        #expect(timeline.sourceTime(atOutput: ns(7_000_000_000)) == nil)
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(2_000_000_000))) == SourceTime(ns(5_000_000_000)))
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(6_999_999_999))) == SourceTime(ns(9_999_999_999)))
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(7_000_000_000))) == nil)
     }
 
     /// **`nil` means CUT, and it is a different answer from zero.** A caller that drew the
@@ -53,11 +53,11 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
     @Test func aSourceTimeInsideTheCutHasNoOutputTime() {
         let timeline = EditTimeline.whole(duration: tenSeconds)
             .removing(sourceRange: 2_000_000_000..<5_000_000_000)
-        #expect(timeline.outputTime(atSource: ns(2_000_000_000)) == nil)
-        #expect(timeline.outputTime(atSource: ns(4_999_999_999)) == nil)
+        #expect(timeline.outputTime(atSource: SourceTime(ns(2_000_000_000))) == nil)
+        #expect(timeline.outputTime(atSource: SourceTime(ns(4_999_999_999))) == nil)
         // The boundaries either side survive, and land where the cut put them.
-        #expect(timeline.outputTime(atSource: ns(1_999_999_999)) == ns(1_999_999_999))
-        #expect(timeline.outputTime(atSource: ns(5_000_000_000)) == ns(2_000_000_000))
+        #expect(timeline.outputTime(atSource: SourceTime(ns(1_999_999_999))) == OutputTime(ns(1_999_999_999)))
+        #expect(timeline.outputTime(atSource: SourceTime(ns(5_000_000_000))) == OutputTime(ns(2_000_000_000)))
     }
 
     /// The two directions must be inverses wherever both are defined. Asserted over the whole
@@ -68,9 +68,9 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
             .removing(sourceRange: 200..<500)
             .removing(sourceRange: 800..<900)
         for output in 0..<timeline.outputDuration.rawValue {
-            let source = timeline.sourceTime(atOutput: ns(output))
+            let source = timeline.sourceTime(atOutput: OutputTime(ns(output)))
             let back = source.flatMap { timeline.outputTime(atSource: $0) }
-            #expect(back == ns(output), "output \(output) round-tripped to \(String(describing: back))")
+            #expect(back == OutputTime(ns(output)), "output \(output) round-tripped to \(String(describing: back))")
         }
     }
 
@@ -78,11 +78,11 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         let whole = EditTimeline.whole(duration: tenSeconds)
         let headless = whole.removing(sourceRange: 0..<3_000_000_000)
         #expect(headless.clips.count == 1)
-        #expect(headless.sourceTime(atOutput: ns(0)) == ns(3_000_000_000))
+        #expect(headless.sourceTime(atOutput: OutputTime(ns(0))) == SourceTime(ns(3_000_000_000)))
 
         let tailless = whole.removing(sourceRange: 7_000_000_000..<10_000_000_000)
         #expect(tailless.outputDuration == ns(7_000_000_000))
-        #expect(tailless.sourceTime(atOutput: ns(6_999_999_999)) == ns(6_999_999_999))
+        #expect(tailless.sourceTime(atOutput: OutputTime(ns(6_999_999_999))) == SourceTime(ns(6_999_999_999)))
     }
 
     @Test func cuttingEverythingLeavesAnEmptyTimeline() {
@@ -90,7 +90,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
             .removing(sourceRange: 0..<10_000_000_000)
         #expect(timeline.isEmpty)
         #expect(timeline.outputDuration == ns(0))
-        #expect(timeline.sourceTime(atOutput: ns(0)) == nil)
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(0))) == nil)
     }
 
     @Test func anEmptyCutChangesNothing() {
@@ -112,7 +112,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
             .trimmed(toSource: 2_000_000_000..<8_000_000_000)
         #expect(timeline.clips.count == 1)
         #expect(timeline.outputDuration == ns(6_000_000_000))
-        #expect(timeline.sourceTime(atOutput: ns(0)) == ns(2_000_000_000))
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(0))) == SourceTime(ns(2_000_000_000)))
     }
 
     /// A trim applied to an already-cut timeline keeps only the parts inside it, and the
@@ -254,8 +254,8 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
 
         #expect(after.clips.count == 1)
         #expect(after.outputDuration == ns(200))
-        #expect(after.sourceTime(atOutput: ns(0)) == ns(0))
-        #expect(after.sourceTime(atOutput: ns(200)) == nil)
+        #expect(after.sourceTime(atOutput: OutputTime(ns(0))) == SourceTime(ns(0)))
+        #expect(after.sourceTime(atOutput: OutputTime(ns(200))) == nil)
     }
 
     /// **Deleting an earlier clip must not move what a selection points at.** The whole reason
@@ -282,7 +282,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(split?.clips.count == 2)
         #expect(split?.outputDuration == timeline.outputDuration)
         for probe: Int64 in [0, 399, 400, 999] {
-            #expect(split?.sourceTime(atOutput: ns(probe)) == timeline.sourceTime(atOutput: ns(probe)),
+            #expect(split?.sourceTime(atOutput: OutputTime(ns(probe))) == timeline.sourceTime(atOutput: OutputTime(ns(probe))),
                     "the split moved output \(probe)")
         }
     }
@@ -349,7 +349,7 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         #expect(moved.outputDuration == timeline.outputDuration,
                 "moving a clip changed how long the video is")
         // The moved clip now plays second, so the output reads the other span first.
-        #expect(moved.sourceTime(atOutput: ns(0)) == ns(600))
+        #expect(moved.sourceTime(atOutput: OutputTime(ns(0))) == SourceTime(ns(600)))
     }
 
     /// `destination` indexes the timeline WITHOUT the moved clip, which is the only reading
@@ -467,10 +467,10 @@ private func ns(_ value: Int64) -> Nanoseconds { Nanoseconds(value) }
         let timeline = EditTimeline(clips: [
             EditClip(id: ClipID(rawValue: 0), sourceStart: ns(0), duration: ns(10), speed: 2),
         ])
-        #expect(timeline.sourceTime(atOutput: ns(4)) == ns(8))
-        #expect(timeline.outputTime(atSource: ns(8)) == ns(4))
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(4))) == SourceTime(ns(8)))
+        #expect(timeline.outputTime(atSource: SourceTime(ns(8))) == OutputTime(ns(4)))
         // Past the end of what plays is still nil, not the last frame.
-        #expect(timeline.sourceTime(atOutput: ns(6)) == nil)
+        #expect(timeline.sourceTime(atOutput: OutputTime(ns(6))) == nil)
     }
 
     /// A cut lands in OUTPUT time, so the offset has to be converted back before it becomes a

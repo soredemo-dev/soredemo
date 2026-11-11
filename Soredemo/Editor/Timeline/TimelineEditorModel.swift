@@ -34,8 +34,9 @@ final class TimelineEditorModel {
     /// intermediate value would make ⌘Z undo a pixel. Committed once on release.
     private var liveEdit: EditTimeline?
     var edit: EditTimeline { liveEdit ?? history.current.timeline }
-    /// Where the playhead sits, in SOURCE time.
-    private(set) var playhead = Nanoseconds(0)
+    /// Where the playhead sits, in SOURCE time — a `SourceTime`, so a site that treats it as
+    /// output time does not compile (`docs/design/2026-11-09-two-clocks-two-types.md`).
+    private(set) var playhead = SourceTime.zero
 
     // MARK: - the export range
 
@@ -77,12 +78,12 @@ final class TimelineEditorModel {
     /// to point at, and the nearest kept frame either side is a side nobody chose.
     func markIn() {
         guard let output = edit.outputTime(atSource: playhead) else { return }
-        marks.markIn(at: output)
+        marks.markIn(at: output.nanoseconds)
     }
 
     func markOut() {
         guard let output = edit.outputTime(atSource: playhead) else { return }
-        marks.markOut(at: output)
+        marks.markOut(at: output.nanoseconds)
     }
 
     func clearExportRange() {
@@ -119,13 +120,13 @@ final class TimelineEditorModel {
     /// one function every deliberate move goes through — a drag, a tap on the ruler, a keyboard
     /// nudge. `followPlayer` is the other writer and is deliberately not here: it is playback
     /// moving the line, and playing a grain over the audio already playing would be an echo.
-    func movePlayhead(to time: Nanoseconds) {
+    func movePlayhead(to time: SourceTime) {
         playhead = time
         seekRequest += 1
         // The playhead is already the recording's clock, which is what `ScrubAudio` reads.
         // Until 2026-10-23 it was converted as though it were output time, and after a cut the
         // scrub played whatever lay that far further on.
-        scrub(time)
+        scrub(time.nanoseconds)
     }
 
     /// The preview is here. Moves the line and nothing else.
@@ -133,7 +134,7 @@ final class TimelineEditorModel {
     /// **Without this the playhead did not move during playback at all** — the line sat where it
     /// was last dragged while the picture ran on, so the one surface that says WHEN things
     /// happen could not say when NOW was.
-    func followPlayer(outputTime: Nanoseconds) {
+    func followPlayer(outputTime: OutputTime) {
         guard let source = edit.sourceTime(atOutput: outputTime) else { return }
         playhead = source
     }
@@ -343,7 +344,7 @@ final class TimelineEditorModel {
         let zoomEdges = (adjustments ?? zoomAdjustments).applied(to: derivedZooms)
             .filter { $0.origin != excludingZoom }
             .flatMap { block in [offset(of: block.start), offset(of: block.end)].compactMap { $0 } }
-        let targets = SnapEngine.targets(in: timeline ?? edit, playhead: playhead,
+        let targets = SnapEngine.targets(in: timeline ?? edit, playhead: playhead.nanoseconds,
                                          zoomEdges: zoomEdges, excluding: Set(edges))
         let probes = edges.map { Nanoseconds($0.rawValue - first.rawValue) }
         guard let result = SnapEngine.snap(position: Nanoseconds(first.rawValue + delta),
@@ -446,7 +447,7 @@ final class TimelineEditorModel {
         history.reset(to: history.current.with(timeline: EditTimeline.whole(duration: total)))
         window = .whole(total)
         original = edit
-        movePlayhead(to: Nanoseconds(0))
+        movePlayhead(to: .zero)
         selection = nil
         selectedClip = nil
         publish()
@@ -471,7 +472,7 @@ final class TimelineEditorModel {
     /// should land ON it: a cut that misses by a nanosecond leaves a sliver of a clip that is
     /// invisible on the strip and real in the export.
     func snapped(_ time: Nanoseconds, threshold: Nanoseconds) -> Nanoseconds {
-        let targets = SnapEngine.targets(in: edit, playhead: playhead)
+        let targets = SnapEngine.targets(in: edit, playhead: playhead.nanoseconds)
         guard let result = SnapEngine.snap(position: time, targets: targets,
                                            state: &snapState, threshold: threshold) else {
             snapIndicator = nil
@@ -629,12 +630,12 @@ final class TimelineEditorModel {
     /// would land somewhere else on every timeline that had already been edited.
     func splitAtPlayhead() {
         guard let output = edit.outputTime(atSource: playhead),
-              let split = edit.split(atOutput: output) else { return }
+              let split = edit.split(atOutput: output.nanoseconds) else { return }
         apply("Split at Playhead", split)
     }
 
     var canSplitAtPlayhead: Bool {
-        edit.outputTime(atSource: playhead).map { edit.split(atOutput: $0) != nil } ?? false
+        edit.outputTime(atSource: playhead).map { edit.split(atOutput: $0.nanoseconds) != nil } ?? false
     }
 
     /// Deletes the selected clip. The clips after it move earlier on their own — a clip's
@@ -724,7 +725,7 @@ final class TimelineEditorModel {
     /// Brings the playhead back on screen after a keyboard nudge walked it off the edge.
     /// Nothing happens while it is already visible, so playback does not drag the view.
     func revealPlayhead() {
-        window = window.revealing(playhead)
+        window = window.revealing(playhead.nanoseconds)
     }
 
     // MARK: - trim handles

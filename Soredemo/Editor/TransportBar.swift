@@ -170,7 +170,7 @@ struct TransportBar: View {
             // to the same question — drifting from this one by whatever the two timers differ
             // by. `followPlayer` moves the line without asking the player to seek.
             if isPlaying, position.isFinite {
-                model.followPlayer(outputTime: Nanoseconds(Int64(position * 1_000_000_000)))
+                model.followPlayer(outputTime: OutputTime(nanos: Int64(position * 1_000_000_000)))
             }
             if let item = player.currentItem, item.duration.seconds.isFinite {
                 total = item.duration.seconds

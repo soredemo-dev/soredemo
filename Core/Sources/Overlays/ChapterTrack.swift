@@ -159,10 +159,10 @@ public struct ChapterTrack: Sendable, Equatable, Codable {
     static func outputStart(of source: Nanoseconds,
                             through timeline: EditTimeline?) -> (Int64, moved: Bool)? {
         guard let timeline else { return (source.rawValue, false) }
-        if let output = timeline.outputTime(atSource: source) { return (output.rawValue, false) }
+        if let output = timeline.outputTime(atSource: SourceTime(source)) { return (output.rawValue, false) }
         let next = timeline.clips.filter { $0.sourceStart.rawValue > source.rawValue }
             .min { $0.sourceStart.rawValue < $1.sourceStart.rawValue }
-        return next.flatMap { timeline.outputTime(atSource: $0.sourceStart) }.map { ($0.rawValue, true) }
+        return next.flatMap { timeline.outputTime(atSource: SourceTime($0.sourceStart)) }.map { ($0.rawValue, true) }
     }
 
     private enum CodingKeys: String, CodingKey { case chapters, nextID }

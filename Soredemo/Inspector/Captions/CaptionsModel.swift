@@ -348,10 +348,11 @@ final class CaptionsModel {
             var unplaceable = 0
             for cue in reading.track.cues {
                 guard let edit else { placed.append(cue); continue }
-                guard let start = edit.sourceTime(atOutput: cue.start),
-                      let end = edit.sourceTime(atOutput: cue.end), end.rawValue > start.rawValue
+                // A subtitle file is timed against the video it was made for, which is the edit.
+                guard let start = edit.sourceTime(atOutput: OutputTime(cue.start)),
+                      let end = edit.sourceTime(atOutput: OutputTime(cue.end)), end > start
                 else { unplaceable += 1; continue }
-                placed.append(CaptionCue(text: cue.text, start: start, end: end))
+                placed.append(CaptionCue(text: cue.text, start: start.nanoseconds, end: end.nanoseconds))
             }
             guard !placed.isEmpty else {
                 status = String(localized:

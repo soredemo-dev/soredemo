@@ -249,7 +249,10 @@ private struct TurnView: View {
         case .thinking(_, let text, let done):
             ThinkingBlock(text: text, done: done)
         case .edit(let record):
-            EditCard(record: record) { if let at = record.at { editor.timeline.movePlayhead(to: at) } }
+            // Only to a moment that still plays: one a later cut removed has nothing to show.
+            EditCard(record: record) {
+                if editor.timeline.edit.outputTime(atSource: record.at) != nil { editor.timeline.movePlayhead(to: record.at) }
+            }
         case .note(let note):
             NoteCard(note: note)
         case .tool:
@@ -593,7 +596,8 @@ private struct NoteRow: View {
                 .frame(width: 18, height: 18)
                 .background(note.isOpen ? Theme.accent : Theme.Ink.tertiary, in: Circle())
             Button {
-                if let output = timeline.edit.outputTime(atSource: note.at) { timeline.movePlayhead(to: output) }
+                let at = SourceTime(note.at)
+                if timeline.edit.outputTime(atSource: at) != nil { timeline.movePlayhead(to: at) }
             } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(verbatim: note.text).font(Type.detail)
@@ -814,7 +818,7 @@ enum AgentContextReader {
 
     /// **Everything here is on the recording's clock** — the playhead already is
     /// (`TimelineEditorModel.playhead`), and so are the steps, so nothing is converted.
-    static func context(playhead: Nanoseconds, steps: [RecordedStep], anchor: EpochAnchor,
+    static func context(playhead: SourceTime, steps: [RecordedStep], anchor: EpochAnchor,
                         duration: Nanoseconds, plays: Nanoseconds) -> AgentPrompt.Context {
         let at = playhead.rawValue
         let step = steps.last { $0.origin.hostTime.rawValue - anchor.hostTime.rawValue <= at }

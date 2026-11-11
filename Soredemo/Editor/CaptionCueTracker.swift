@@ -32,12 +32,12 @@ struct CaptionCueTracker: View {
             // change follows.** Without it a recording whose first cue starts at zero would
             // open with nothing highlighted until somebody pressed play.
             .onChange(of: timeline.playhead, initial: true) { _, now in
-                captions.noteCurrentCue(at: now)
+                captions.noteCurrentCue(at: now.nanoseconds)
             }
             // A new track means every index means something else — a re-transcribe, an import,
             // or an opened project — so the answer is re-taken rather than left stale.
             .onChange(of: captions.track) {
-                captions.noteCurrentCue(at: timeline.playhead)
+                captions.noteCurrentCue(at: timeline.playhead.nanoseconds)
             }
     }
 }

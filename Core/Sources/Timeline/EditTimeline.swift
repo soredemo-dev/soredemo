@@ -463,7 +463,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// `nil` past the end of the edited video. Not clamped to the last frame: a caller asking
     /// about a time that does not exist has a bug, and returning the final frame would let it
     /// run undetected.
-    public func sourceTime(atOutput outputTime: Nanoseconds) -> Nanoseconds? {
+    public func sourceTime(atOutput outputTime: OutputTime) -> SourceTime? {
         guard outputTime.rawValue >= 0 else { return nil }
         var running: Int64 = 0
         for clip in clips {
@@ -473,7 +473,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
                 // the recording. This is the conversion the pointer, the camera, the captions
                 // and the text overlays all reach the source through.
                 let into = Int64((Double(outputTime.rawValue - running) * clip.speed).rounded())
-                return Nanoseconds(clip.sourceStart.rawValue + into)
+                return SourceTime(nanos: clip.sourceStart.rawValue + into)
             }
             running = next
         }
@@ -515,7 +515,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// **`nil` means CUT, and it is a different answer from zero.** A caller drawing the
     /// pointer at output time 0 for every cut sample would pile the whole removed span onto the
     /// first frame — the shape of fault this project keeps finding, one domain over.
-    public func outputTime(atSource sourceTime: Nanoseconds) -> Nanoseconds? {
+    public func outputTime(atSource sourceTime: SourceTime) -> OutputTime? {
         var running: Int64 = 0
         for clip in clips {
             if sourceTime.rawValue >= clip.sourceStart.rawValue,
@@ -524,7 +524,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
                 // long to play.
                 let into = Int64((Double(sourceTime.rawValue - clip.sourceStart.rawValue)
                                   / clip.speed).rounded())
-                return Nanoseconds(running + into)
+                return OutputTime(nanos: running + into)
             }
             running += clip.outputDuration.rawValue
         }

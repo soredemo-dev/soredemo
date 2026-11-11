@@ -60,7 +60,7 @@ struct CaptionEditor: View {
                     .background(Theme.Surface.preview)
                 Divider().overlay(Theme.Line.hairline)
                 AtPlayhead(model: timeline) { playhead in
-                    CaptionWaveform(model: model, playhead: playhead, duration: duration,
+                    CaptionWaveform(model: model, playhead: playhead.nanoseconds, duration: duration,
                                     waveform: waveform, visibleFraction: $visibleFraction,
                                     onSeek: onSeek, onChange: onChange)
                 }
@@ -71,7 +71,7 @@ struct CaptionEditor: View {
             VStack(spacing: 0) {
                 CaptionLines(model: model, onChange: onChange,
                              currentIndex: model.currentCueIndex,
-                             playheadNow: { timeline.playhead },
+                             playheadNow: { timeline.playhead.nanoseconds },
                              onSeek: onSeek, pauses: pauses,
                              state: listState, focused: $focused)
                 Divider().overlay(Theme.Line.hairline)

@@ -249,7 +249,7 @@ public struct AnnotationTrack: Sendable, Equatable, Codable {
                 let start = max(item.start.rawValue, clip.sourceStart.rawValue)
                 let end = min(item.end.rawValue, clip.sourceEnd.rawValue)
                 guard end > start,
-                      let outputStart = timeline.outputTime(atSource: Nanoseconds(start))
+                      let outputStart = timeline.outputTime(atSource: SourceTime(nanos: start))?.nanoseconds
                 else { return nil }
                 return AnnotationItem(
                     id: item.id, shape: item.shape,

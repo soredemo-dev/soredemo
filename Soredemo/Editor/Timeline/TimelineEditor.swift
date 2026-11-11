@@ -94,7 +94,7 @@ struct TimelineEditor: View {
                                        tint: Theme.Lane.caption,
                                        onTap: { index in
                                            guard captions.cues.indices.contains(index) else { return }
-                                           model.movePlayhead(to: captions.cues[index].start)
+                                           model.movePlayhead(to: SourceTime(captions.cues[index].start))
                                        })
                     }
                 }
@@ -167,14 +167,14 @@ struct TimelineEditor: View {
     /// Where the playhead sits across the strip, clamped — a keyboard zoom anchors here, and
     /// a playhead scrolled off the edge would otherwise anchor outside the view.
     private var playheadAnchor: Double {
-        min(max(model.window.fraction(of: model.playhead), 0), 1)
+        min(max(model.window.fraction(of: model.playhead.nanoseconds), 0), 1)
     }
 
     private func nudge(by delta: Int64, duration: Nanoseconds) {
         let moved = min(max(model.playhead.rawValue + delta, 0), duration.rawValue)
-        model.movePlayhead(to: Nanoseconds(moved))
+        model.movePlayhead(to: SourceTime(nanos: moved))
         // The clip under the playhead follows it, so ← / → walk the clips as well as the time.
-        model.selectClip(atSource: model.playhead)
+        model.selectClip(atSource: model.playhead.nanoseconds)
         // …and the view follows the playhead off the edge, but only when it has gone off.
         model.revealPlayhead()
     }
@@ -185,7 +185,7 @@ struct TimelineEditor: View {
             // Reading `model.playhead` in a `@ViewBuilder` method of this struct is a read by
             // THIS body, so one `Text` dragged every lane, every clip, every caption block and
             // the waveform through a fresh layout ten times a second. See `AtPlayhead`.
-            AtPlayhead(model: model) { Text(verbatim: Self.stamp($0)) }
+            AtPlayhead(model: model) { Text(verbatim: Self.stamp($0.nanoseconds)) }
             Spacer()
             if let selection = model.selection {
                 Text("selected \(Self.stamp(Nanoseconds(Int64(selection.count))))")

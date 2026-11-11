@@ -35,7 +35,7 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
                 let start = max(cue.start.rawValue, clip.sourceStart.rawValue)
                 let end = min(cue.end.rawValue, clip.sourceEnd.rawValue)
                 guard end > start else { return nil }
-                guard let outputStart = timeline.outputTime(atSource: Nanoseconds(start))
+                guard let outputStart = timeline.outputTime(atSource: SourceTime(nanos: start))?.nanoseconds
                 else { return nil }
                 // **A source span takes `1/speed` as long to play, and this used to ignore that.**
                 // The START went through `outputTime(atSource:)`, which divides; the END was

@@ -99,7 +99,9 @@ struct CutProposalsPanel: View {
         let proposal = row.proposal
         let quiet = EditorToolbar.seconds(proposal.quiet.duration)
         let removes = EditorToolbar.seconds(Nanoseconds(row.source.upperBound - row.source.lowerBound))
-        let start = edit.outputTime(atSource: Nanoseconds(row.source.lowerBound))
+        // Shown where it plays in the video; the playhead goes to the moment on the recording.
+        let moment = SourceTime(nanos: row.source.lowerBound)
+        let start = edit.outputTime(atSource: moment)
         VStack(alignment: .leading, spacing: Space.tight) {
             Text(headline(proposal, quiet: quiet)).font(Type.label)
             HStack(spacing: Space.tight) {
@@ -115,9 +117,9 @@ struct CutProposalsPanel: View {
             }
             HStack {
                 Button {
-                    if let start { timeline.movePlayhead(to: start) }
+                    if start != nil { timeline.movePlayhead(to: moment) }
                 } label: {
-                    Text(verbatim: start.map { ChapterList.timestamp($0, withHours: false) } ?? "—")
+                    Text(verbatim: start.map { ChapterList.timestamp($0.nanoseconds, withHours: false) } ?? "—")
                         .font(Type.readout)
                 }
                 .buttonStyle(.plain)

@@ -159,7 +159,7 @@ struct TimelineChapterMarks: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .contentShape(Rectangle())
                         .offset(x: fraction * width)
-                        .onTapGesture { model.movePlayhead(to: chapter.start) }
+                        .onTapGesture { model.movePlayhead(to: SourceTime(chapter.start)) }
                         .help(Text(verbatim: chapter.title))
                     }
                 }
@@ -215,7 +215,7 @@ struct TimelineStepMarks: View {
             let byNumber = Dictionary(steps.map { ($0.number, $0) }, uniquingKeysWith: { first, _ in first })
             let chips = StepChip.layout(steps.map { ($0.number, model.window.fraction(of: $0.start)) },
                                         width: width)
-            let current = StepChip.current(steps, playhead: model.playhead)
+            let current = StepChip.current(steps, playhead: model.playhead.nanoseconds)
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.block).fill(Theme.Fill.track)
                 ForEach(chips, id: \.number) { chip in
@@ -260,7 +260,7 @@ struct TimelineStepMarks: View {
         }
         .clipped()
         .contentShape(Rectangle())
-        .onTapGesture { model.movePlayhead(to: step.start) }
+        .onTapGesture { model.movePlayhead(to: SourceTime(step.start)) }
         .help(Text(verbatim: "\(step.number). \(step.label)"))
         .animation(.easeOut(duration: 0.15), value: isCurrent)
     }

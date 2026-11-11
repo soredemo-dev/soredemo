@@ -36,12 +36,12 @@ enum GuideExport {
         -> [Picture] {
         guard let anchor else { return [] }
         return steps.compactMap { step in
-            guard let press = FramingPlanReader.offset(of: step.origin, from: anchor),
+            guard let press = FramingPlanReader.offset(of: step.origin, from: anchor).map({ SourceTime($0) }),
                   let pressOutput = edit.outputTime(atSource: press) else { return nil }
-            let before = Nanoseconds(press.rawValue - leadIn.rawValue)
+            let before = press - leadIn
             // Just before the press where there is a "before" in the video; the press itself at
             // the very start, or right after a cut.
-            let output = before.rawValue >= 0 ? (edit.outputTime(atSource: before) ?? pressOutput) : pressOutput
+            let output = (before >= .zero ? (edit.outputTime(atSource: before) ?? pressOutput) : pressOutput).nanoseconds
             return Picture(step: GuideStep(label: step.label, role: step.role, application: step.application,
                                            highlight: step.frame.flatMap { highlight($0, output) }),
                            outputTime: output)

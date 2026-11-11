@@ -214,7 +214,7 @@ struct StageWindow: View {
                         model: editor.captions, timeline: editor.timeline,
                         duration: editor.timeline.duration, waveform: editor.timeline.waveform,
                         pauses: editor.timeline.silences,
-                        onSeek: { editor.timeline.movePlayhead(to: $0) },
+                        onSeek: { editor.timeline.movePlayhead(to: SourceTime($0)) },
                         onChange: { reviewRevision += 1 },
                         onClose: { isCaptionEditorShown = false },
                         picture: {
@@ -730,7 +730,7 @@ struct StageWindow: View {
                     }
                     AtPlayhead(model: editor.timeline) { playhead in
                         FramingReviewSections(model: editor.review, onChange: { reviewRevision += 1 },
-                                              playhead: playhead)
+                                              playhead: playhead.nanoseconds)
                     }
                 }
                 .inspectorList()
@@ -769,8 +769,8 @@ struct StageWindow: View {
                               edit: editor.timeline.edit,
                               outputWidth: size.width, outputHeight: size.height,
                               onChange: { reviewRevision += 1 },
-                              playheadNow: { editor.timeline.playhead },
-                              onSeek: { editor.timeline.movePlayhead(to: $0) },
+                              playheadNow: { editor.timeline.playhead.nanoseconds },
+                              onSeek: { editor.timeline.movePlayhead(to: SourceTime($0)) },
                               pauses: editor.timeline.silences,
                               transcript: editor.captions.transcript,
                               onDeleteRange: { range, name in
@@ -780,23 +780,23 @@ struct StageWindow: View {
             case .chapters:
                 AtPlayhead(model: editor.timeline) { playhead in
                     ChaptersPanel(model: editor.chapters, edit: editor.timeline.edit,
-                                  transcript: editor.captions.transcript, playhead: playhead,
-                                  onSeek: { editor.timeline.movePlayhead(to: $0) },
+                                  transcript: editor.captions.transcript, playhead: playhead.nanoseconds,
+                                  onSeek: { editor.timeline.movePlayhead(to: SourceTime($0)) },
                                   onChange: { editRevision += 1 })
                 }
             case .text:
                 AtPlayhead(model: editor.timeline) { playhead in
-                    TextPanel(model: editor.texts, playhead: playhead,
+                    TextPanel(model: editor.texts, playhead: playhead.nanoseconds,
                               onChange: { reviewRevision += 1 })
                 }
             case .hide:
                 AtPlayhead(model: editor.timeline) { playhead in
-                    RedactionPanel(model: editor.redactions, playhead: playhead,
+                    RedactionPanel(model: editor.redactions, playhead: playhead.nanoseconds,
                                    onChange: { reviewRevision += 1 })
                 }
             case .mark:
                 AtPlayhead(model: editor.timeline) { playhead in
-                    AnnotationPanel(model: editor.annotations, playhead: playhead,
+                    AnnotationPanel(model: editor.annotations, playhead: playhead.nanoseconds,
                                     packageURL: ProjectStore.packageURL(forMediaAt: mediaURL),
                                     onChange: { reviewRevision += 1 })
                 }

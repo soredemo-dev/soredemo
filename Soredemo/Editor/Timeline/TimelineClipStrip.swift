@@ -92,12 +92,12 @@ struct TimelineClipStrip: View {
                             // and select the CLIP under it. Without the first part every click
                             // would leave a zero-width span that the buttons would act on.
                             model.selection = nil
-                            model.movePlayhead(to: now)
+                            model.movePlayhead(to: SourceTime(now))
                             model.selectClip(atSource: now)
                         } else {
                             model.selection = min(start.rawValue, now.rawValue)
                                 ..< max(start.rawValue, now.rawValue)
-                            model.movePlayhead(to: now)
+                            model.movePlayhead(to: SourceTime(now))
                         }
                     }
                     .onEnded { _ in model.endDrag() }

@@ -24,7 +24,7 @@ private let origin = HostInstant(epoch: epoch, hostTime: Nanoseconds(4 * second)
     model.setDerivedZooms([ZoomBlock(origin: origin, start: origin,
                                      end: HostInstant(epoch: epoch, hostTime: Nanoseconds(6 * second)),
                                      target: target, zoom: 2)])
-    model.movePlayhead(to: Nanoseconds(2 * second))
+    model.movePlayhead(to: SourceTime(Nanoseconds(2 * second)))
     model.splitAtPlayhead()
     return model
 }

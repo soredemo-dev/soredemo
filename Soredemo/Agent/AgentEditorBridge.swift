@@ -11,8 +11,9 @@ struct AgentEditRecord: Identifiable, Equatable {
     /// The undo step's name, exactly as recorded — how "revert this turn" knows it is still on top.
     let stepName: String
     let reason: String
-    /// Where it was, in the edited video, for "show me".
-    let at: Nanoseconds?
+    /// Where it was, for "show me": the first moment of the recording after the cut — on the
+    /// recording's clock, which is the playhead's, so nothing converts it.
+    let at: SourceTime
     /// How much shorter the edit plays because of it.
     let removed: Nanoseconds
 }
@@ -53,7 +54,7 @@ final class AgentEditorBridge {
         case .seek(let at):
             // The playhead is on the recording's clock, the clock `at` is on; where that moment
             // plays in the edit is reported beside it, and a moment that no longer plays is refused.
-            let moment = Nanoseconds(at)
+            let moment = SourceTime(nanos: at)
             guard let output = editor.timeline.edit.outputTime(atSource: moment) else {
                 return .failure(message: "\(at) ns has been cut from the edit, so the playhead cannot go there.", code: "cut")
             }
@@ -175,8 +176,7 @@ final class AgentEditorBridge {
         let before = editor.timeline.edit.outputDuration.rawValue
         edit(name)
         let after = editor.timeline.edit.outputDuration.rawValue
-        // Where the cut now is in the edited video: the first moment that still plays after it.
-        let at = editor.timeline.edit.outputTime(atSource: Nanoseconds(source.upperBound))
+        let at = SourceTime(nanos: source.upperBound)
         editsMade += 1
         let entry = AgentEditRecord(id: editsMade, stepName: name, reason: reason, at: at, removed: Nanoseconds(before - after))
         lastEdit = entry

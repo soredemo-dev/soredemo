@@ -114,7 +114,8 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     #expect(editor.timeline.edit.outputDuration == Nanoseconds(10 * second))
     #expect(editor.timeline.undoStepName == "Claude Code: Nothing happens after step 1")
     #expect(recorded.map(\.removed) == [Nanoseconds(10 * second)])
-    #expect(recorded.first?.at == Nanoseconds(4 * second), "the jump lands where the cut now is")
+    #expect(recorded.first?.at == SourceTime(nanos: 14 * second),
+            "\"show me\" goes to the first moment of the recording after the cut, which plays at 4 s")
 }
 
 @Test @MainActor func theAgentUndoesOnlyItsOwnLastEdit() {
@@ -148,7 +149,7 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
     _ = bridge.perform(.cutSpan(start: 2 * second, end: 4 * second, reason: "r"))
     guard case .success(let json) = bridge.perform(.seek(8 * second)) else { Issue.record("refused"); return }
-    #expect(editor.timeline.playhead == Nanoseconds(8 * second), "not two seconds early")
+    #expect(editor.timeline.playhead.nanoseconds == Nanoseconds(8 * second), "not two seconds early")
     #expect(json.contains(#""playheadNanos":8000000000"#), "\(json)")
     #expect(json.contains(#""playsAtNanos":6000000000"#), "and where that moment plays in the edit: \(json)")
 }
@@ -158,7 +159,7 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     let editor = editor()
     let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
     _ = bridge.perform(.cutSpan(start: 2 * second, end: 4 * second, reason: "r"))
-    editor.timeline.movePlayhead(to: Nanoseconds(8 * second))
+    editor.timeline.movePlayhead(to: SourceTime(Nanoseconds(8 * second)))
     guard case .success(let json) = bridge.perform(.status) else { Issue.record("no status"); return }
     #expect(json.contains(#""playheadNanos":8000000000"#), "\(json)")
 }
@@ -174,7 +175,7 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
                             frame: NormalizedFrame(origin: NormalizedPoint(x: 0.5, y: 0.5), size: NormalizedSize(width: 0.1, height: 0.1),
                                                    revision: GeometryRevision(id: 1)))
     }
-    let context = AgentContextReader.context(playhead: Nanoseconds(7 * second),
+    let context = AgentContextReader.context(playhead: SourceTime(nanos: 7 * second),
                                              steps: [step(1, at: 1, "Open"), step(2, at: 6, "Export"), step(3, at: 9, "Done")],
                                              anchor: anchor, duration: Nanoseconds(20 * second), plays: Nanoseconds(18 * second))
     #expect(context.playheadNanos == 7 * second)

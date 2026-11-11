@@ -568,7 +568,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// called from both time-reading sites rather than inlined at each.
     nonisolated static func sourceOffset(forOutput offset: Nanoseconds) -> Nanoseconds? {
         guard let timeline = editTimeline else { return offset }
-        return timeline.sourceTime(atOutput: offset)
+        return timeline.sourceTime(atOutput: OutputTime(offset))?.nanoseconds
     }
 
     public func pointerPlacement(at compositionTime: CMTime,

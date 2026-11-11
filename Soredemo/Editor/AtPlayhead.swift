@@ -30,7 +30,7 @@ import Timeline
 /// wider one.
 struct AtPlayhead<Content: View>: View {
     let model: TimelineEditorModel
-    @ViewBuilder let content: (Nanoseconds) -> Content
+    @ViewBuilder let content: (SourceTime) -> Content
 
     var body: some View { content(model.playhead) }
 }
