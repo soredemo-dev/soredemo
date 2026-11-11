@@ -215,14 +215,14 @@ Corollary, learned the hard way: hand-editing `project.pbxproj` to add an
 
 ### D-P0 — Repository layout
 
-Directory conventions follow `../opensource/a native editor`; its **module structure is explicitly
+Directory conventions follow the native editor; its **module structure is explicitly
 not adopted** (see D-P1).
 
-**Why the package sits at the root is not "because a native editor does".** a native editor's manifest is at its
+**Why the package sits at the root is not "because the native editor does".** The native editor's manifest is at its
 root because that package *is* the application — there is no app target to coexist with, so the
 question never arises there and the reason does not transfer. The actual benefit here is smaller and
 real: `swift build` and `swift test` run at the repository root with no `cd`, which is where every
-command in the plan and every CI invocation starts. That is worth having; the resemblance to a native editor
+command in the plan and every CI invocation starts. That is worth having; the resemblance to the native editor
 is not an argument.
 
 The cost is that `Sources/` at the root does not, by itself, say which code is the pure package and
@@ -287,7 +287,7 @@ what they are rather than for their module: `Timeline` holds `Nanoseconds` and `
 holds `Derived` and `Derivation`, `Project` holds `ProjectSnapshot`. No type may share its module's
 name.
 
-**a native editor's shape is the counter-example, not the model.** It is one executable target whose 26
+**The native editor's shape is the counter-example, not the model.** It is one executable target whose 26
 subfolders carry no compile-time boundary. Folders would be cosmetic and every internal boundary
 would rest on review.
 

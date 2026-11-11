@@ -1,6 +1,6 @@
 # How fast the camera moves
 
-2026-09-27. an Electron recorder lets a person choose the easing of a zoom. Here the camera is a spring, so
+2026-09-27. The MIT Electron recorder lets a person choose the easing of a zoom. Here the camera is a spring, so
 the choice is a pace.
 
 ## Decision

@@ -1,6 +1,6 @@
 # Edges that line up
 
-2026-09-27. an Electron recorder snaps what is dragged on its timeline. This one already had snapping —
+2026-09-27. The MIT Electron recorder snaps what is dragged on its timeline. This one already had snapping —
 `SnapEngine`, sticky, with the playhead easier to reach and a probe per edge — **but only the
 range selection used it.** The feature-gap list called timeline snapping missing; that was wrong,
 from a search for `snapGuide|snapping|snapsTo` that did not match `SnapEngine`. The real gap was

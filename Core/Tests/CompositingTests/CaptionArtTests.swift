@@ -154,8 +154,8 @@ import Timeline
         #expect(abs(preset.y - dragged.y) < 0.001)
     }
 
-    /// **A preset stays a preset.** a Rust recorder carries a `position` enum beside an optional
-    /// `manual_position` that overrides it, because baking a corner into coordinates means
+    /// **A preset stays a preset.** A named position is kept beside an optional manual one that
+    /// overrides it, because baking a corner into coordinates means
     /// "bottom right" stops being bottom right the moment the size changes. Ours resolves the
     /// preset at draw time, so a bigger camera on the same preset is still in the corner.
     @Test func aPresetSurvivesASizeChangeAndAHandPlacementClearsIt() {
@@ -508,8 +508,8 @@ import Timeline
         #expect(abs(preset.y - dragged.y) < 0.001)
     }
 
-    /// **A preset stays a preset.** a Rust recorder carries a `position` enum beside an optional
-    /// `manual_position` that overrides it, because baking a corner into coordinates means
+    /// **A preset stays a preset.** A named position is kept beside an optional manual one that
+    /// overrides it, because baking a corner into coordinates means
     /// "bottom right" stops being bottom right the moment the size changes. Ours resolves the
     /// preset at draw time, so a bigger camera on the same preset is still in the corner.
     @Test func aPresetSurvivesASizeChangeAndAHandPlacementClearsIt() {

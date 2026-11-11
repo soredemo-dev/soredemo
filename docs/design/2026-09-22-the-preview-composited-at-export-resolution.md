@@ -33,10 +33,10 @@ Read for ideas, not for code, from `~/Documents/opensource/Screen Record Opensou
 
 | | preview |
 |---|---|
-| a Rust recorder | wgpu, rendered directly (77 files touch Metal/wgpu) |
-| a Swift recorder | `MetalPreviewView` → `CAMetalLayer`, displaying a texture it rendered itself |
-| an Electron recorder, an Electron recorder | no custom compositor at all |
-| a native editor | one file names `AVVideoCompositing` |
+| The Rust recorder | wgpu, rendered directly (77 files touch Metal/wgpu) |
+| The Swift recorder | `MetalPreviewView` → `CAMetalLayer`, displaying a texture it rendered itself |
+| The two Electron recorders | no custom compositor at all |
+| The native editor | one file names `AVVideoCompositing` |
 
 **Four of five never ask AVFoundation to composite a preview.** The point is not that Metal is
 faster. It is who holds the deadline: a self-driven renderer that is late shows a picture that

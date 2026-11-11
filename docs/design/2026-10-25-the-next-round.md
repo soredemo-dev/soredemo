@@ -15,7 +15,7 @@ discarded by a number there.
 The export already takes the fast road: `MP4Exporter` reads with `AVAssetReader`, composites in
 Core Image on a Metal device (`CoreImageFrameRenderer`) and writes with `AVAssetWriter` — the same
 road another project measured at about 3× an `AVAssetExportSession`
-([pull request](https://github.com/another project/pull/15), the author's own numbers).
+(in that author's own measurement).
 **Accelerate's vImage is a CPU library**; on a path that is already GPU end to end, there is no
 reason to expect it to help, and no source found that compares it with Core Image for video.
 

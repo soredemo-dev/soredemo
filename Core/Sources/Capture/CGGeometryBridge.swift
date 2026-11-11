@@ -167,7 +167,7 @@ public enum CGGeometryBridge {
     ///
     /// Full width along the top edge, then each top corner curls INWARD to a body inset by
     /// `flare` — so the shape runs into the menu bar the way the hardware notch does rather than
-    /// hanging below it with rounded shoulders (a notch assistant's idea; see the notch design docs).
+    /// hanging below it with rounded shoulders (see the notch design docs).
     /// Here and not in the app because the app names no CoreGraphics geometry type (rule 5).
     public nonisolated static func notchOutline(width: Double, height: Double, flare: Double, bottomRadius: Double) -> CGPath {
         let f = max(0, min(flare, width / 2, height))

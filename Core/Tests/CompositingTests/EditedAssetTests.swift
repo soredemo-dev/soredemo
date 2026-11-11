@@ -146,7 +146,7 @@ extension StageCompositorTests {
     /// approximation. A camera takes hundreds of milliseconds to wake, so the error is usually
     /// the camera being late by more than a frame — visible in a hand wave on an overlay.
     ///
-    /// a Rust recorder records a `start_time` per track and aligns everything to whichever began last;
+    /// Each track's start is recorded and everything is aligned to whichever began last;
     /// The same number, applied at the
     /// one place a composition is built.
     @MainActor

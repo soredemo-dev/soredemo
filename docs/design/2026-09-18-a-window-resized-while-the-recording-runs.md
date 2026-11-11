@@ -46,11 +46,11 @@ Read for ideas, not for code, from the local checkouts. None of the five solves 
 
 | | what it does about a mid-recording resize |
 |---|---|
-| a Rust recorder | nothing |
-| a Swift recorder | exposes an `updateConfiguration`, but nothing calls it while recording; logs `contentRect`/`contentScale` and discards them |
-| an Electron recorder | nothing |
-| an Electron recorder | nothing |
-| a native editor | nothing |
+| The Rust recorder | nothing |
+| The Swift recorder | exposes an `updateConfiguration`, but nothing calls it while recording; logs `contentRect`/`contentScale` and discards them |
+| The AGPL Electron recorder | nothing |
+| The MIT Electron recorder | nothing |
+| The native editor | nothing |
 
 ## The measurement
 

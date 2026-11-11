@@ -54,7 +54,7 @@ made V1 serious and is why every name from a package must be treated as hostile.
 | Screen Studio | ~$29/month or $108/year; exporting needs a subscription; old one-time licence no longer sold [1][2] | exports that take hours (up to 2 h for a 30-minute video on an M1 Air) [1]; **no export queue** — one at a time, by hand [3]; long recordings hard to edit on the timeline; very large files [1] |
 | FocuSee | $19.99/month or $49.99/year [4] | crashes on modest hardware; multi-monitor bugs [4][5] |
 | CleanShot X | $29 once, or $8/month with cloud [6] | September 2026 reviews report macOS 27 compatibility problems [7] |
-| a Rust recorder | free, open source (AGPL/MIT split) [8] | sharing-first; desktop app on Tauri rather than native [8] |
+| The Rust recorder | free, open source (AGPL/MIT split) [8] | sharing-first; desktop app on Tauri rather than native [8] |
 
 What they share: the cost is a subscription, the slow part is export, the fragile part is
 anything unusual (two monitors, a long take, low memory), and the data lives in their cloud.
@@ -155,4 +155,4 @@ over six hundred lines and reads as a rulebook, not an introduction.
 5. Software Advice, FocuSee — https://www.softwareadvice.com/screen-recording/focusee-profile/
 6. Nexasphere, "Screenshot tools for developers in 2026" — https://nexasphere.io/blog/screenshot-tools-developers-2026
 7. Setapp, CleanShot X listing and reviews — https://setapp.com/apps/cleanshot
-8. a Rust recorder, "Open source screen recorder" — https://a Rust recorder/open-source-screen-recorder
+8. The Rust recorder's own description of itself and its licence split, read 2026-10-22.

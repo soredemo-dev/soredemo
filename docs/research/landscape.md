@@ -18,13 +18,13 @@ Four kinds of product get compared with this one, and only the first is the same
 
 | Kind | Products | What they are for | Where they overlap |
 | --- | --- | --- | --- |
-| **Polished demo recorders** — auto-zoom, drawn cursor, backgrounds | Screen Studio, ScreenKite, Screen Charm, FocuSee, Cursorful, Prequel, CursorClip, Rekort, Smooth Recorder, Lumiko, Retina; free and open: a Rust recorder, an Electron recorder, an Electron recorder, and several newer open projects | a product demo or tutorial that looks edited when recording stops | everything |
+| **Polished demo recorders** — auto-zoom, drawn cursor, backgrounds | Screen Studio, ScreenKite, Screen Charm, FocuSee, Cursorful, Prequel, CursorClip, Rekort, Smooth Recorder, Lumiko, Retina; and several free, open-source recorders | a product demo or tutorial that looks edited when recording stops | everything |
 | **Editors that record** | Camtasia, ScreenFlow, Descript, Tella | a long tutorial cut on a full timeline; Descript and Tella edit by transcript | the timeline, transcript editing, export |
 | **Async video messages** | Loom, Vidyard, Screencastify, ScreenPal, Zoom clips | a quick message with a share link and viewer analytics | share links — which Soredemo deliberately does not do (AGENTS.md, the publishing rule) |
-| **Capture utilities** | CleanShot X, Snagit, QuickTime, a streaming studio, ShareX, Bandicam, FlashBack, Icecream, Movavi, Clipchamp | screenshots, raw recordings, streaming | screenshot mode and raw capture only |
+| **Capture utilities** | CleanShot X, Snagit, QuickTime, an open-source streaming studio, ShareX, Bandicam, FlashBack, Icecream, Movavi, Clipchamp | screenshots, raw recordings, streaming | screenshot mode and raw capture only |
 
-**Free products doing the same job exist and are getting better.** an Electron recorder is MIT-licensed,
-free for commercial use and widely recommended as the free pick; a Rust recorder has a free tier; Retina is
+**Free products doing the same job exist and are getting better.** One is MIT-licensed, free
+for commercial use and widely recommended as the free pick; another has a free tier; Retina is
 free in beta; several newer open projects, one of them native Swift, ship auto-zoom, a timeline,
 captions and platform export presets. So "free" alone does not set Soredemo apart. What does is
 the observation log (below).
@@ -35,7 +35,7 @@ the observation log (below).
 | --- | --- | --- |
 | Screen Studio | 4.0, 2 Oct 2026 | glass loupe (a lens magnifies one detail while the rest stays in view); camera cut out of its background (beta), face tracking, "hide during silence"; camera colour grading, 12 looks and LUTs; **edit by transcript** — delete sentences, remove detected filler words, shorten pauses; split-screen layouts (side by side, stacked for vertical); sharper zoomed text from an on-device model; exports up to 3× faster; key presses drawn as keys; redesigned click ripple; caption fonts and animations; project sharing link (beta); a scan that masks e-mails, card numbers and API keys in every frame. Roadmap: on-device voice enhancement. 4.0 projects do not open in 3.x |
 | ScreenKite | 1.14–1.16, summer–autumn 2026 | on-device transcription; noise reduction suite; an AI editing agent that asks before changing anything; scene transitions; teleprompter; cursor style themes; per-track audio placement; multi-language audio tracks with subtitle sidecars; 120/144 fps capture; the editor opens on the display where recording stopped |
-| a Rust recorder | desktop 0.6, Aug–Sep 2026 | rebuilt editor with a crop tool and inspector; **export screen that shows estimated file size and export time**; record straight into an open project; 3D scenes and animated text; split-screen editing (0.5.1); recording recovery |
+| an open-source recorder | its 0.6 desktop release, Aug–Sep 2026 | rebuilt editor with a crop tool and inspector; **export screen that shows estimated file size and export time**; record straight into an open project; 3D scenes and animated text; split-screen editing (0.5.1); recording recovery |
 | Prequel | 2026 | zoom on clicks **and typing**, softening the rest of the window; camera recorded separately with ten layouts switchable mid-take; teleprompter that follows the voice; separate mic and system tracks with their own gain; MP4/GIF to 4K 120 fps |
 | CursorClip | 2.0, 2026 | layouts, motion blur, keyboard-shortcut overlay (keystrokes opt-in), click ripples; teleprompter; cut/trim, speed, undo. Says itself it has no transcription, captions or noise removal |
 | Lumiko, Smooth Recorder, Rekort | 2026 launches | auto zoom-and-pan from the cursor with no keyframes, every zoom overridable; local only |
@@ -61,7 +61,7 @@ the observation log (below).
 | Camera face tracking | Screen Studio 4 | ○ — `2026-10-23-a-camera-that-reads-the-presenter.md` designs it |
 | Camera colour looks / LUTs | Screen Studio 4 | ○ |
 | Camera layouts, switch per segment | Prequel, open recorders | ◐ — position and size; no per-segment layout regions |
-| Split screen, stacked for vertical | Screen Studio 4, a Rust recorder | ○ |
+| Split screen, stacked for vertical | Screen Studio 4, an open-source recorder | ○ |
 | Edit by transcript | Screen Studio 4, Descript, Tella | ● sentences and words |
 | Filler words detected and removed | Screen Studio 4 | ◐ removable by hand, word by word; not detected |
 | Shorten pauses | Screen Studio 4 | ● silence finding and removal |
@@ -69,14 +69,14 @@ the observation log (below).
 | Mask sensitive text automatically | Screen Studio 4 | ○ — manual redaction; Soredemo can do better (the log knows a click on a secure field) |
 | Teleprompter | ScreenKite, Prequel, CursorClip | ○ |
 | Export presets by platform | open recorders | ◐ — three by destination (web, person, editor), not by platform |
-| Export shows size AND time estimate | a Rust recorder 0.6 | ● — both, the time from this Mac's measured encoder rate (2026-10-26, `ca4a19a`) |
+| Export shows size AND time estimate | an open-source recorder | ● — both, the time from this Mac's measured encoder rate (2026-10-26, `ca4a19a`) |
 | Export stages and "show in Finder" | most | ● show in Finder; ◐ stages |
 | Faster export | Screen Studio 4 (3×) | not measured against them |
 | Share link | Loom, Screen Studio (beta) | **○ by rule** — nothing leaves the machine without a person sending it |
 | Interactive walkthrough export | interactive-demo tools, per seat | design written (`2026-10-23-interactive-walkthrough-export.md`) |
 | Save the last 15 seconds | nobody | ● |
-| Chapters from the recording | a Rust recorder (AI) | ● on device |
-| A crash does not cost the take | a Rust recorder (recovery) | ● |
+| Chapters from the recording | an open-source recorder (AI) | ● on device |
+| A crash does not cost the take | an open-source recorder (recovery) | ● |
 | Why a zoom happened, reviewable | **nobody** | ● — the observation log; the product's thesis |
 
 ## What to take from it
@@ -111,7 +111,7 @@ the recorders rather than match them. Sources at the end of this section.
 
 | Signal | Who | What it means here |
 | --- | --- | --- |
-| **Agentic editing — "vibe editing"** | Cardboard (YC W26; W26's most-upvoted Hacker News launch): footage plus a goal ("3 variants", "30 s hook", "60 s recap") → a first cut, then a timeline. an Electron recorder 2 (Launch of the Day, 11 Oct 2026): an agent edits the recording over MCP. A Mac recorder edited through Claude Code. Wideframe (YC W26): a local agent that organises and sequences footage | an agent that edits is becoming ordinary. What none of them has is evidence: they cut from pixels and words. An agent working from Soredemo's log can say why each cut is there, and a person accepts each |
+| **Agentic editing — "vibe editing"** | Cardboard (YC W26; W26's most-upvoted Hacker News launch): footage plus a goal ("3 variants", "30 s hook", "60 s recap") → a first cut, then a timeline. An open-source recorder's second version (11 Oct 2026): an agent edits the recording over MCP. A Mac recorder edited through Claude Code. Wideframe (YC W26): a local agent that organises and sequences footage | an agent that edits is becoming ordinary. What none of them has is evidence: they cut from pixels and words. An agent working from Soredemo's log can say why each cut is there, and a person accepts each |
 | **Product videos that re-record themselves** | Clueso Agents (YC): logs into a web product, records the flows, and with GitHub connected flags videos a UI change made stale and regenerates them — one customer's redesign left ~700 out of date. Redemo re-films opted-in videos after a release; Demosmith does not | **corrects `2026-10-25-beyond-a-screen-recorder.md`**, which called idea 1 unclaimed. It is claimed — **for web products**, through a browser. Native Mac applications have no such tool; Soredemo's log is accessibility-based and works in any Mac application |
 | Personalised and live demos | Amorphic Labs (YC): an agent records a demo per prospect; Karumi (YC): a live agent that drives the product in front of a buyer | sales tooling with share links — outside the publishing rule; noted, not followed |
 | Recording → video **and** written guide | Clueso (YC), Trupeer ($3M seed, July 2025): both at about $40 a month; Arcade's Creator Studio | proven demand for what `GuideExport` already does locally |
@@ -121,7 +121,7 @@ the recorders rather than match them. Sources at the end of this section.
 **What it changes.** The way past the category is the combination nobody has: **an agent that edits from evidence** — a director's cut whose every cut names the step it removed and why — **on native Mac applications**, where the self-updating-video tools cannot reach, local, with a person approving each proposal. The cuts a goal asks for ("the tutorial", "a 45-second launch cut", "a vertical short") are views of one take.
 
 Sources: [Cardboard](https://www.ycombinator.com/companies/cardboard), [Wideframe](https://www.ycombinator.com/companies/wideframe),
-[an Electron recorder 2 on Product Hunt](https://www.producthunt.com/products/an Electron recorder-2/awards), [Clueso Agents](https://www.clueso.io/agents),
+[Clueso Agents](https://www.clueso.io/agents),
 [YC repost on Clueso's agents](https://theagenttimes.com/articles/y-combinator-spotlights-ai-agents-that-auto-generate-product-a9318fb5),
 [Amorphic Labs](https://www.ycombinator.com/launches/SIw-amorphic-labs-agentic-personalized-product-demo-videos-for-sales),
 [Karumi](https://www.ycombinator.com/companies/karumi), [Demosmith comparison](https://demosmith.ai/blog/best-ai-demo-video-generators-2026),
@@ -174,9 +174,8 @@ and media APIs are in `docs/design/2026-10-22-what-macos-27-makes-possible.md`; 
   [AlternativeTo news](https://alternativeto.net/news/2026/10/screen-studio-4-0-adds-transcript-editing-a-camera-cutout-tool-and-more-mouse-effects/),
   [roadmap](https://screen.studio/roadmap), [creatorstoolbox](https://creatorstoolbox.com/tools/screen-studio/news)
 - ScreenKite: [changelog](https://www.screenkite.com/changelog), [July 2026 update](https://screenkite.substack.com/p/screenkite-july-2026-update-sketch)
-- a Rust recorder: [changelog](https://a Rust recorder/changelog), [desktop changelog](https://a Rust recorder/changelog/desktop), [v0.6](https://a Rust recorder/blog/cap-v06)
 - Prequel: [prequel.sh](https://prequel.sh/); CursorClip: [features](https://cursorclip.com/features/), [changelog](https://cursorclip.com/changelog/)
 - New launches: [Product Hunt category](https://www.producthunt.com/categories/screenshots-and-screen-recording?order=recent_launches), [Lumiko](https://www.producthunt.com/products/lumiko), [Smooth Recorder](https://www.producthunt.com/products/smooth-recorder), [Retina](https://www.producthunt.com/products/retina-2)
 - Round-ups (vendor-written; for names, not rankings): [supademo](https://supademo.com/blog/screen-studio-alternatives), [screencharm](https://screencharm.com/blog/screen-studio-alternative), [zoomcap](https://zoomcap.live/blog/screen-studio-alternatives), [rekort](https://rekort.app/blog/screen-studio-alternative)
-- Free and open: [an Electron recorder](https://github.com/an Electron recorder), [GitHub topic](https://github.com/topics/screen-studio-alternative)
+- Free and open: [GitHub topic](https://github.com/topics/screen-studio-alternative)
 - SwiftUI: [WWDC26 session 269](https://developer.apple.com/videos/play/wwdc2026/269), [MacGeneration](https://www.macg.co/macos/2026/07/swiftui-en-manque-de-maturite-sur-mac-apple-apporte-de-nouvelles-reponses-309799)

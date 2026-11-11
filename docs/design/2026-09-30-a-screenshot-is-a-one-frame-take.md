@@ -1,6 +1,6 @@
 # A screenshot is a one-frame take
 
-2026-09-30. Item 5 of the list approved after reading `a utility suite` (GPL-3.0; ideas only).
+2026-09-30. Item 5 of the list approved after reading a utility suite (GPL-3.0; ideas only).
 Its screenshot tool captures an area, a window or a screen, then annotates, crops, redacts and
 puts a background behind it. Soredemo has every one of those — for video.
 

@@ -43,8 +43,8 @@
 ## What already exists, and what does not
 
 The notch has an established interaction vocabulary on macOS and it is worth not reinventing it.
-Four shipping apps put a Dynamic-Island-style surface there — NotchNook, a notch app, Alcove,
-Notchy — and one of them, [a notch library], is an open-source library whose only job is this.
+Several shipping apps put a Dynamic-Island-style surface there — NotchNook and Alcove among them —
+and there are open-source libraries whose only job is this.
 
 Read for its decisions rather than its code, it settles three things:
 
@@ -53,7 +53,7 @@ Read for its decisions rather than its code, it settles three things:
 | the surface | `NSPanel`, `.screenSaver` level, clear background, no shadow, `[.canJoinAllSpaces, .stationary]` | **the same panel Soredemo already builds twice** — `CountdownPanel` and `RecordingBarPanel` are this, line for line |
 | the metrics | notch width is `frame.width − auxiliaryTopLeftArea.width − auxiliaryTopRightArea.width`; height is `safeAreaInsets.top` | the notch is measurable, not a guess |
 | the shape | `topCornerRadius` and `bottomCornerRadius` kept separate | what makes an expanded shape read as *the notch, larger* rather than a new rectangle |
-| the corner | a notch assistant's `NotchIslandShape`: the top corners curve OUTWARD into the menu bar | the detail that separates "the notch got bigger" from "a panel is hanging under the notch" — and the one thing here that was taken from another app rather than derived |
+| the corner | A notch assistant's island shape: the top corners curve OUTWARD into the menu bar | the detail that separates "the notch got bigger" from "a panel is hanging under the notch" — and the one thing here that was taken from another app rather than derived |
 
 Its defaults, which are a reasonable starting point and not gospel: top radius 15, bottom radius
 20, opening `.bouncy(duration: 0.4)`, closing `.smooth(duration: 0.4)`.
@@ -126,7 +126,7 @@ distort anything drawn inside it. The animation interpolates the *frame*, not a 
 ## The transition
 
 Four phases, 0.55 s end to end. The durations below are a starting point derived from
-a notch library's 0.4 s over a much shorter distance; **they need somebody to look at them**, and
+one such library's 0.4 s over a much shorter distance; **they need somebody to look at them**, and
 the honest way to tune them is the way the countdown was tuned — a launch flag that plays the
 transition on demand, and screenshots.
 
@@ -144,7 +144,7 @@ backdrop fade by 50 ms so the two read as one gesture rather than two.
   whole way, so the shape stays attached to what it came from. Photographed at the first frame,
   that is a rounded-topped pill hanging under the menu bar — attached to nothing. The hardware's
   sides run straight up into the menu bar and **curl outward** where they meet it, and
-  [a notch assistant]'s `NotchIslandShape` is built around exactly that: "its top corners curve outward
+  a notch assistant's island shape is built around exactly that: "its top corners curve outward
   into the menu bar (like the hardware notch does)". `NotchGeometry.topFlare(atProgress:)` is
   that curl, as a fraction of the notch's height rather than their six points, and it closes
   squared so it is a quarter of the way at halfway and gone at the end — a full-screen rectangle
@@ -183,7 +183,7 @@ before 2021.
 non-zero `safeAreaInsets.top` — half an answer is not a notch, and a screen mid-reconfiguration
 reports half answers. It is not "is this a MacBook Pro": a notched panel in a notch-excluded mode
 belongs here too.
-a notch library's fallback is a 300 pt strip of the menu bar's height at the top centre. The
+That library's fallback is a 300 pt strip of the menu bar's height at the top centre. The
 shape is right; the fixed number is not — 300 points is a third of a small external display and a
 sixth of an ultrawide. **A fraction instead**, 12.2%, which is the notch's own share of a
 14-inch, so the gesture is the same size relative to the screen wherever it plays — **the idea is "the editor comes out of the top of the screen", and
@@ -247,6 +247,5 @@ Speed is a judgement and the instrument for it is a person at 1x.
   code no longer cares, but the answer decides whether `startsFlush` is the common path or the
   rare one, and nobody here can attach a 16-inch.
 
-[a notch library]: https://github.com/a notch library
-[a notch assistant]: read locally at ~/Documents/opensource/a notch assistant — `macos/a notch assistant/a notch assistant/NotchHUD.swift`
+A notch assistant: read locally, for the shape of its island.
 [panaitiu]: https://notes.alinpanaitiu.com/Fullscreen-apps-above-the-MacBook-notch

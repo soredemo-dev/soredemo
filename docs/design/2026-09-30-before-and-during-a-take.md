@@ -1,6 +1,6 @@
 # Before and during a take: staying awake, notifications, headphones
 
-2026-09-30. Items 1, 2 and 4 of the list the owner approved after reading `a utility suite`
+2026-09-30. Items 1, 2 and 4 of the list the owner approved after reading a utility suite
 (GPL-3.0 — read for ideas only; nothing here is adapted from it). Item 3, step numbers and a
 highlighter, is `2026-09-30-steps-and-highlights.md`; item 5, screenshots, has its own document.
 
@@ -63,7 +63,7 @@ now on in that test, and it asserts so.
 
 ## 4. Knowing the speakers by their identifier, not their name
 
-**The idea came from `a utility suite`, which recognises headphones by matching the device's NAME
+**The idea came from a utility suite, which recognises headphones by matching the device's NAME
 against "headphone", "AirPods", "Beats" and a list of brands.** On this machine the names are
 localised — the speakers are "MacBook Pro的揚聲器" — so a name rule is a rule that works in the
 language it was written in.

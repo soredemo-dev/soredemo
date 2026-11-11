@@ -14,7 +14,7 @@ to run the result.*
 | macOS for running | 26.5 or later | The floor is `.macOS(.v26)` (ARCHITECTURE.md D2), so the build machine runs the result. A macOS 27 volume is **not required** — see § 2 |
 | Swift | 6.4 | Strict concurrency, no exceptions |
 
-**Phase 0 needs none of this.** It builds the old Rust/Tauri app and a Swift recorder, both of which target
+**Phase 0 needs none of this.** It builds the old Rust/Tauri app and the Swift recorder, both of which target
 older systems. Do not block Phase 0 on beta setup — run them in parallel.
 
 ---

@@ -2330,13 +2330,10 @@ func longestLiteralRun(of key: String) -> String? {
 @Test func noSourceFileNamesACompetitor() throws {
     /// The names, and the English word each collides with, since the check is a word match on
     /// prose rather than on identifiers.
-    let names = ["a Rust recorder", "an Electron recorder", "a native editor", "an Electron recorder", "a Swift recorder", "Camtasia",
-                 "ScreenKite", "Motionik", "Borumi", "CleanShot", "Loom", "Screen Studio"]
-
-    /// "Cap height" is the typographic term for the height of a capital letter, and it is the
-    /// right word in `CaptionStyle`. A literal phrase, never a predicate that would also excuse
-    /// a sentence about the product.
-    let permittedPhrases = ["Cap height", "Cap-height"]
+    /// Commercial products only: open projects this one was read beside are a stricter rule,
+    /// over every file and without their names in the list (`ReferenceNameTests`).
+    let names = ["Camtasia", "ScreenKite", "Motionik", "Borumi", "CleanShot", "Loom", "Screen Studio"]
+    let permittedPhrases: [String] = []
 
     var offenders: [String] = []
     for url in try firstPartySourceFiles() {
@@ -2363,8 +2360,8 @@ func longestLiteralRun(of key: String) -> String? {
         """)
 }
 
-/// Whole-word containment. `Capture`, `capable` and `encapsulate` all contain "a Rust recorder" and none of
-/// them is the product; a substring match would have made the test above useless.
+/// Whole-word containment. `Looming` and `Loomis` contain "Loom" and neither is the product; a
+/// substring match would have made the test above useless.
 func containsAsAWord(_ haystack: String, _ needle: String) -> Bool {
     var searchRange = haystack.startIndex..<haystack.endIndex
     while let found = haystack.range(of: needle, range: searchRange) {

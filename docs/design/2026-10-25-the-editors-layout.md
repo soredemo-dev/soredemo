@@ -20,11 +20,10 @@ answers "what file will this make" before "what does it look like".
 
 ## What others did in 2026
 
-- **a Rust recorder 0.6** rebuilt its editor around a crop tool and an inspector, moved export onto its own
+- **The Rust recorder 0.6** rebuilt its editor around a crop tool and an inspector, moved export onto its own
   screen that shows a size **and a time** estimated from the actual project, and gave the
   timeline ruler scrubbing and a minimap
-  ([AlternativeTo](https://alternativeto.net/news/2026/9/cap-launches-v0-6-with-a-rebuilt-video-editor-3d-scenes-and-a-native-desktop-app/),
-  [release notes](https://newreleases.io/project/github/a Rust recorder/release/cap-v0.6.0)).
+  (its release coverage, September 2026).
 - **Screen Studio** is reviewed again and again for asking a person to touch the timeline as
   little as possible: the automatic result first, every part of it adjustable afterwards
   ([NemoVideo](https://www.nemovideo.com/blog/ai-video-workflows/screen-studio-review),
@@ -51,7 +50,7 @@ answers "what file will this make" before "what does it look like".
 4. **An empty lane says why it is empty.** The Zooms lane in the screenshot is a blank strip; the
    log knows whether there were no clicks, or clicks that were not zoomed to and why — which is
    the product's thesis, and the one place it is currently silent.
-5. **The ruler scrubs**, as a Rust recorder's now does: drag along the time ruler to move the playhead.
+5. **The ruler scrubs**, as the Rust recorder's now does: drag along the time ruler to move the playhead.
 
 Each is its own change with its own test and its own look, in that order; 1 and 4 change what a
 person can learn from the editor, 2, 3 and 5 change how much effort it takes.

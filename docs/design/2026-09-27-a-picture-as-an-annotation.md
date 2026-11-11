@@ -1,6 +1,6 @@
 # A picture as an annotation
 
-2026-09-27. an Electron recorder and an Electron recorder place an image — a logo, a screenshot, a sticker — over the
+2026-09-27. The two Electron recorders place an image — a logo, a screenshot, a sticker — over the
 recording. Here it is a sixth annotation shape rather than a new kind of track.
 
 ## Decision

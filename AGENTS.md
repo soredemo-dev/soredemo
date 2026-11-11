@@ -42,8 +42,8 @@ somebody wants a share button. Nothing may add one without it.
 
 ## Method
 
-**There is no skill chain, and no per-task subagent ceremony.** This project ran on the
-[a skill chain](https://github.com/a skill chain) chain through Phase 3A and the owner ended it:
+**There is no skill chain, and no per-task subagent ceremony.** This project ran on a
+skill-chain workflow through Phase 3A and the owner ended it:
 the per-task briefs, worktrees and two-stage reviews cost more than they caught at this size. The
 per-task ledger they produced was never committed and no longer exists — do not go looking for it,
 and do not cite it.
@@ -1239,16 +1239,26 @@ the question to ask first is whether these rows were the wrong ones, not whether
 
 ## Reading other people's code
 
-`../opensource/` holds checkouts of comparable projects. **They are reference for ideas, not a source
+An `opensource/` folder above this repository (`../../opensource/` on the machine it was written on)
+holds checkouts of comparable projects. **They are reference for ideas, not a source
 of code.** Read them to understand a problem; write the solution yourself.
 
-If you ever do adapt something concrete, put a header on the file naming the source and one accurate
-word — `Adapted`, `Rewritten`, or `Copied` — and say so in the commit message. Licences differ and some
-are copyleft, so an untracked copy is a problem that surfaces at the worst possible moment. Keeping the
-count at zero is the simplest way to never have that conversation.
+**Nothing is adapted, ported or copied — not a function, and not with its names changed.** Renaming
+the variables of someone else's function does not make it this project's; it is still theirs, under
+their licence, and some of those licences are copyleft. On 2026-11-11 a pre-publication audit found
+exactly that in `CaptionBuilder`: a line-breaking routine following a copyleft program's line for line
+with `chars` renamed `characters`. Nothing recorded it, because the rule then was to write down the
+source *if* you adapted something, and nobody thinks of themselves as adapting while they do it. It
+was rewritten from a specification by an agent that had read neither
+(`docs/design/2026-11-11-caption-line-breaking.md`).
 
-**Do not read `a source-available project`** — it is source-available for personal non-commercial use only, and
-nothing in it is unavailable elsewhere.
+So the rule has a mechanism now: `scripts/scan-for-borrowed-code.py` compares every Swift file here
+against every Swift file in that folder, line by line and again with every identifier erased,
+and prints any run the two share. Run it before a phase merges. It names no project, and neither does
+anything else in this repository: the names live outside it.
+
+**One checkout there is source-available for personal non-commercial use only and is not read.** Which
+one is kept outside the repository, with the rest of what is not named here.
 
 ---
 

@@ -26,7 +26,7 @@ good idea. This is the research and the proposal; nothing here is built yet.
 
 ## Research
 
-**Recorders.** a Rust recorder's panel: targets as large icon buttons, each with a disclosure for *which*
+**Recorders.** The Rust recorder's panel: targets as large icon buttons, each with a disclosure for *which*
 display or window, and the recording mode as a small segmented icon group beside the title; the
 less-used commands live in the status item's menu. Dockable shows live thumbnails of what will
 be recorded. Several recorders turn the menu bar item into the recording indicator, as Soredemo
@@ -58,9 +58,8 @@ put the red anywhere but the record eye" — said the same thing first.
 **Mascots that are part of the product.** Characters that work in products are state machines,
 not animations: idle, listening, thinking, succeeding, failing, each entered by something the
 person did ([Rive mascot write-ups](https://dev.to/uianimation/how-duolingo-style-mascot-animations-in-rive-can-supercharge-your-app-or-website-39l)).
-a menu-bar cat is the strongest small example on macOS: the character's speed *is* the CPU load, so
-the animation carries information and never only decoration
-([a menu-bar cat](https://github.com/a menu-bar cat)). The vendor material around this is
+A menu-bar cat that runs at the CPU's pace is the strongest small example on macOS: the
+character's speed *is* the load, so the animation carries information and never only decoration. The vendor material around this is
 promotional; the pattern — state in, motion out, nothing gratuitous — is what is taken from it.
 
 ## Proposal
@@ -173,7 +172,7 @@ something real:
 | --- | --- | --- |
 | panel header | its record eye **looks toward** the card under the pointer | says which target the next press records |
 | panel header | the eye **fills** while Start Recording is pressed down | the press is the eye being painted |
-| microphone row, before a take | the daruma **sways with the input level** | a menu-bar cat's rule: motion is the level |
+| microphone row, before a take | the daruma **sways with the input level** | the running cat's rule: motion is the level |
 | countdown panel | the countdown ring is drawn **round the record eye** | one countdown in one shape, menu bar and screen alike |
 | ⎋ during the countdown, or a failed start | it **tips over and rights itself** — 七転び八起き | a cancel that is not an error, shown as the thing the brand is named for |
 | take finished | the **second eye is painted** (menu bar, already built) and the editor opens on it | 目入れ: the work is done |

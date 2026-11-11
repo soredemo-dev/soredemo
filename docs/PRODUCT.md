@@ -55,7 +55,7 @@ all, because the next reader trusts the rest of it — so a row that stops being
 
 Every one of these was read line by line; `NOTICE.md` records what came from where.
 
-| | Soredemo | ScreenKite | a Rust recorder | a native editor | a Swift recorder |
+| | Soredemo | ScreenKite | The Rust recorder | The native editor | The Swift recorder |
 | --- | --- | --- | --- | --- | --- |
 | Auto-zoom | AX-anchored, **with the reason for every click** | cursor | ✅ | ❌ | cursor |
 | Native macOS | ✅ | ✅ | ⚠️ Tauri | ✅ | ✅ |

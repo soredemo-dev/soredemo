@@ -1,6 +1,6 @@
 # Step numbers and a highlighter
 
-2026-09-30. Item 3 of the list approved after reading `a utility suite` (GPL-3.0; ideas only —
+2026-09-30. Item 3 of the list approved after reading a utility suite (GPL-3.0; ideas only —
 its screenshot editor has a "Number" tool and a "Highlighter"). The two things a tutorial reaches
 for that `AnnotationShape` did not have: "this is step 2", and "read this line".
 

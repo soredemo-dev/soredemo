@@ -98,6 +98,6 @@ already separates points from pixels in the type system (`PointRect`, `PixelRect
 distinction has caught real mistakes. It does not separate **global** points from
 **display-local** points, and both defects above are exactly that confusion — one at a
 constructor, one at a call site. A `GlobalPointRect` distinct from a `DisplayLocalPointRect`
-would have made `WindowTargets.source(for:)` fail to compile. Reading around: a Rust recorder keeps
+would have made `WindowTargets.source(for:)` fail to compile. Reading around: the Rust recorder keeps
 `LogicalPosition`/`PhysicalSize` as distinct types and computes a window's scale from the
 window's own display, which is the same conclusion reached here from the other direction.

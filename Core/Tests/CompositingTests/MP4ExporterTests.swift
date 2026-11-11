@@ -557,7 +557,7 @@ private final class PhaseLog: @unchecked Sendable {
 /// What an export is allowed to spend.
 @Suite struct ExportQualityTests {
     /// **A number two independent methods agree on.** One steps by pixel
-    /// count and both put 1080p at 20 Mbps; a Rust recorder computes bits-per-pixel and lands at 18.7 for
+    /// count and puts 1080p at 20 Mbps; the other computes bits per pixel and lands at 18.7 for
     /// 1080p30. Pinned because it is the whole reason this type exists — AVFoundation's own
     /// default, measured through `AVOutputSettingsAssistant`, is 10.5 Mbps for the same frame.
     @Test func theBestQualityMatchesWhatEveryScreenRecorderSpendsAt1080p() {
@@ -568,8 +568,8 @@ private final class PhaseLog: @unchecked Sendable {
     }
 
     /// **Doubling the frame rate must not double the file.** Consecutive frames at 60 fps differ
-    /// by half as much as at 30, so the extra frames cost the encoder far less. a Rust recorder tapers
-    /// everything above 30 by 0.6 and its size estimates come within 3% of the files it writes.
+    /// by half as much as at 30, so the extra frames cost the encoder far less. A taper of
+    /// 0.6 above 30 has been measured to estimate sizes within 3% of the files actually written.
     @Test func sixtyFramesCostsLessThanTwiceThirty() {
         let thirty = ExportQuality.best.videoBitRate(outputWidth: 1920, outputHeight: 1080,
                                                      frameRate: 30)

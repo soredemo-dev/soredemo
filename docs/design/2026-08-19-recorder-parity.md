@@ -1,7 +1,7 @@
 # Recorder parity — the bar moves, by owner decision
 
 *2026-08-19. The owner's words: "my screen recording has to be as good as ScreenKite and
-a Rust recorder and Screen Studio." This document records what that changes and what it does not.*
+[an open-source recorder] and Screen Studio." This document records what that changes and what it does not.*
 
 ## What changes
 
@@ -18,7 +18,7 @@ untested either way and stays flagged in the README.
 
 ## The gap matrix, measured against the tree on this date
 
-| Capability | Screen Studio | ScreenKite | a Rust recorder | Soredemo today |
+| Capability | Screen Studio | ScreenKite | The Rust recorder | Soredemo today |
 | --- | --- | --- | --- | --- |
 | Auto-zoom on activity | ✅ signature | ✅ | ✅ | ☐ — `framing-*`/`zoom-blocks`/`camera-motion` all unstarted |
 | Smooth cursor | ✅ signature | ✅ | ✅ | Rejected on evidence grounds — REVISITED below |
@@ -54,7 +54,7 @@ untested either way and stays flagged in the README.
 ## Open questions for the owner, not blocking the order above
 
 - **Webcam overlay**: in PRODUCT.md's "deliberately not built" table ("doubles the
-  capture surface"). Screen Studio and a Rust recorder both have it. Parity arguably includes it;
+  capture surface"). Screen Studio and the Rust recorder both have it. Parity arguably includes it;
   the scope table says no. Items 1–4 are unaffected either way.
 - **Region capture**: same table, same conflict, lower stakes.
 
@@ -67,16 +67,16 @@ code" turns out to be a legal requirement here, not a style preference:
 
 | Project | Licence | Usable |
 | --- | --- | --- |
-| **a Rust recorder** | **AGPLv3** (`cap-camera*`/`scap-*` are MIT) | its `crates/rendering/zoom_spring.rs` is in the AGPL half — **ideas only** |
-| **an Electron recorder** | **AGPLv3** | ideas only |
-| a Swift recorder | Apache 2.0 | usable with attribution |
-| an Electron recorder | MIT | usable with attribution |
-| a video framework | custom licence | read the terms before anything |
-| a native editor | **no LICENSE file** | all rights reserved by default — do not use |
+| **The Rust recorder** | **AGPLv3** (its camera and capture crates are MIT) | its zoom spring is in the AGPL half — **ideas only** |
+| **The AGPL Electron recorder** | **AGPLv3** | ideas only |
+| The Swift recorder | Apache 2.0 | usable with attribution |
+| The MIT Electron recorder | MIT | usable with attribution |
+| A video framework | custom licence | read the terms before anything |
+| The native editor | **GPL-3.0** | ideas only — and see `2026-11-11-caption-line-breaking.md` for the one time that was not kept |
 
 AGPL is copyleft: copying a fragment into Soredemo would put Soredemo under AGPL.
 
-**What was taken from a Rust recorder, and it is a fact about the problem rather than an expression of
+**What was taken from the Rust recorder, and it is a fact about the problem rather than an expression of
 it:** its camera integrates on a FIXED timestep rather than per requested frame. That
 observation is worth more here than any constant, and for a reason of Soredemo's own — a
 spring stepped at whatever interval the caller asks for accumulates differently on a 60 Hz

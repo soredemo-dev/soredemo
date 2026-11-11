@@ -3,7 +3,7 @@
 2026-10-25. Section C of `2026-10-25-the-panel-and-a-daruma-that-answers.md`, built: the mark
 as part of how the app behaves, not only its logo. The rule from the research holds — a
 character in a product is a state machine whose states are entered by something real, and its
-motion carries information (a menu-bar cat: the cat's speed *is* the load).
+motion carries information (a menu-bar cat whose speed *is* the CPU load).
 
 ## What was built, and what was not
 

@@ -481,10 +481,10 @@ candidate reasons, none of which survives:
 | Claim | Why it fails |
 | --- | --- |
 | preview must be real-time, export can be slow | argues for different **budgets**, not different paths. One compositor can drop resolution or quality tier for preview. What diverges is a parameter |
-| `AVPlayer` gives seek and scrub for free | true, and it is the path `a native editor` took. It buys convenience with two paths that can never be shown to agree — the trade `render-parity` exists to refuse |
+| `AVPlayer` gives seek and scrub for free | true, and it is the path the native editor took. It buys convenience with two paths that can never be shown to agree — the trade `render-parity` exists to refuse |
 | export runs VideoToolbox hardware encode | encoding happens *after* compositing. An output-stage difference, not a compositing-stage one |
 
-**The neighbouring project is the evidence, and precisely.** `a native editor` has
+**The neighbouring project is the evidence, and precisely.** The native editor has
 `Preview/VideoEngine.swift` on `AVPlayerLayer` and `Compositing/CustomVideoCompositor.swift` for
 export — two paths — across 534 Swift files and 149 test files. It is not that the project does not
 write parity tests: `VisualEmbedderParityTests` and `TextTokenizerGoldens` exist. It writes them for
@@ -1066,13 +1066,13 @@ solve.
 
 | | `colorSpaceName` at capture | tag written to the file |
 | --- | --- | --- |
-| `a Swift recorder` (208 Swift files) | **never set — zero occurrences** | user-selectable: `AVVideoColorPrimaries_ITU_R_709_2` / `_P3_D65` / `_ITU_R_2020`, set at write time in `ExportEngine+Helpers.swift` |
-| `a Rust recorder` (596 Rust files) | never set | **hardcoded 709/709/709**, `crates/enc-avfoundation/src/mp4.rs:330-332` |
+| The Swift recorder (208 Swift files) | **never set — zero occurrences** | user-selectable: `AVVideoColorPrimaries_ITU_R_709_2` / `_P3_D65` / `_ITU_R_2020`, set at write time in its export engine |
+| The Rust recorder (596 Rust files) | never set | **hardcoded 709/709/709**, in its AVFoundation encoder |
 
 Both tag at **write** time, not at capture. That is the lever, and `SCRecordingOutput` does not
 expose it.
 
-Worth copying as an approach, not as code: a Swift recorder's `RenderSettings.swift:429` returns
+Worth copying as an approach, not as code: the Swift recorder's render settings return
 `AVVideoTransferFunction_ITU_R_709_2` for **every** colour space — the return sits outside the
 switch — and the matrix is 709 for all but BT2020. That is Apple's standard way of tagging P3
 video; there is no "P3 transfer function" to pair with P3 primaries in this context. Only the
@@ -1084,7 +1084,7 @@ primaries change.
 the display."*
 
 So the default is **not sRGB — it is display-matched**. Neither project setting it means both
-already capture in P3 on a P3 display, and a Rust recorder then tags that data 709. Data and label disagree by
+already capture in P3 on a P3 display, and the Rust recorder then tags that data 709. Data and label disagree by
 default, on the default path.
 
 For a project whose master is a piece of material, that is a quality bug. **For a project whose
@@ -1118,7 +1118,7 @@ judge in derivation" rule as D2-1 and D2-7 — but that needs measuring, not ass
 
 - **What `SCRecordingOutput` actually tags.** Spike B's output was deleted after its audio question
   was answered, and its colour tags were never read. The claim above that data and label disagree by
-  default is inference from the SDK comment plus a Rust recorder's hardcoding, not observation here.
+  default is inference from the SDK comment plus the Rust recorder's hardcoding, not observation here.
 - **What this machine's display colour space is**, which determines what "the default" means on the
   one machine currently doing the measuring.
 - **Whether a P3-tagged master survives the compositor and export unchanged.** D2-6 requires parity

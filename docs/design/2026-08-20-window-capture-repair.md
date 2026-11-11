@@ -32,7 +32,7 @@ That makes the whole floating-window problem disappear rather than solving it: t
 offset to apply per frame, because the frames arrive already cropped and already the right
 size. `capture-stream`'s content-rect work becomes unnecessary rather than pending.
 
-`../opensource/a Swift recorder` (Apache 2.0) does exactly this, and its comment supplies a third
+The Swift recorder (Apache 2.0) does exactly this, and its comment supplies a third
 reason neither of ours had: `desktopIndependentWindow` makes macOS composite **the purple
 recording indicator into the captured frames**.
 
@@ -46,7 +46,7 @@ reversal is only about WHICH rectangle the buffer is sized to: the window's, not
 **What is lost, stated plainly.** A window filter excludes other windows by construction; a
 display filter with a source rect does not — anything overlapping the window's rect is
 captured with it. That is a real regression in isolation, accepted because the alternative
-is a capture that is wrong in three visible ways, and it is the same trade a Swift recorder makes.
+is a capture that is wrong in three visible ways, and it is the same trade the Swift recorder makes.
 `excludingApplications` can narrow it later.
 
 ## The cursor: depend on the viewport, not on the display arrangement
@@ -67,10 +67,10 @@ about a rectangle.
 ScreenCaptureKit hands **video** timestamps from a synthetic clock starting near zero and
 **audio** timestamps from the system media clock (since boot). Written unrebased into one
 file, the tracks disagree by the machine's uptime, and a player honouring timestamps shows
-exactly the symptom reported. `a Swift recorder` rebases both to their own first PTS.
+exactly the symptom reported. The Swift recorder rebases both to their own first PTS.
 
 `SCFrameStatusIdle` at 42–84% of callbacks (measured, Phase 2 F2-4) is the OTHER candidate,
-and it is worth stating why it is second: a Swift recorder shipped a constant-frame-rate writer
+and it is worth stating why it is second: the Swift recorder shipped a constant-frame-rate writer
 that repeated the last frame on idle, then **deprecated it in favour of variable frame
 rate** — writing frames at their real capture timestamps and skipping duplicates by
 IOSurface identity. Repeating frames is the intuitive fix and the one they abandoned.

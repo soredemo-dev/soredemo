@@ -3,7 +3,7 @@ import Geometry
 import Render
 import SwiftUI
 
-/// The surface's black: a notch assistant's outward-curling top corners, bottom corners that open as it
+/// The surface's black: outward-curling top corners, bottom corners that open as it
 /// grows. **A `Canvas`, not a `Shape`**: `Shape.path(in:)` would name `CGRect` in the app, which
 /// rule 5 forbids, so the outline comes from `CGGeometryBridge.notchOutline`. `Animatable` so the
 /// radius springs with the frame instead of jumping when the state changes.
@@ -32,7 +32,7 @@ struct NotchSurfaceView: View {
     let coordinator: RecordingCoordinator
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// a notch assistant's spring, which the tuning page kept. Reduce Motion gets a short fade instead:
+    /// The spring the tuning page kept. Reduce Motion gets a short fade instead:
     /// a surface travelling a few hundred points is what that setting exists to stop.
     private var motion: Animation {
         reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.42, dampingFraction: 0.84)

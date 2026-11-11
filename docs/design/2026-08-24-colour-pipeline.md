@@ -1,7 +1,7 @@
 # The colour pipeline, and what the reference recorders actually do
 
-Written after reading a native editor's `HDRVideoExporter.swift`, a Swift recorder's
-`OutputColorSpace`/`CaptureConfiguration`, and a Rust recorder's capture crates line by line, and
+Written after reading the native editor's `HDRVideoExporter.swift`, the Swift recorder's
+`OutputColorSpace`/`CaptureConfiguration`, and the Rust recorder's capture crates line by line, and
 after measuring this Mac and the files Soredemo writes.
 
 ## What is measured
@@ -20,7 +20,7 @@ a decision, not an oversight.** An earlier draft of this note said "nothing in t
 asked to preserve them", which was wrong and wrong in the direction that matters: the
 capture is asked, explicitly, to convert to sRGB, and every tag downstream agrees with it.
 The chain is INTERNALLY CONSISTENT. Nothing is mislabelled, which is the failure
-a native editor warns about and the one that actually looks broken.
+The native editor warns about and the one that actually looks broken.
 
 What is lost is the display's gamut, converted away at the capture on purpose. Colours
 outside sRGB — saturated app icons, brand colours, a photograph on screen — are clipped
@@ -36,14 +36,14 @@ earlier. Any change here is a change to the capture first.
 reading established, because it is the opposite of what one would assume from the fact
 that two of them ship an HDR or wide-gamut control.
 
-**a Swift recorder** captures `kCVPixelFormatType_32BGRA` (`CaptureConfiguration.swift:20`) and
+**The Swift recorder** captures `kCVPixelFormatType_32BGRA` (`CaptureConfiguration.swift:20`) and
 previews in `bgra8Unorm`. Its `OutputColorSpace` picker offers auto / sRGB / Display P3 /
 BT.709 / BT.2020, and each case maps to a `CGColorSpace` for the `CIContext` and to
 `AVVideoColorPrimaries*` for the writer. Its `avTransferFunction` returns
 `ITU_R_709_2` **for every case including BT.2020** — so its "BT.2020" is SDR in wider
 primaries, not HDR, and the code says so by construction rather than in a comment.
 
-**a native editor** has a dedicated `HDRVideoExporter` for HEVC Main10 BT.2020 HLG/PQ, and its
+**The native editor** has a dedicated `HDRVideoExporter` for HEVC Main10 BT.2020 HLG/PQ, and its
 source is an SDR 709 composition. The comment that matters:
 
 > Convert 709 → HLG per frame in CoreImage; relabeling the composition as HLG would tag
@@ -55,7 +55,7 @@ to `itur_2100_HLG`, and tags the file to match. And:
 
 > Render into the space matching the tagged transfer, or pixels won't agree with metadata.
 
-**a Rust recorder** renders through wgpu and writes through ffmpeg; its capture path is likewise 8-bit
+**The Rust recorder** renders through wgpu and writes through ffmpeg; its capture path is likewise 8-bit
 BGRA.
 
 ## What this means for Soredemo
@@ -81,7 +81,7 @@ So the honest form is: **P3 at 8 bits has a marginal cost, and for screen-record
 it buys almost nothing** — not "8-bit P3 breaks". The conclusion is the same and the reason
 now holds up.
 
-**2. HDR output.** Nobody's HDR is a captured HDR — a native editor's is a conversion at
+**2. HDR output.** Nobody's HDR is a captured HDR — the native editor's is a conversion at
 export. We could do the same thing, from the same starting point, with the same technique,
 and it would be equally honest as long as the pixels are converted rather than the file
 re-tagged. It buys interoperability with a pipeline that demands HDR; it does not buy a
@@ -192,7 +192,7 @@ banding, because the same 256 steps cover a larger volume; P3 in an 8-bit H.264 
 the worst of both, since the gamut is squeezed and the steps are coarse. The path that
 makes sense is the whole thing or none of it.
 
-**Do not copy a Swift recorder's design.** A five-way colour-space picker over an 8-bit sRGB
+**Do not copy the Swift recorder's design.** A five-way colour-space picker over an 8-bit sRGB
 pipeline means four of the five options change a label and not a pixel — and its
 `avTransferFunction` returning 709 for BT.2020 is that showing through.
 

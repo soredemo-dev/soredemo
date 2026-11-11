@@ -153,7 +153,7 @@ Three reasons, in the order they mattered:
 
 1. **It is what comparable Swift applications do.** One has 26 groups —
    `Editor`, `Inspector`, `Timeline`, `Toolbar`, `Preview`, `Settings`, `Home`,
-   `MediaPanel`, `Export`, `Transcription`, `Audio` — over 534 files. `a Swift recorder`
+   `MediaPanel`, `Export`, `Transcription`, `Audio` — over 534 files. The Swift recorder
    groups by layer (`Views` 32, `ViewModels` 6, `Models` 8) and its `Views` folder is
    its largest, which is the failure mode this is avoiding, one size down.
 2. **It is the published consensus.** Apple's own guidance and the 2026 SwiftUI
