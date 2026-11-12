@@ -15,11 +15,11 @@ extension AgentEditorBridge {
         case .failure(let refusal):
             return .failure(message: refusal.message, code: "notImported")
         case .success(let picture):
-            return adopt(picture, from: address, use: use, reason: reason)
+            return await adopt(picture, from: address, use: use, reason: reason)
         }
     }
 
-    func adopt(_ picture: PictureFetcher.Picture, from address: String, use: String, reason: String) -> MCPToolResult {
+    func adopt(_ picture: PictureFetcher.Picture, from address: String, use: String, reason: String) async -> MCPToolResult {
         guard let package = editor.mediaURL.map(ProjectStore.packageURL(forMediaAt:)) else {
             return .failure(message: "This recording has no project to put a picture in yet.", code: "noProject")
         }
@@ -35,13 +35,18 @@ extension AgentEditorBridge {
         do { try picture.data.write(to: file) } catch {
             return .failure(message: "The picture could not be written: \(error.localizedDescription)", code: "internal")
         }
+        // Into the library too, as from the web and by which host — so it can be found again, and a
+        // person can see where it came from (`docs/design/2026-11-13-the-library.md`).
+        let host = URL(string: address)?.host(percentEncoded: false) ?? "the web"
+        let kept = await editor.library.add(file, origin: .web(host: host))
         if use == "background" {
             return recordLook(reason: reason) { editor.stageStyle.useImageBackground(file, inPackageAt: package) }
         }
         guard let adopted = editor.annotations.adoptPicture(file, packageURL: package) else {
             return .failure(message: editor.annotations.pictureFailure ?? "The picture could not be added.", code: "notImported")
         }
-        return json(["picture": adopted, "width": picture.width, "height": picture.height,
+        let libraryID: Any = (try? kept.get().id) ?? NSNull()
+        return json(["picture": adopted, "libraryItem": libraryID, "width": picture.width, "height": picture.height,
                      "next": "Place it with add_mark shape image, picture \(adopted)."])
     }
 }

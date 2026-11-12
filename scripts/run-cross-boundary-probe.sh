@@ -179,6 +179,8 @@ xcrun swiftc \
   Soredemo/Agent/AgentEditorBridge+Overlays.swift \
   Soredemo/Agent/AgentEditorBridge+Import.swift \
   Soredemo/Agent/AccountUsageReader.swift \
+  Soredemo/Library/LibraryModel.swift \
+  Soredemo/Library/LibraryPanel.swift \
   Soredemo/Editor/EditorLook.swift \
   Soredemo/Agent/ClaudeCodeProvider.swift \
   Soredemo/Agent/AgentProvider.swift \

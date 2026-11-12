@@ -1005,3 +1005,15 @@
 "These numbers are over half an hour old; they could not be read again." = "這些數字已超過半小時，無法重新讀取。";
 "Show plan usage" = "顯示方案用量";
 "Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "讀取你的 %@ 存在這台 Mac 上的登入，在這個面板開著時向它的服務商查詢方案用了多少。不會讀取或送出其他東西。";
+
+/* The library */
+"Library" = "素材庫";
+"Takes, clips, screenshots, logos and music for this project. The agent searches them — the recording's steps and words, and the text on each picture." = "這個專案的錄影片段、影片、截圖、標誌和音樂。代理會搜尋它們——錄影的步驟和說的話，以及每張圖片上的文字。";
+"Add to Library…" = "加入素材庫…";
+"In this project" = "這個專案裡";
+"Nothing added yet. Drop files here." = "還沒有加入任何東西。把檔案拖到這裡。";
+"Remove from Library" = "從素材庫移除";
+"The project's library list could not be read, so it is shown empty and left as it was: %@" = "讀不到專案的素材清單，所以先顯示為空，原檔保持不動：%@";
+"Save the project first; its library lives in it." = "請先儲存專案；素材庫存放在專案裡。";
+"%@ is not a video, a picture or a sound this can use." = "%@ 不是這裡能用的影片、圖片或聲音。";
+"Could not add %@: %@" = "無法加入 %@：%@";

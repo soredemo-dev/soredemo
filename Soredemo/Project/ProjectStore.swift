@@ -87,6 +87,8 @@ enum ProjectStore {
         // unredacted log, even for a moment, and the source package is never touched.
         if withoutScreenText {
             _ = try EvidenceRedaction.redactObservations(in: staging)  // the count is for tests; a refusal throws
+            // The library's text read off screenshots and its files' original names, too.
+            _ = try EvidenceRedaction.redactLibrary(in: staging)  // `false` is no library, nothing to do
         }
 
         // Replace rather than remove-then-move: `replaceItemAt` is atomic where the filesystem

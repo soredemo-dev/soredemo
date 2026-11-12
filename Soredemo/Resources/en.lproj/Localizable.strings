@@ -1005,3 +1005,15 @@
 "These numbers are over half an hour old; they could not be read again." = "These numbers are over half an hour old; they could not be read again.";
 "Show plan usage" = "Show plan usage";
 "Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent.";
+
+/* The library */
+"Library" = "Library";
+"Takes, clips, screenshots, logos and music for this project. The agent searches them — the recording's steps and words, and the text on each picture." = "Takes, clips, screenshots, logos and music for this project. The agent searches them — the recording's steps and words, and the text on each picture.";
+"Add to Library…" = "Add to Library…";
+"In this project" = "In this project";
+"Nothing added yet. Drop files here." = "Nothing added yet. Drop files here.";
+"Remove from Library" = "Remove from Library";
+"The project's library list could not be read, so it is shown empty and left as it was: %@" = "The project's library list could not be read, so it is shown empty and left as it was: %@";
+"Save the project first; its library lives in it." = "Save the project first; its library lives in it.";
+"%@ is not a video, a picture or a sound this can use." = "%@ is not a video, a picture or a sound this can use.";
+"Could not add %@: %@" = "Could not add %@: %@";

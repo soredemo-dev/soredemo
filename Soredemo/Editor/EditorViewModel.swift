@@ -45,6 +45,8 @@ final class EditorViewModel {
     let agent = AgentPanelModel()
     /// Notes pinned on the recording, for the agent — or anyone — to address.
     let notes = NotesModel()
+    /// What the project holds besides the recording, and what the agent searches.
+    let library = LibraryModel()
 
     // MARK: - authored values
 

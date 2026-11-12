@@ -991,3 +991,15 @@
 "These numbers are over half an hour old; they could not be read again." = "この数値は30分以上前のもので、再取得できませんでした。";
 "Show plan usage" = "プランの使用量を表示";
 "Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "このMacにある %@ のサインインを読み取り、このパネルが開いている間、プランの使用量をそのサービスに問い合わせます。それ以外は読み取りも送信もしません。";
+
+/* The library */
+"Library" = "ライブラリ";
+"Takes, clips, screenshots, logos and music for this project. The agent searches them — the recording's steps and words, and the text on each picture." = "このプロジェクトのテイク、クリップ、スクリーンショット、ロゴ、音楽。エージェントはこれらを検索します——録画のステップと話した言葉、そして各画像の文字。";
+"Add to Library…" = "ライブラリに追加…";
+"In this project" = "このプロジェクト内";
+"Nothing added yet. Drop files here." = "まだ何も追加されていません。ここにファイルをドロップしてください。";
+"Remove from Library" = "ライブラリから削除";
+"The project's library list could not be read, so it is shown empty and left as it was: %@" = "プロジェクトのライブラリ一覧を読み取れなかったため、空として表示し、元のファイルはそのままにしています：%@";
+"Save the project first; its library lives in it." = "先にプロジェクトを保存してください。ライブラリはその中に保存されます。";
+"%@ is not a video, a picture or a sound this can use." = "%@ はここで使える動画、画像、サウンドではありません。";
+"Could not add %@: %@" = "%@ を追加できませんでした：%@";

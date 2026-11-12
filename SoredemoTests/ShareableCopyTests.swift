@@ -22,6 +22,13 @@ import Project
         try Data("not really a movie".utf8).write(to: movie)
         try (titled + "\n").write(to: observations.appending(path: "segment-00.jsonl"),
                                   atomically: true, encoding: .utf8)
+        // A library with a screenshot whose text and original name are about a client.
+        var library = Library()
+        try library.adding(kind: .image, filename: "invoice.png", name: "invoice",
+                           origin: .imported(originalName: "ACME invoice.png"), pictureText: "Invoice for ACME")
+        let folder = package.appending(path: Library.directory, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try JSONEncoder().encode(library).write(to: folder.appending(path: Library.listFilename))
         return (package, movie)
     }
 
@@ -44,6 +51,11 @@ import Project
         let original = try String(contentsOf: source.package.appending(path: "observations/segment-00.jsonl"),
                                   encoding: .utf8)
         #expect(original.contains("ACME"), "sharing a copy redacted the person's own project")
+        let sharedLibrary = try String(contentsOf: destination.appending(path: "library/library.json"), encoding: .utf8)
+        #expect(!sharedLibrary.contains("ACME"), "the shared copy's library still says what a screenshot showed: \(sharedLibrary)")
+        #expect(sharedLibrary.contains("invoice.png"), "the copy lost the library's file")
+        let ownLibrary = try String(contentsOf: source.package.appending(path: "library/library.json"), encoding: .utf8)
+        #expect(ownLibrary.contains("ACME"), "sharing a copy redacted the person's own library")
     }
 
     /// Positive control: an ordinary save keeps the evidence whole.
@@ -58,6 +70,8 @@ import Project
         let saved = try String(contentsOf: destination.appending(path: "observations/segment-00.jsonl"),
                                encoding: .utf8)
         #expect(saved.contains("ACME"))
+        let savedLibrary = try String(contentsOf: destination.appending(path: "library/library.json"), encoding: .utf8)
+        #expect(savedLibrary.contains("ACME"), "an ordinary save keeps the library whole")
     }
 }
 

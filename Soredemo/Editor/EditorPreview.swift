@@ -148,6 +148,7 @@ final class EditorPreview {
             // `runExport`'s header — so wiring it here wires both, and there is no second place
             // for the two to drift apart.
             editor.mediaURL = files.mediaURL
+            editor.library.load(packageURL: ProjectStore.packageURL(forMediaAt: files.mediaURL))
             let cut = try await EditedAsset.make(
                 from: recording, by: editor.timeline.edit,
                 substitutingAudio: await microphoneSubstitution(for: recording, files: files, editor: editor))

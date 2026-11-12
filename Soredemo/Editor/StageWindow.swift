@@ -100,13 +100,14 @@ struct StageWindow: View {
         // **`agent` is gone too, to a column of its own** on the window's left
         // (`docs/design/2026-11-12-the-agent-gets-a-column.md`): a tab closed the conversation
         // whenever another one opened, and a conversation runs beside everything else.
-        case project, selection, cuts, captions, chapters, text, hide, mark
+        case project, library, selection, cuts, captions, chapters, text, hide, mark
 
         var title: String {
             switch self {
             // "Look": the tab holds what changes the picture; the file's settings moved to the
             // export sheet (2026-10-25).
             case .project: "Look"
+            case .library: "Library"
             case .selection: "Zooms"
             case .cuts: "Cuts"
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
@@ -124,6 +125,7 @@ struct StageWindow: View {
         var icon: String {
             switch self {
             case .project: "slider.horizontal.3"
+            case .library: "photo.stack"
             // **A viewfinder, not a magnifier, since 2026-09-18.** The magnifier means
             // "zoom the TIMELINE in" one toolbar away (`EditorToolbar`'s ⌘=), and two
             // different meanings on one glyph is how a person learns that an icon is
@@ -145,6 +147,7 @@ struct StageWindow: View {
         var tint: Color {
             switch self {
             case .project: Theme.accent
+            case .library: Theme.accent
             case .selection: Theme.Lane.zoom
             case .cuts: Theme.accent
             case .captions: Theme.Lane.caption
@@ -805,6 +808,8 @@ struct StageWindow: View {
                                 }
                             })
                     }
+            case .library:
+                LibraryPanel(model: editor.library)
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes

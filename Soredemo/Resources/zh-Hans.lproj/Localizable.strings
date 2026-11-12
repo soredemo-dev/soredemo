@@ -991,3 +991,15 @@
 "These numbers are over half an hour old; they could not be read again." = "这些数字已超过半小时，无法重新读取。";
 "Show plan usage" = "显示套餐用量";
 "Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "读取你的 %@ 存在这台 Mac 上的登录，在这个面板打开时向它的服务商查询套餐用了多少。不会读取或发送其他东西。";
+
+/* The library */
+"Library" = "素材库";
+"Takes, clips, screenshots, logos and music for this project. The agent searches them — the recording's steps and words, and the text on each picture." = "这个项目的录屏片段、视频、截图、标志和音乐。代理会搜索它们——录屏的步骤和说的话，以及每张图片上的文字。";
+"Add to Library…" = "加入素材库…";
+"In this project" = "这个项目里";
+"Nothing added yet. Drop files here." = "还没有加入任何东西。把文件拖到这里。";
+"Remove from Library" = "从素材库移除";
+"The project's library list could not be read, so it is shown empty and left as it was: %@" = "读不到项目的素材清单，所以先显示为空，原文件保持不动：%@";
+"Save the project first; its library lives in it." = "请先保存项目；素材库存放在项目里。";
+"%@ is not a video, a picture or a sound this can use." = "%@ 不是这里能用的视频、图片或声音。";
+"Could not add %@: %@" = "无法加入 %@：%@";

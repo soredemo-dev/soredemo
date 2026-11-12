@@ -774,7 +774,7 @@ private func png(width: Int, height: Int) -> Data {
 
 /// A fetched picture becomes the background as one look change named for the agent, copied into
 /// the package under the address's own name made safe; or is added to the pictures to place.
-@Test @MainActor func aFetchedPictureBecomesTheBackgroundOrAPictureToPlace() throws {
+@Test @MainActor func aFetchedPictureBecomesTheBackgroundOrAPictureToPlace() async throws {
     let editor = editor()
     let package = FileManager.default.temporaryDirectory.appending(path: "import-\(ProcessInfo.processInfo.globallyUniqueString).soredemo")
     try FileManager.default.createDirectory(at: package.appending(path: "media"), withIntermediateDirectories: true)
@@ -784,13 +784,15 @@ private func png(width: Int, height: Int) -> Data {
     var records: [AgentEditRecord] = []
     bridge.onEdit = { records.append($0) }
     guard case .success(let picture) = PictureFetcher.check(png(width: 64, height: 64)) else { Issue.record("no picture"); return }
-    guard case .success = bridge.adopt(picture, from: "https://www.nthu.edu.tw/img/NTHU Logo.png", use: "background", reason: "The emblem") else {
+    editor.library.load(packageURL: package)
+    guard case .success = await bridge.adopt(picture, from: "https://www.nthu.edu.tw/img/NTHU Logo.png", use: "background", reason: "The emblem") else {
         Issue.record("refused"); return
     }
     #expect(editor.stageStyle.style.background == .image(filename: "NTHU-Logo.png"))
     #expect(FileManager.default.fileExists(atPath: package.appending(path: "backgrounds/NTHU-Logo.png").path(percentEncoded: false)))
-    #expect(records.first?.stepName == "Claude Code: The emblem")
-    guard case .success(let json) = bridge.adopt(picture, from: "https://x.edu/seal.png", use: "picture", reason: "r") else {
+    #expect(records.contains { $0.stepName == "Claude Code: The emblem" })
+    #expect(editor.library.library.items.first?.origin == .web(host: "www.nthu.edu.tw"), "it joins the library, with where it came from")
+    guard case .success(let json) = await bridge.adopt(picture, from: "https://x.edu/seal.png", use: "picture", reason: "r") else {
         Issue.record("refused"); return
     }
     #expect(json.contains(#""picture":"seal.png""#))

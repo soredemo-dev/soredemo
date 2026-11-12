@@ -177,6 +177,13 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                 == "`use` must be one of: background, picture.")
     }
 
+    /// The library is listed and searched by words; an empty search is refused, not answered empty.
+    @Test func theLibraryIsListedAndSearchedByWords() {
+        #expect(request("library", "{}") == .success(.library))
+        #expect(request("search_library", #"{"query":"export dialog"}"#) == .success(.searchLibrary("export dialog")))
+        #expect(failure(request("search_library", #"{"query":"   "}"#)) == "`query` is required: the words to look for.")
+    }
+
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {
         #expect(request("use_on_screen_spelling", #"{"id":"Sorodimo\u001fSoredemo","reason":"Pressed in step 3"}"#)
                 == .success(.useOnScreenSpelling(id: "Sorodimo\u{1F}Soredemo", reason: "Pressed in step 3")))

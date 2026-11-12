@@ -42,7 +42,7 @@ public enum AgentTools {
                                               invalid: "`id` must be a note's id from notes.")
     private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs + zoomSpecs + [importImageSpec]
+    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs + zoomSpecs + [importImageSpec] + librarySpecs
 
     static let editSpecs: [ToolSpec] = [
         ToolSpec(status, title: "Project status",
@@ -143,6 +143,8 @@ public enum AgentTools {
         case zooms
         case setZoom(Int, on: Bool, reason: String)
         case importImage(url: String, use: String, reason: String)
+        case library
+        case searchLibrary(String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -158,6 +160,8 @@ public enum AgentTools {
         if let answer = lookRequest(name, arguments) { return answer }
         if let answer = overlayRequest(name, arguments, duration: duration) { return answer }
         if name == "zooms" { return .success(.zooms) }
+        if name == "library" { return .success(.library) }
+        if name == "search_library" { return .success(.searchLibrary(arguments.string("query"))) }
         if name == "import_image" {
             let url = arguments.string("url")
             if let refusal = ImageImport.refusal(for: url) { return .failure(.init(refusal)) }
@@ -251,4 +255,19 @@ extension AgentTools {
                                    invalid: "`url` is required: the picture's own https address."),
                      ToolParameter("use", .choice(["background", "picture"]), description: "What it is for."),
                      .reason])
+}
+
+extension AgentTools {
+    /// The project's library (`docs/design/2026-11-13-the-library.md`): what is in it, and finding
+    /// what was shown or said by the words.
+    static let librarySpecs: [ToolSpec] = [
+        ToolSpec("library", title: "The project's library",
+                 description: "Everything this project holds besides the edit: the recording, and the takes, clips, screenshots, logos and music added to it — each with an id, its kind, its size and length, and where it came from.",
+                 readOnly: true),
+        ToolSpec("search_library", title: "Search the library",
+                 description: "Find where something was shown or said: words are matched against the recording's pressed labels and applications (with each step's span), its captions (with their times), text read off the screenshots, and every item's name. Every hit says which item, which field and when. Strongest evidence first: a pressed label, then speech, then a picture's text, then a name.",
+                 readOnly: true,
+                 parameters: [ToolParameter("query", .string(longest: 200, allowsEmpty: false), description: "The words to look for.",
+                                            invalid: "`query` is required: the words to look for.")]),
+    ]
 }

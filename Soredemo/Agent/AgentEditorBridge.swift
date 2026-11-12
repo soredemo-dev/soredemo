@@ -2,6 +2,7 @@ import Compositing
 import Foundation
 import Framing
 import Overlays
+import Project
 import Surface
 import Timeline
 
@@ -128,6 +129,10 @@ final class AgentEditorBridge {
         case .importImage:
             // Asynchronous, so the toolbox calls `importImage` itself; never reached.
             return .failure(message: "A picture is imported through the toolbox.", code: "internal")
+        case .library:
+            return libraryReport()
+        case .searchLibrary(let query):
+            return searchLibrary(query)
         case .zooms:
             return zoomsReport()
         case .setZoom(let number, let on, let reason):
@@ -321,6 +326,43 @@ final class AgentEditorBridge {
         lastEdit = entry
         onEdit(entry)
         return json(["undoStep": name, "zoom": number, "on": on])
+    }
+
+    private func libraryReport() -> MCPToolResult {
+        var items: [[String: Any]] = [["id": LibraryModel.recordingID, "kind": "recording", "name": "This recording",
+                                       "durationNanos": duration, "steps": editor.steps.steps.count]]
+        for item in editor.library.library.items {
+            var row: [String: Any] = ["id": item.id, "kind": item.kind.rawValue, "name": item.name, "file": item.filename]
+            if let d = item.durationNanos { row["durationNanos"] = d }
+            if let w = item.width, let h = item.height { row["width"] = w; row["height"] = h }
+            switch item.origin {
+            case .recorded: row["from"] = "recorded"
+            case .imported(let original): row["from"] = "imported"; row["originalName"] = original
+            case .web(let host): row["from"] = "web"; row["host"] = host
+            }
+            items.append(row)
+        }
+        return json(["items": items])
+    }
+
+    /// The hits, best first, at most 30, each with its evidence.
+    private func searchLibrary(_ query: String) -> MCPToolResult {
+        let index = editor.library.index(steps: editor.steps.steps, anchorHostNanos: anchor?.hostTime.rawValue,
+                                         captions: editor.captions.track)
+        let hits = LibrarySearch.search(query, in: index).prefix(30)
+        return json(["query": query, "hits": hits.map { hit -> [String: Any] in
+            var row: [String: Any] = ["item": hit.itemID, "text": hit.text]
+            switch hit.field {
+            case .stepLabel(let step): row["field"] = "pressedLabel"; row["step"] = step
+            case .application(let step): row["field"] = "application"; row["step"] = step
+            case .spoken: row["field"] = "spoken"
+            case .pictureText: row["field"] = "textOnPicture"
+            case .name: row["field"] = "name"
+            }
+            if let start = hit.startNanos { row["startNanos"] = start }
+            if let end = hit.endNanos { row["endNanos"] = end }
+            return row
+        }])
     }
 
     private func listing() -> CutReview.Listing? {
