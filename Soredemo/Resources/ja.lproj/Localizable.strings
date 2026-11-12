@@ -1004,3 +1004,6 @@
 "%@ is not a video, a picture or a sound this can use." = "%@ はここで使える動画、画像、サウンドではありません。";
 "Could not add %@: %@" = "%@ を追加できませんでした：%@";
 "Make this into a video for our website, using the library" = "ライブラリを使って、これをWebサイト用の紹介動画にして";
+
+/* Two pieces of text joined, each already localised */
+"%@ %@" = "%@ %@";

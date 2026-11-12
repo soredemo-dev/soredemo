@@ -1004,3 +1004,6 @@
 "%@ is not a video, a picture or a sound this can use." = "%@ 不是这里能用的视频、图片或声音。";
 "Could not add %@: %@" = "无法加入 %@：%@";
 "Make this into a video for our website, using the library" = "用素材库把这段做成可以放在官网的介绍视频";
+
+/* Two pieces of text joined, each already localised */
+"%@ %@" = "%@ %@";

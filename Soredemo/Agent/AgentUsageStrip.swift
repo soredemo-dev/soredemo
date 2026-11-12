@@ -44,8 +44,7 @@ struct AgentUsageStrip: View {
         .foregroundStyle(Theme.Ink.tertiary)
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .center)
-        .help(Text("Sent by your \(model.providerName), under your account.") + Text(verbatim: " ")
-              + Text("How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them."))
+        .help(Text("\(Text("Sent by your \(model.providerName), under your account.")) \(Text("How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them."))"))
         .animation(.snappy, value: usage)
     }
 
@@ -94,7 +93,7 @@ struct AgentUsageStrip: View {
         let resets = window.resets.map { Text("Resets \($0.formatted(.dateTime.weekday(.abbreviated).hour().minute()))") }
         guard window.limited else { return resets ?? Text(verbatim: "") }
         guard let resets else { return Text("Limit reached") }
-        return Text("Limit reached") + Text(verbatim: " · ") + resets
+        return Text("\(Text("Limit reached")) · \(resets)")
     }
 
     static func percent(_ value: Double) -> String {

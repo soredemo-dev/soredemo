@@ -26,7 +26,7 @@ struct CaptionSuggestionList: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: "\(suggestion.was) → \(suggestion.now)")
                     .font(Type.label)
-                (origin(suggestion.origin) + Text(verbatim: " · ") + lines(suggestion.lines))
+                Text("\(origin(suggestion.origin)) · \(lines(suggestion.lines))")
                     .font(Type.detail)
                     .foregroundStyle(.secondary)
             }
