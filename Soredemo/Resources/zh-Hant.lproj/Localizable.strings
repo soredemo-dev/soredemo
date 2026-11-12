@@ -1017,3 +1017,4 @@
 "Save the project first; its library lives in it." = "請先儲存專案；素材庫存放在專案裡。";
 "%@ is not a video, a picture or a sound this can use." = "%@ 不是這裡能用的影片、圖片或聲音。";
 "Could not add %@: %@" = "無法加入 %@：%@";
+"Make this into a video for our website, using the library" = "用素材庫把這段做成可以放在官網的介紹影片";

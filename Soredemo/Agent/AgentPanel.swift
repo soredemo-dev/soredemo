@@ -181,6 +181,7 @@ private struct AgentWelcome: View {
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: Space.snug) {
+                    suggestion("Make this into a video for our website, using the library", icon: "wand.and.stars")
                     suggestion("Tighten the pauses between steps", icon: "scissors")
                     suggestion("Cut this to about 45 seconds", icon: "timer")
                     suggestion("Which steps could go, and why?", icon: "list.bullet")

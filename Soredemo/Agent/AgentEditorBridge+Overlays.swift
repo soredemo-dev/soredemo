@@ -1,5 +1,6 @@
 import Foundation
 import Overlays
+import Project
 import Render
 import Surface
 import Timeline
@@ -71,10 +72,17 @@ extension AgentEditorBridge {
             case .addMark(let mark):
                 guard let shape = AnnotationShape(rawValue: mark.shape) else { return "There is no mark shape \(mark.shape)." }
                 if let picture = mark.picture {
-                    let file = editor.mediaURL.map(ProjectStore.packageURL(forMediaAt:))?
-                        .appending(path: AnnotationOverlay.imageDirectory).appending(path: picture)
-                    guard let file, FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) else {
-                        return "This project has no picture \(picture). Bring one in with import_image."
+                    guard let package = editor.mediaURL.map(ProjectStore.packageURL(forMediaAt:)) else {
+                        return "This recording has no project to hold a picture yet."
+                    }
+                    let file = package.appending(path: AnnotationOverlay.imageDirectory).appending(path: picture)
+                    if !FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) {
+                        // A picture from the library is copied where the compositor reads pictures, on first use.
+                        guard let folder = editor.library.folder,
+                              editor.library.library.items.contains(where: { $0.kind == .image && $0.filename == picture }),
+                              editor.annotations.adoptPicture(folder.appending(path: picture), packageURL: package) != nil else {
+                            return "This project has no picture \(picture). Read library for its pictures, or bring one in with import_image."
+                        }
                     }
                 }
                 var track = editor.annotations.track.adding(

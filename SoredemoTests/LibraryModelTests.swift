@@ -101,3 +101,32 @@ private func picture(saying words: String, at url: URL) throws {
     guard case .success(let listed) = bridge.perform(.library) else { Issue.record("no list"); return }
     #expect(listed.contains(#""kind":"recording""#) && listed.contains(#""kind":"image""#), "\(listed)")
 }
+
+/// A picture in the library is a background and a picture to place, by its library name — what a
+/// demo prepared with a library needs from one sentence.
+@Test @MainActor func aLibraryPictureIsABackgroundAndAPictureToPlace() async throws {
+    let package = try package()
+    defer { try? FileManager.default.removeItem(at: package) }
+    let editor = EditorViewModel()
+    editor.timeline.load(duration: 20)
+    editor.mediaURL = package.appending(path: "media/master-00.mov")
+    editor.library.load(packageURL: package)
+    let source = FileManager.default.temporaryDirectory.appending(path: "NTHU emblem \(ProcessInfo.processInfo.globallyUniqueString.prefix(6)).png")
+    try picture(saying: "NTHU", at: source)
+    defer { try? FileManager.default.removeItem(at: source) }
+    let item = try #require(await editor.library.importFiles([source]).first)
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .success(let look) = bridge.perform(.look) else { Issue.record("no look"); return }
+    #expect(look.contains(item.filename), "the library's picture is offered as a background: \(look)")
+    guard case .success = bridge.perform(.setLook(.init(backgroundImage: item.filename), reason: "The emblem")) else {
+        Issue.record("refused the library's picture as the background"); return
+    }
+    #expect(editor.stageStyle.style.background == .image(filename: item.filename))
+    guard case .success = bridge.perform(.overlay(.addMark(.init(shape: "image", fromX: 0.8, fromY: 0.05, toX: 0.95, toY: 0.2,
+                                                                    startNanos: 0, seconds: 20, picture: item.filename)), reason: "The logo")) else {
+        Issue.record("could not place the library's picture"); return
+    }
+    #expect(editor.annotations.track.items.first?.imageName == item.filename)
+    #expect(FileManager.default.fileExists(atPath: package.appending(path: "pictures/\(item.filename)").path(percentEncoded: false)),
+            "copied where the compositor reads pictures from")
+}

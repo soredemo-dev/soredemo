@@ -59,6 +59,13 @@ extension AgentEditorBridge {
             let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
             found += files.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { ($0.lastPathComponent, $0) }
         }
+        // The library's pictures next: what a person prepared for this project.
+        if let folder = editor.library.folder {
+            for item in editor.library.library.items
+            where item.kind == .image && !found.contains(where: { $0.name == item.filename }) {
+                found.append((item.filename, folder.appending(path: item.filename)))
+            }
+        }
         for url in WallpaperGallery.currentDesktops() + WallpaperGallery.systemPictures()
         where !found.contains(where: { $0.name == url.lastPathComponent }) {
             found.append((url.lastPathComponent, url))
