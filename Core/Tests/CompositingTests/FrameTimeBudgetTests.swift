@@ -1,4 +1,6 @@
 import CoreMedia
+import Metal
+import CoreImage
 import Foundation
 import Overlays
 import Render
@@ -23,6 +25,21 @@ import Timeline
 /// Set by `coverage.sh` and by nothing else, so an ordinary `swift test` still asserts.
 private var isInstrumentedForCoverage: Bool {
     ProcessInfo.processInfo.environment["SOREDEMO_COVERAGE"] == "1"
+}
+
+/// **Whether this run is on a hosted CI runner, and why the absolute budgets sit out of it.**
+///
+/// GitHub's macOS runner is a virtual machine with a paravirtualised GPU. Measured 2026-11-12:
+/// the same commit whose 1080p frame takes 2.9–4.3 ms here took 11.8 and then 14.5 ms there, and
+/// its 4K frame 28.9 and 36.3 ms against 7.7–10.1 here — the code before and after the push
+/// timed identically on this Mac, so the difference was the machine. A millisecond budget is a
+/// statement about a machine; on a machine it does not describe it fails for nothing.
+///
+/// **Not widened, replaced there**: `theFrameStaysWithinItsMultipleOfAPlainRenderOnThisMachine`
+/// times a compositor-independent Core Image pass in the same run and holds the frame to a
+/// multiple of it, which a slow machine and a fast one judge alike. Set by GitHub Actions itself.
+private var isOnAHostedRunner: Bool {
+    ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true"
 }
 
 // MARK: - how long one frame is allowed to take
@@ -124,7 +141,7 @@ private var isInstrumentedForCoverage: Bool {
                       min: timings[0])
     }
 
-    @Test(.enabled(if: !isInstrumentedForCoverage))
+    @Test(.enabled(if: !isInstrumentedForCoverage && !isOnAHostedRunner))
     func aFrameAt1080pStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 1920, height: 1080) else { return }
         #expect(timing.median < 8, """
@@ -134,7 +151,7 @@ private var isInstrumentedForCoverage: Bool {
             """)
     }
 
-    @Test(.enabled(if: !isInstrumentedForCoverage))
+    @Test(.enabled(if: !isInstrumentedForCoverage && !isOnAHostedRunner))
     func aFrameAt4KStaysWellInsideItsBudget() throws {
         guard let timing = try Self.time(width: 3840, height: 2160) else { return }
         #expect(timing.median < 22, """
@@ -167,6 +184,51 @@ private var isInstrumentedForCoverage: Bool {
             4K costs \(Self.ms(ratio))x 1080p at each one's fastest frame \
             (\(Self.ms(small.min)) ms and \(Self.ms(large.min)) ms) — measured at 2.4x. \
             Above 4 the compositor has stopped amortising anything across the frame.
+            """)
+    }
+
+    /// A plain Core Image pass at the same size on the same machine — a resample and a blur, no
+    /// compositor — so the frame can be judged against this machine rather than against a laptop.
+    /// Same context options as the renderer, so the two differ in the compositor's work only.
+    static func baseline(width: Int, height: Int) throws -> Double {
+        guard let device = MTLCreateSystemDefaultDevice() else { throw FrameRenderingError.noRenderDevice }
+        let context = CIContext(mtlDevice: device, options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                                             .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
+        let source = try makePixelBuffer(width: width, height: height, fill: (40, 90, 160))
+        let destination = try makePixelBuffer(width: width, height: height, fill: (0, 0, 0))
+        let image = CIImage(cvPixelBuffer: source)
+        let extent = image.extent
+        func once() {
+            let work = image.clampedToExtent()
+                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.999, kCIInputAspectRatioKey: 1])
+                .applyingGaussianBlur(sigma: 4).cropped(to: extent)
+            context.render(work, to: destination)
+        }
+        for _ in 0..<warmUp { once() }
+        let clock = ContinuousClock()
+        var timings: [Double] = []
+        for _ in 0..<samples {
+            let took = clock.measure { once() }
+            timings.append(Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15)
+        }
+        timings.sort()
+        return timings[samples / 2]
+    }
+
+    /// **The frame against this machine, not against a laptop.** Measured 2026-11-13, four runs:
+    /// the frame's median over the plain pass's was 4.3–4.7x at 1080p and 5.8–7.5x at 4K. The
+    /// limits are about three times those, the same looseness the absolute budgets keep, for the
+    /// same reason: far more than noise, far less than an algorithmic regression. This is what
+    /// stands for the absolute budgets on a hosted runner, and it runs everywhere.
+    @Test(.enabled(if: !isInstrumentedForCoverage), arguments: [(1920, 1080, 14.0), (3840, 2160, 20.0)])
+    func theFrameStaysWithinItsMultipleOfAPlainRenderOnThisMachine(width: Int, height: Int, limit: Double) throws {
+        guard let frame = try Self.time(width: width, height: height) else { return }
+        let plain = try Self.baseline(width: width, height: height)
+        let multiple = frame.median / plain
+        #expect(multiple < limit, """
+            \(width)x\(height): the frame's median \(Self.ms(frame.median)) ms is \(Self.ms(multiple))x a plain \
+            Core Image pass's \(Self.ms(plain)) ms on this machine; the limit is \(Self.ms(limit))x — measured \
+            at 4.3–4.7x (1080p) and 5.8–7.5x (4K). Above it the compositor got slower, whatever the machine.
             """)
     }
 }
