@@ -321,7 +321,7 @@ struct SettingsWindow: View {
                          detail: "The window picker shows an application's name and size. A title carries whatever is open in it.")
             PrivacyPoint(icon: "wifi.slash",
                          title: "Nothing is sent unless you ask",
-                         detail: "Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages.")
+                         detail: "Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes three kinds of request: asking GitHub whether there is a newer version, only when you choose to; with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent; and, once you press Show plan usage and while the Agent panel is open, asking Anthropic or OpenAI how much of your plan is used, with the sign-in your Claude Code or Codex keeps on this Mac. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages.")
         }
         SwiftUI.Section("Updates") {
             Toggle("Check for updates when Soredemo starts", isOn: Binding(

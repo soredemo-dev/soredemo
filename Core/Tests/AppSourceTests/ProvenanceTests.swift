@@ -21,11 +21,11 @@ import Testing
     }
 }
 
-/// **Two app files talk to a network: the update check and the agent's picture import.**
+/// **Three app files talk to a network: the update check, the agent's picture import and the plan's usage.**
 ///
-/// The privacy pane says nothing is sent unless a person asks, and names the two requests Soredemo
-/// itself makes: the update check, and the agent's picture import. This keeps the sentence true: a
-/// third file naming a networking API is a third thing leaving the Mac that the pane does not mention.
+/// The privacy pane says nothing is sent unless a person asks, and names the three requests
+/// Soredemo itself makes: the update check, the agent's picture import and the plan's usage. This keeps the
+/// sentence true: a fourth file naming a networking API is a thing leaving the Mac the pane does not mention.
 @Test func noOtherAppSourceTalksToANetwork() throws {
     let networking = ["URLSession", "URLRequest", "NWConnection", "NWListener", "NSURLConnection",
                       "WKWebView", "CFStream", "Socket("]
@@ -51,6 +51,18 @@ import Testing
         // The agent's picture import, the second request the privacy pane names
         // (`docs/design/2026-11-13-the-agent-may-search-the-web.md`). Admitted only while every
         // address it fetches is checked first and every redirect is checked before it is followed.
+        // The plan's usage, the third request the pane names
+        // (`docs/design/2026-11-13-the-plan-usage-before-a-message.md`). Admitted only while it
+        // names no address of its own: the two it may reach are `AccountUsage`'s.
+        if file.lastPathComponent == "AccountUsageReader.swift" {
+            let code = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            #expect(!code.contains("http://") && !code.contains("https://")
+                    && code.contains("AccountUsage.claudeEndpoint") && code.contains("AccountUsage.codexEndpoint"), """
+                AccountUsageReader.swift is admitted as the usage request to AccountUsage's two hosts; it now names \
+                an address of its own, which the privacy pane does not mention.
+                """)
+            continue
+        }
         if file.lastPathComponent == "AgentEditorBridge+Import.swift" {
             let code = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
             #expect(code.contains("ImageImport.refusal(for: address)") && code.contains("delegate: RedirectCheck()"), """

@@ -15,13 +15,28 @@ struct AgentUsageStrip: View {
     var body: some View {
         let usage = model.usage
         Group {
-            if usage.contextUsed == nil, usage.windows.isEmpty {
+            if usage.windows.isEmpty, !model.readsAccountUsage {
+                Button {
+                    model.readsAccountUsage = true
+                    Task { await model.refreshAccountUsage(panelOpen: true) }
+                } label: {
+                    Label("Show plan usage", systemImage: "gauge.with.dots.needle.33percent")
+                }
+                .buttonStyle(.plain)
+                .help(Text("Reads the sign-in your \(model.providerName) keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent."))
+            } else if usage.windows.isEmpty, let note = usage.note, let said = Self.say(note, provider: model.providerName) {
+                said
+            } else if usage.contextUsed == nil, usage.windows.isEmpty {
                 Text("Sent by your \(model.providerName), under your account.")
             } else {
                 HStack(spacing: Space.regular) {
                     if let used = usage.contextUsed { context(used: used, percent: usage.contextPercent) }
                     Spacer(minLength: Space.tight)
                     ForEach(usage.windows, id: \.minutes) { window($0) }
+                    if usage.isStale {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .help(Text("These numbers are over half an hour old; they could not be read again."))
+                    }
                 }
             }
         }
@@ -100,5 +115,19 @@ private struct ContextRing: View {
                 .rotationEffect(.degrees(-90))
         }
         .accessibilityHidden(true)
+    }
+
+}
+
+extension AgentUsageStrip {
+    /// What the strip says when the plan's usage could not be read before a message — so an
+    /// empty strip is never mistaken for nothing having been used.
+    static func say(_ note: AccountUsageReader.Outcome, provider: String) -> Text? {
+        switch note {
+        case .expired: Text("\(provider)'s sign-in here has expired; usage shows after your next message.")
+        case .notSignedIn: Text("Sign in to \(provider) to see your plan's usage.")
+        case .failed: Text("Your plan's usage could not be read; it shows after your next message.")
+        case .windows, .refused: nil
+        }
     }
 }

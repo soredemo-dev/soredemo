@@ -675,7 +675,7 @@
 "Nothing is sent unless you ask" = "頼まない限り何も送信しません";
 "Updates" = "アップデート";
 "Check for updates when Soredemo starts" = "Soredemo の起動時にアップデートを確認";
-"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "文字起こしはこのMac上で行われます。アカウント、アップロード、利用状況の送信はありません。Soredemo自身が行うリクエストは2種類だけです。選んだときにGitHubへ新しいバージョンを問い合わせること、そしてエージェントのWebスイッチがオンのとき、送信したターンの中でエージェントが求めた画像を取得することです。エージェントタブは、入力した内容と読み取った録画のステップを、あなた自身のClaude CodeまたはCodexを通じて、あなたのアカウントでそのサービスへ送ります——送信を押したときだけです。Webがオンなら、エージェントはWeb検索やページの閲覧もできます。";
+"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes three kinds of request: asking GitHub whether there is a newer version, only when you choose to; with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent; and, once you press Show plan usage and while the Agent panel is open, asking Anthropic or OpenAI how much of your plan is used, with the sign-in your Claude Code or Codex keeps on this Mac. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "文字起こしはこのMac上で行われます。アカウント、アップロード、利用状況の送信はありません。Soredemo自身が行うリクエストは3種類だけです。選んだときにGitHubへ新しいバージョンを問い合わせること、エージェントのWebスイッチがオンのとき、送信したターンの中でエージェントが求めた画像を取得すること、そして「プランの使用量を表示」を押した後、エージェント欄が開いている間、このMacにあるClaude CodeまたはCodexのサインインで、AnthropicまたはOpenAIにプランの使用量を問い合わせることです。エージェントタブは、入力した内容と読み取った録画のステップを、あなた自身のClaude CodeまたはCodexを通じて、あなたのアカウントでそのサービスへ送ります——送信を押したときだけです。Webがオンなら、エージェントはWeb検索やページの閲覧もできます。";
 "Export Frame…" = "フレームを書き出す…";
 "Export Guide…" = "ガイドを書き出す…";
 "Export Walkthrough…" = "ウォークスルーを書き出す…";
@@ -983,3 +983,11 @@
 "Web" = "Web";
 "No web" = "Webなし";
 "The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off." = "エージェントはWeb検索、ページの閲覧、画像の取り込みができます。ページにはエージェント宛ての指示が含まれることがあります。それでもエージェントが変更できるのはこのプロジェクトだけで、すべての変更は元に戻せ、何も公開できません。ただしWebへのリクエストは送れるため、この録画から読んだ内容がそこに含まれる可能性があります。クリックでWebをオフにします。";
+
+/* The plan's usage before a message */
+"%@'s sign-in here has expired; usage shows after your next message." = "ここでの %@ のサインインは期限切れです。次のメッセージ送信後に使用量が表示されます。";
+"Sign in to %@ to see your plan's usage." = "プランの使用量を見るには %@ にサインインしてください。";
+"Your plan's usage could not be read; it shows after your next message." = "プランの使用量を読み取れませんでした。次のメッセージ送信後に表示されます。";
+"These numbers are over half an hour old; they could not be read again." = "この数値は30分以上前のもので、再取得できませんでした。";
+"Show plan usage" = "プランの使用量を表示";
+"Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "このMacにある %@ のサインインを読み取り、このパネルが開いている間、プランの使用量をそのサービスに問い合わせます。それ以外は読み取りも送信もしません。";

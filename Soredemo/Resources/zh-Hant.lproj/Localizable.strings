@@ -689,7 +689,7 @@
 "Nothing is sent unless you ask" = "除非你要求，否則不傳送任何東西";
 "Updates" = "更新項目";
 "Check for updates when Soredemo starts" = "啟動 Soredemo 時檢查更新項目";
-"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "轉錄在本機進行。沒有帳號、不上傳、沒有使用追蹤。Soredemo 本身只會發出兩種請求：在你選擇時向 GitHub 查詢有沒有新版；以及代理的「網路」開關打開時，在你送出的回合中下載代理要的圖片。代理分頁會把你輸入的內容，連同它讀到的錄影步驟，經由你自己的 Claude Code 或 Codex、以你的帳號送到它的服務商——只在你按下送出時；網路打開時，代理也能搜尋網路、讀取網頁。";
+"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes three kinds of request: asking GitHub whether there is a newer version, only when you choose to; with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent; and, once you press Show plan usage and while the Agent panel is open, asking Anthropic or OpenAI how much of your plan is used, with the sign-in your Claude Code or Codex keeps on this Mac. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "轉錄在本機進行。沒有帳號、不上傳、沒有使用追蹤。Soredemo 本身只會發出三種請求：在你選擇時向 GitHub 查詢有沒有新版；代理的「網路」開關打開時，在你送出的回合中下載代理要的圖片；以及你按下「顯示方案用量」之後、代理欄開著時，用你的 Claude Code 或 Codex 存在這台 Mac 上的登入，向 Anthropic 或 OpenAI 查詢方案用了多少。代理分頁會把你輸入的內容，連同它讀到的錄影步驟，經由你自己的 Claude Code 或 Codex、以你的帳號送到它的服務商——只在你按下送出時；網路打開時，代理也能搜尋網路、讀取網頁。";
 "Export Frame…" = "匯出畫面…";
 "Export Guide…" = "匯出操作說明…";
 "Export Walkthrough…" = "匯出互動導覽…";
@@ -997,3 +997,11 @@
 "Web" = "網路";
 "No web" = "不用網路";
 "The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off." = "代理可以搜尋網路、讀網頁、匯入圖片。網頁裡可能夾帶寫給代理的指示；代理仍然只能改這個專案，每項修改都能復原，也不能發布任何東西。但它能發出網路請求，請求裡可能帶著它從這段錄影讀到的內容。按一下關閉網路。";
+
+/* The plan's usage before a message */
+"%@'s sign-in here has expired; usage shows after your next message." = "%@ 在這裡的登入已過期；下次送出訊息後就會顯示用量。";
+"Sign in to %@ to see your plan's usage." = "登入 %@ 才能看到方案用量。";
+"Your plan's usage could not be read; it shows after your next message." = "讀不到方案用量；下次送出訊息後就會顯示。";
+"These numbers are over half an hour old; they could not be read again." = "這些數字已超過半小時，無法重新讀取。";
+"Show plan usage" = "顯示方案用量";
+"Reads the sign-in your %@ keeps on this Mac and asks its provider how much of your plan is used, while this panel is open. Nothing else is read or sent." = "讀取你的 %@ 存在這台 Mac 上的登入，在這個面板開著時向它的服務商查詢方案用了多少。不會讀取或送出其他東西。";

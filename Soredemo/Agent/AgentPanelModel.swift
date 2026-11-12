@@ -1,3 +1,4 @@
+import Capture
 import Foundation
 import Framing
 import Observation
@@ -68,6 +69,10 @@ final class AgentPanelModel {
         var contextUsed: Int?
         var contextWindow: Int?
         var windows: [UsageWindow] = []
+        /// Why there is no fresh reading, when there is not one: an expired or missing sign-in.
+        var note: AccountUsageReader.Outcome?
+        /// True when what is shown is older than thirty minutes.
+        var isStale = false
 
         /// The share of the window in use, 0–100, unclamped; `nil` without both counts.
         var contextPercent: Double? {
@@ -104,6 +109,43 @@ final class AgentPanelModel {
     private(set) var models: [AgentModel] = []
     private(set) var usage = Usage()
     private(set) var providerIndex: Int
+    /// Whether the person has asked to see their plan's usage before a message. **Off until they
+    /// press "Show plan usage"**: it reads their agent's sign-in and makes a request, and the
+    /// privacy pane promises nothing is sent unless they ask. Remembered once asked.
+    var readsAccountUsage: Bool {
+        didSet { defaults.set(readsAccountUsage, forKey: Self.readsAccountUsageDefaultsKey) }
+    }
+    static let readsAccountUsageDefaultsKey = "agentPanelReadsAccountUsage"
+
+    /// When the plan's usage was last read or tried, and so when to read it next.
+    @ObservationIgnored private var usageRefresh = UsageRefresh()
+    @ObservationIgnored private var usageReading = false
+
+    /// Reads the plan's usage with the panel's agent's own sign-in, when the policy says it is
+    /// time — called while the panel is open; the panel's open state is the caller's to say.
+    func refreshAccountUsage(panelOpen: Bool) async {
+        guard readsAccountUsage else { return }
+        let now = Minting.continuousNow().rawValue
+        usage.isStale = usageRefresh.isStale(now: now)
+        guard !usageReading, usageRefresh.shouldAsk(now: now, panelOpen: panelOpen) else { return }
+        usageReading = true
+        defer { usageReading = false }
+        let outcome = await AccountUsageReader.read(provider: provider.name)
+        let then = Minting.continuousNow().rawValue
+        switch outcome {
+        case .windows(let windows):
+            usage.windows = windows
+            usage.note = nil
+            usage.isStale = false
+            usageRefresh.answered(at: then)
+        case .refused(let seconds):
+            usageRefresh.refused(at: then, retryAfterSeconds: seconds)
+        case .notSignedIn, .expired, .failed:
+            usageRefresh.failed(at: then)
+            usage.note = outcome
+        }
+    }
+
     /// Whether what is on screen goes with the next message.
     var includesContext = true
     /// Whether the agent may search the web, read pages and bring in pictures. **On by default**,
@@ -136,6 +178,7 @@ final class AgentPanelModel {
         let remembered = defaults.string(forKey: Self.providerDefaultsKey)
         providerIndex = providers.firstIndex { $0.name == remembered } ?? 0
         webAccess = defaults.object(forKey: Self.webAccessDefaultsKey) as? Bool ?? true
+        readsAccountUsage = defaults.bool(forKey: Self.readsAccountUsageDefaultsKey)
     }
 
     var providerName: String { provider.name }
@@ -170,6 +213,8 @@ final class AgentPanelModel {
         model = nil
         models = []
         usage = Usage()
+        // Another agent is another account: its usage is read afresh.
+        usageRefresh = UsageRefresh()
         Task { await checkAvailability() }
     }
 
@@ -329,6 +374,10 @@ final class AgentPanelModel {
             if let window { usage.contextWindow = window }
         case .limits(let windows):
             usage.windows = windows
+            usage.note = nil
+            usage.isStale = false
+            // A reading from the stream is an answer: the provider is not asked as well.
+            usageRefresh.answered(at: Minting.continuousNow().rawValue)
         }
     }
 

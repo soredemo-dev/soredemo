@@ -39,6 +39,14 @@ struct AgentPanel: View {
         }
         .background(Theme.Surface.panel)
         .task { if case .checking = model.availability { await model.checkAvailability() } }
+        // **The plan's usage while the panel is open, and only then** — the task ends with the
+        // view. It wakes each minute; `UsageRefresh` decides whether that minute asks anything.
+        .task(id: model.providerName) {
+            while !Task.isCancelled {
+                if case .ready = model.availability { await model.refreshAccountUsage(panelOpen: true) }
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 
     private var header: some View {

@@ -832,3 +832,24 @@ private func png(width: Int, height: Int) -> Data {
     #expect(await !followed("http://example.com/a.png"))
     #expect(await !followed("https://localhost/a.png"))
 }
+
+// MARK: - the plan's usage before a message
+
+/// Off until asked: nothing is read and nothing is sent, and the strip offers the button.
+@Test @MainActor func thePlansUsageIsNotReadUntilThePersonAsks() async {
+    let defaults = UserDefaults(suiteName: "soredemo-usage-\(ProcessInfo.processInfo.globallyUniqueString)")!
+    let panel = AgentPanelModel(providers: [ClaudeCodeProvider()], defaults: defaults)
+    #expect(!panel.readsAccountUsage)
+    await panel.refreshAccountUsage(panelOpen: true)
+    #expect(panel.usage.note == nil && panel.usage.windows.isEmpty, "nothing was read")
+    panel.readsAccountUsage = true
+    #expect(AgentPanelModel(providers: [ClaudeCodeProvider()], defaults: defaults).readsAccountUsage, "asked once, remembered")
+}
+
+/// What the strip says when it could not read — never blank, so an empty strip is not taken for 0 %.
+@Test func theStripSaysWhyThereIsNoReading() {
+    #expect(AgentUsageStrip.say(.expired, provider: "Claude Code") != nil)
+    #expect(AgentUsageStrip.say(.notSignedIn, provider: "Codex") != nil)
+    #expect(AgentUsageStrip.say(.failed("x"), provider: "Codex") != nil)
+    #expect(AgentUsageStrip.say(.refused(retryAfterSeconds: 60), provider: "Codex") == nil, "a 429 keeps what was shown")
+}
