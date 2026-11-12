@@ -225,6 +225,12 @@ public struct ToolArguments: Sendable {
         return value
     }
 
+    /// A required boolean. Traps on an undeclared name, for `integer`'s reason.
+    public func bool(_ name: String) -> Bool {
+        guard let value = booleans[name] else { preconditionFailure("`\(name)` was not declared as a required boolean") }
+        return value
+    }
+
     /// An optional integer, `nil` when it was not given.
     public func optionalInteger(_ name: String) -> Int64? { integers[name] }
 

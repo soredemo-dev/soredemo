@@ -379,6 +379,15 @@ final class TimelineEditorModel {
         }
     }
 
+    /// A zoom set on or off as one step under a name an agent supplies — `toggleZoomSuppressed`
+    /// with the agent's reason as its undo name, so "revert this turn" can recognise it.
+    func setZoomSuppressed(_ origin: HostInstant, _ suppressed: Bool, named name: String) {
+        let current = zoomAdjustments.adjustment(for: origin)
+        guard current.suppressed != suppressed else { return }
+        history.record(name, history.current.with(zooms: zoomAdjustments.replacing(current.settingSuppressed(suppressed))))
+        publish()
+    }
+
     func toggleZoomSuppressed(_ origin: HostInstant) {
         let current = zoomAdjustments.adjustment(for: origin)
         let toggled = zoomAdjustments.replacing(current.settingSuppressed(!current.suppressed))

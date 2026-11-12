@@ -488,6 +488,7 @@ private struct EditCard: View {
         case .caption(let lines, _, _): Text("Fixed \(lines.count) caption lines")
         case .look(let changed, _, _) where changed.count == 1: Text("Changed \(changed[0])")
         case .look(let changed, _, _): Text("Changed \(changed.count) settings")
+        case .zoom(let number, let on): on ? Text("Turned zoom \(number) on") : Text("Turned zoom \(number) off")
         }
     }
 
@@ -496,6 +497,7 @@ private struct EditCard: View {
         case .cut: Text("Move the playhead to where this cut is")
         case .caption: Text("Move the playhead to the first line this changed")
         case .look: Text("Move the playhead to where this was changed")
+        case .zoom: Text("Move the playhead to this zoom")
         }
     }
 
@@ -504,6 +506,7 @@ private struct EditCard: View {
         case .cut: "scissors"
         case .caption: "captions.bubble"
         case .look: "paintbrush"
+        case .zoom: "dot.viewfinder"
         }
     }
 }

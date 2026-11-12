@@ -973,3 +973,8 @@
 "Lavender" = "ラベンダー";
 "Mint" = "ミント";
 "Sand" = "サンド";
+
+/* The agent's zooms */
+"Turned zoom %lld on" = "ズーム %lld をオン";
+"Turned zoom %lld off" = "ズーム %lld をオフ";
+"Move the playhead to this zoom" = "再生ヘッドをこのズームへ移動";

@@ -987,3 +987,8 @@
 "Lavender" = "Lavender";
 "Mint" = "Mint";
 "Sand" = "Sand";
+
+/* The agent's zooms */
+"Turned zoom %lld on" = "Turned zoom %lld on";
+"Turned zoom %lld off" = "Turned zoom %lld off";
+"Move the playhead to this zoom" = "Move the playhead to this zoom";

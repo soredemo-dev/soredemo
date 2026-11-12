@@ -21,6 +21,8 @@ struct AgentEditRecord: Identifiable, Equatable {
     enum Kind: Equatable {
         /// A cut, and how much shorter the edit plays because of it.
         case cut(removed: Nanoseconds)
+        /// A zoom turned on or off, by its number.
+        case zoom(number: Int, on: Bool)
         /// A caption edit: the lines it changed, numbered from one, and the captions either side
         /// of it — what a revert checks is still there, and what it puts back.
         case caption(lines: [Int], before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)
@@ -30,6 +32,13 @@ struct AgentEditRecord: Identifiable, Equatable {
     }
 
     var isCut: Bool { if case .cut = kind { true } else { false } }
+    /// A step on the TIMELINE's history — a cut or a zoom — which a revert undoes there.
+    var isTimelineStep: Bool {
+        switch kind {
+        case .cut, .zoom: true
+        case .caption, .look: false
+        }
+    }
 }
 
 /// The live tools, performed against the open editor. **Every request has already passed
@@ -116,11 +125,15 @@ final class AgentEditorBridge {
             return overlaysReport()
         case .overlay(let edit, let reason):
             return performOverlay(edit, reason: reason)
+        case .zooms:
+            return zoomsReport()
+        case .setZoom(let number, let on, let reason):
+            return setZoom(number, on: on, reason: reason)
         case .undoLastAgentEdit:
             let notYours = MCPToolResult.failure(message: "The last edit is not yours, or something was edited after it; nothing was undone.", code: "notYours")
             guard let last = lastEdit else { return notYours }
             switch last.kind {
-            case .cut:
+            case .cut, .zoom:
                 guard editor.timeline.undoStepName == last.stepName else { return notYours }
                 editor.timeline.undo()
             case .caption(_, let before, let after):
@@ -258,6 +271,53 @@ final class AgentEditorBridge {
             guard change.isWithinBound else { return Self.tooMuch(change, line: index + 1) }
         }
         return recordCaption(reason: reason) { name in editor.captions.replaceEverywhere(find, with: replace, named: name) }
+    }
+
+    /// Every zoom the clicks produced, switched off or not, in time order — numbered from one as
+    /// `set_zoom` takes them. **`derivedZooms`, not `zooms`**: `zooms` leaves out the ones turned
+    /// off, so numbering it renumbers everything after a zoom the moment it is turned off, and the
+    /// one turned off can no longer be named to turn it back on. Each is shown as adjusted, where
+    /// a person moved it.
+    private var orderedZooms: [ZoomBlock] {
+        let adjusted = editor.timeline.zooms
+        return editor.timeline.derivedZooms
+            .map { derived in adjusted.first { $0.origin == derived.origin } ?? derived }
+            .sorted { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue }
+    }
+
+    private func zoomsReport() -> MCPToolResult {
+        json(["zooms": orderedZooms.enumerated().map { index, block in
+            var row: [String: Any] = ["number": index + 1, "zoom": block.zoom,
+                                      "on": !editor.timeline.isZoomSuppressed(block.origin)]
+            if let start = editor.timeline.offset(of: block.start), let end = editor.timeline.offset(of: block.end) {
+                row["startNanos"] = start.rawValue
+                row["endNanos"] = end.rawValue
+            }
+            if let step = editor.steps.steps.last(where: { $0.origin.hostTime.rawValue <= block.origin.hostTime.rawValue }) {
+                row["step"] = step.number
+            }
+            return row
+        }])
+    }
+
+    private func setZoom(_ number: Int, on: Bool, reason: String) -> MCPToolResult {
+        let zooms = orderedZooms
+        guard zooms.indices.contains(number - 1) else {
+            return .failure(message: "There is no zoom \(number); there are \(zooms.count). Read zooms for the numbers.", code: "noSuchZoom")
+        }
+        let origin = zooms[number - 1].origin
+        guard editor.timeline.isZoomSuppressed(origin) == on else {
+            return .failure(message: "Zoom \(number) is already \(on ? "on" : "off"); nothing changed.", code: "unchanged")
+        }
+        let name = "\(agentName): \(reason)"
+        editor.timeline.setZoomSuppressed(origin, !on, named: name)
+        editsMade += 1
+        let entry = AgentEditRecord(id: editsMade, stepName: name, reason: reason,
+                                    at: SourceTime(editor.timeline.offset(of: zooms[number - 1].start) ?? Nanoseconds(0)),
+                                    kind: .zoom(number: number, on: on))
+        lastEdit = entry
+        onEdit(entry)
+        return json(["undoStep": name, "zoom": number, "on": on])
     }
 
     private func listing() -> CutReview.Listing? {

@@ -62,7 +62,7 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                           "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling",
                           "set_look", "set_cursor", "set_audio",
                           "add_title", "edit_title", "remove_title", "add_chapter", "rename_chapter", "remove_chapter",
-                          "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera"])
+                          "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera", "set_zoom"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -151,6 +151,15 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         #expect(request("add_chapter", #"{"atNanos":4000000000,"title":"Export","reason":"r"}"#)
                 == .success(.overlay(.addChapter(atNanos: 4_000_000_000, title: "Export"), reason: "r")))
         #expect(failure(request("set_camera", #"{"reason":"r"}"#))?.hasPrefix("Nothing to change") == true)
+    }
+
+    /// A zoom is turned on or off by its number from `zooms`; whether is not optional.
+    @Test func aZoomIsTurnedOnOrOffByItsNumber() {
+        #expect(request("zooms", "{}") == .success(.zooms))
+        #expect(request("set_zoom", #"{"zoom":3,"on":false,"reason":"Step 3 is already readable"}"#)
+                == .success(.setZoom(3, on: false, reason: "Step 3 is already readable")))
+        #expect(failure(request("set_zoom", #"{"zoom":3,"reason":"r"}"#)) == "`on` must be true or false.")
+        #expect(failure(request("set_zoom", #"{"zoom":0,"on":true,"reason":"r"}"#)) == "`zoom` must be a zoom's number from zooms.")
     }
 
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {

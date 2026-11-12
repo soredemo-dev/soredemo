@@ -42,7 +42,7 @@ public enum AgentTools {
                                               invalid: "`id` must be a note's id from notes.")
     private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs
+    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs + zoomSpecs
 
     static let editSpecs: [ToolSpec] = [
         ToolSpec(status, title: "Project status",
@@ -140,6 +140,8 @@ public enum AgentTools {
         case setAudio(AudioChange, reason: String)
         case overlays
         case overlay(OverlayEdit, reason: String)
+        case zooms
+        case setZoom(Int, on: Bool, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -154,6 +156,10 @@ public enum AgentTools {
         }
         if let answer = lookRequest(name, arguments) { return answer }
         if let answer = overlayRequest(name, arguments, duration: duration) { return answer }
+        if name == "zooms" { return .success(.zooms) }
+        if name == "set_zoom" {
+            return .success(.setZoom(Int(arguments.integer("zoom")), on: arguments.bool("on"), reason: arguments.string("reason")))
+        }
         switch name {
         case status: return .success(.status)
         case steps: return .success(.steps)
@@ -209,4 +215,22 @@ public enum AgentTools {
 public struct MCPToolResultFailure: Error, Equatable, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }
+}
+
+extension AgentTools {
+    /// The zooms the clicks produced, and turning one off or on. Moving one in time is the
+    /// person's, on the timeline, for now: a turned-off zoom is a decision a reason can carry,
+    /// and a nudge of a few frames is judged by eye.
+    static let zoomSpecs: [ToolSpec] = [
+        ToolSpec("zooms", title: "The zooms",
+                 description: "Each zoom the clicks produced, numbered from 1 in time order: its span on the recording's clock, how far it goes in, the step it belongs to, and whether it is on.",
+                 readOnly: true),
+        ToolSpec("set_zoom", title: "Turn a zoom off or on",
+                 description: "Turn one zoom off, so the camera stays wide through that click, or back on — as one undo step.",
+                 readOnly: false,
+                 parameters: [ToolParameter("zoom", .integer(minimum: 1), description: "The zoom's number, from zooms.",
+                                            invalid: "`zoom` must be a zoom's number from zooms."),
+                              ToolParameter("on", .boolean, description: "true for on, false for off."),
+                              .reason]),
+    ]
 }

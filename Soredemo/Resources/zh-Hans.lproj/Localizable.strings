@@ -973,3 +973,8 @@
 "Lavender" = "薰衣草";
 "Mint" = "薄荷";
 "Sand" = "沙丘";
+
+/* The agent's zooms */
+"Turned zoom %lld on" = "开启了第 %lld 个放大";
+"Turned zoom %lld off" = "关闭了第 %lld 个放大";
+"Move the playhead to this zoom" = "把播放头移到这个放大";

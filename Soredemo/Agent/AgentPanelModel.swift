@@ -207,7 +207,8 @@ final class AgentPanelModel {
     /// while they are still exactly as its last one left them. **Both checks before either acts**, so a turn is
     /// reverted whole or not at all. Returns why it could not, or `nil` when it did.
     func revert(_ turn: Turn, editor: EditorViewModel) -> String? {
-        let cuts = turn.edits.filter(\.isCut).map(\.stepName)
+        // Cuts and zooms both live on the timeline's history, in the order they were made.
+        let cuts = turn.edits.filter(\.isTimelineStep).map(\.stepName)
         let captionEdits = turn.edits.compactMap { record -> (before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)? in
             if case .caption(_, let before, let after) = record.kind { (before, after) } else { nil }
         }

@@ -682,3 +682,63 @@ private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, 
     #expect(Set(AgentTools.markShapes).isSubset(of: Set(AnnotationShape.allCases.map(\.rawValue))))
     #expect(AgentTools.cameraShapes == CameraOverlayStyle.Shape.allCases.map(\.rawValue))
 }
+
+// MARK: - the agent's zooms
+
+/// A 20 s recording with two zooms, at 4–6 s and 12–14 s on a host clock starting at 500 s —
+/// not at zero, so a zoom read on the host clock and one read on the recording's cannot agree by accident.
+@MainActor private func zoomed() -> EditorViewModel {
+    let editor = editor()
+    let epoch = BootEpoch(id: UUID(uuidString: "5A5A5A5A-1B1B-4C4C-8D8D-2E2E2E2E2E2E")!)
+    editor.timeline.setZoomAnchor(EpochAnchor(epoch: epoch, hostTime: Nanoseconds(500 * second), wallClockUnixNanos: 0))
+    let target = FramingTarget(frame: NormalizedFrame(origin: NormalizedPoint(x: 0.3, y: 0.6), size: NormalizedSize(width: 0.05, height: 0.05),
+                                                      revision: GeometryRevision(id: 1)), role: "AXButton")
+    func at(_ s: Int64) -> HostInstant { HostInstant(epoch: epoch, hostTime: Nanoseconds((500 + s) * second)) }
+    editor.timeline.setDerivedZooms([ZoomBlock(origin: at(4), start: at(4), end: at(6), target: target, zoom: 2),
+                                     ZoomBlock(origin: at(12), start: at(12), end: at(14), target: target, zoom: 1.5)])
+    return editor
+}
+
+/// Zooms are numbered in time and reported on the recording's clock.
+@Test @MainActor func theZoomsAreNumberedInTimeOnTheRecordingsClock() {
+    let bridge = AgentEditorBridge(editor: zoomed(), agentName: "Claude Code")
+    guard case .success(let json) = bridge.perform(.zooms) else { Issue.record("no zooms"); return }
+    #expect(json.contains(#""number":1"#) && json.contains(#""startNanos":4000000000"#), "\(json)")
+    #expect(json.contains(#""number":2"#) && json.contains(#""startNanos":12000000000"#), "\(json)")
+}
+
+/// Turning one off is a timeline step named for the agent, and a turn of them reverts with its cuts.
+@Test @MainActor func aZoomTurnedOffIsAStepNamedForTheAgentAndRevertsWithItsTurn() throws {
+    let editor = zoomed()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    let mark = editor.timeline.historyDepth
+    guard case .success = bridge.perform(.setZoom(2, on: false, reason: "Step 5 is already readable")) else { Issue.record("refused"); return }
+    // The 12 s one, from `derivedZooms`: `zooms` leaves out a zoom once it is off.
+    let second = try #require(editor.timeline.derivedZooms.max { $0.start.hostTime.rawValue < $1.start.hostTime.rawValue })
+    #expect(editor.timeline.isZoomSuppressed(second.origin))
+    #expect(editor.timeline.undoStepName == "Claude Code: Step 5 is already readable")
+    _ = bridge.perform(.cutSpan(start: 1 * 1_000_000_000, end: 2 * 1_000_000_000, reason: "r"))
+    let turn = AgentPanelModel.Turn(id: 1, request: "calmer", items: records.map { .edit($0) }, running: false, checkpoint: mark)
+    #expect(AgentPanelModel(providers: [ClaudeCodeProvider()]).revert(turn, editor: editor) == nil)
+    #expect(!editor.timeline.isZoomSuppressed(second.origin), "the zoom is back on")
+    #expect(editor.timeline.historyDepth == mark)
+    guard case .failure(_, let code) = bridge.perform(.setZoom(3, on: false, reason: "r")) else { Issue.record("zoom 3 of 2"); return }
+    #expect(code == "noSuchZoom")
+    guard case .failure(_, let same) = bridge.perform(.setZoom(1, on: true, reason: "r")) else { Issue.record("a no-op was recorded"); return }
+    #expect(same == "unchanged")
+}
+
+/// **A zoom turned off keeps its number**, and can be turned back on by it. Numbering the list
+/// of zooms that are ON renumbered everything after one the moment it went off — found while
+/// writing these tests — and left the one turned off with no number at all.
+@Test @MainActor func aZoomTurnedOffKeepsItsNumberAndCanBeTurnedBackOn() {
+    let editor = zoomed()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.setZoom(1, on: false, reason: "r"))
+    guard case .success(let json) = bridge.perform(.zooms) else { Issue.record("no zooms"); return }
+    #expect(json.contains(#""number":2"#), "still two zooms: \(json)")
+    guard case .success = bridge.perform(.setZoom(1, on: true, reason: "r")) else { Issue.record("could not turn zoom 1 back on"); return }
+    #expect(editor.timeline.derivedZooms.allSatisfy { !editor.timeline.isZoomSuppressed($0.origin) })
+}
