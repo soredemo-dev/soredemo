@@ -424,3 +424,13 @@ struct FinalCutXMLCameraTests {
         #expect(!xml.contains("format-2"))
     }
 }
+
+/// A library clip has no asset in the document, so the export is refused by name rather than
+/// written with a piece missing (`docs/design/2026-11-13-clips-from-the-library.md`).
+@Test func finalCutXMLRefusesAnEditWithALibraryClip() throws {
+    let whole = EditTimeline.whole(duration: Nanoseconds(10_000_000_000))
+    #expect(FinalCutXML.refusal(for: whole) == nil)
+    let inserted = try #require(whole.inserting(.picture(item: 1), sourceStart: Nanoseconds(0),
+                                                duration: Nanoseconds(2_000_000_000), atOutput: Nanoseconds(3_000_000_000)))
+    #expect(FinalCutXML.refusal(for: inserted)?.contains("library") == true)
+}

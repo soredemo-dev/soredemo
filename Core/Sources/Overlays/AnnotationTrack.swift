@@ -245,7 +245,8 @@ public struct AnnotationTrack: Sendable, Equatable, Codable {
     /// inspector showing "this one" should show both halves selected.
     public func retimed(through timeline: EditTimeline) -> AnnotationTrack {
         AnnotationTrack(items: items.flatMap { item in
-            timeline.clips.compactMap { clip -> AnnotationItem? in
+            // Only the recording's clips: a library clip is not a span of the recording.
+            timeline.clips.filter(\.source.isRecording).compactMap { clip -> AnnotationItem? in
                 let start = max(item.start.rawValue, clip.sourceStart.rawValue)
                 let end = min(item.end.rawValue, clip.sourceEnd.rawValue)
                 guard end > start,

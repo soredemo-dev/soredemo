@@ -31,7 +31,8 @@ public struct CaptionTrack: Sendable, Equatable, Codable {
     /// words the cut removed.
     public func retimed(through timeline: EditTimeline) -> CaptionTrack {
         CaptionTrack(cues: cues.flatMap { cue in
-            timeline.clips.compactMap { clip -> CaptionCue? in
+            // Only the recording's clips: a library clip is not a span of the recording.
+            timeline.clips.filter(\.source.isRecording).compactMap { clip -> CaptionCue? in
                 let start = max(cue.start.rawValue, clip.sourceStart.rawValue)
                 let end = min(cue.end.rawValue, clip.sourceEnd.rawValue)
                 guard end > start else { return nil }

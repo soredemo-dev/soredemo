@@ -158,7 +158,8 @@ public enum SnapEngine {
                                excluding: Set<Nanoseconds> = []) -> [Target] {
         var targets: [Target] = []
         if let playhead { targets.append(Target(time: playhead, kind: .playhead)) }
-        for clip in timeline.clips {
+        // A library clip's span is of its own file, not of the recording these times are on.
+        for clip in timeline.clips where clip.source.isRecording {
             targets.append(Target(time: clip.sourceStart, kind: .clipEdge))
             targets.append(Target(time: clip.sourceEnd, kind: .clipEdge))
         }

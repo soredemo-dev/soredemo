@@ -129,7 +129,8 @@ public struct TextTrack: Sendable, Equatable, Codable {
     /// one" should show both halves selected rather than treating the second as a stranger.
     public func retimed(through timeline: EditTimeline) -> TextTrack {
         TextTrack(items: items.flatMap { item in
-            timeline.clips.compactMap { clip -> TextItem? in
+            // Only the recording's clips: a library clip is not a span of the recording.
+            timeline.clips.filter(\.source.isRecording).compactMap { clip -> TextItem? in
                 let start = max(item.start.rawValue, clip.sourceStart.rawValue)
                 let end = min(item.end.rawValue, clip.sourceEnd.rawValue)
                 guard end > start,

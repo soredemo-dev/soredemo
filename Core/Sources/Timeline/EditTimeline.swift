@@ -43,8 +43,32 @@ public struct ClipID: Hashable, Sendable, Codable, Comparable {
     public static func < (lhs: ClipID, rhs: ClipID) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
+/// What a clip plays (`docs/design/2026-11-13-clips-from-the-library.md`). **The recording is the
+/// default and the only source with observations**: a library video or picture has no cursor, no
+/// zoom and no step, so it has no source time either (`EditTimeline.sourceTime(atOutput:)`).
+public enum ClipSource: Hashable, Sendable, Codable {
+    case recording
+    /// A video in the project's library, by its library id; `sourceStart`/`duration` are a span
+    /// of THAT file.
+    case video(item: Int)
+    /// A picture in the project's library, held for `duration`.
+    case picture(item: Int)
+
+    public var isRecording: Bool { self == .recording }
+
+    /// The library item it plays, or `nil` for the recording.
+    public var libraryItem: Int? {
+        switch self {
+        case .recording: nil
+        case .video(let item), .picture(let item): item
+        }
+    }
+}
+
 public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     public let id: ClipID
+    /// What it plays. `.recording` for every clip a project held before the library existed.
+    public let source: ClipSource
     public let sourceStart: Nanoseconds
     /// How much of the RECORDING this clip covers. Not how long it plays — see `speed`.
     public let duration: Nanoseconds
@@ -81,10 +105,12 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
 
     public init(id: ClipID, sourceStart: Nanoseconds, duration: Nanoseconds,
                 speed: Double = 1,
-                fadeInSeconds: Double = 0, fadeOutSeconds: Double = 0) {
+                fadeInSeconds: Double = 0, fadeOutSeconds: Double = 0,
+                source: ClipSource = .recording) {
         precondition(sourceStart.rawValue >= 0, "a clip cannot start before the recording")
         precondition(duration.rawValue > 0, "a clip with no duration is not a clip")
         self.id = id
+        self.source = source
         self.sourceStart = sourceStart
         self.duration = duration
         // Clamped rather than trapped: a speed reaches here from a slider and from a decoder,
@@ -141,14 +167,14 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     /// The same clip at a different speed. Keeps the id, for `spanning`'s reason.
     public func playing(at speed: Double) -> EditClip {
         EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
-                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds, source: source)
     }
 
     /// The same clip under a new id. Only for a caller splitting one clip into two, where the
     /// second piece is genuinely a new clip and everything else about it is unchanged.
     public func withID(_ newID: ClipID) -> EditClip {
         EditClip(id: newID, sourceStart: sourceStart, duration: duration, speed: speed,
-                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds, source: source)
     }
 
     /// The same clip with different fades. **`nil` keeps what is there**, so setting one does
@@ -156,7 +182,7 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     public func fading(in fadeIn: Double? = nil, out fadeOut: Double? = nil) -> EditClip {
         EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
                  fadeInSeconds: fadeIn ?? fadeInSeconds,
-                 fadeOutSeconds: fadeOut ?? fadeOutSeconds)
+                 fadeOutSeconds: fadeOut ?? fadeOutSeconds, source: source)
     }
 
     /// The same clip covering a different span of the recording. **Keeps the id**, which is
@@ -169,7 +195,7 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
         // shape, and the tail of a cut below, which lost its speed. Listing every field here is
         // what makes the next one a compile error rather than a report.
         EditClip(id: id, sourceStart: sourceStart, duration: duration, speed: speed,
-                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds)
+                 fadeInSeconds: fadeInSeconds, fadeOutSeconds: fadeOutSeconds, source: source)
     }
 
     /// **Validated on decode, not by the `precondition` above** (D6 rule 8). The synthesised
@@ -189,6 +215,13 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
         self.id = id
         self.sourceStart = sourceStart
         self.duration = duration
+        // Absence-tolerant: every clip saved before the library existed is the recording's.
+        let source = try container.decodeIfPresent(ClipSource.self, forKey: .source) ?? .recording
+        if let item = source.libraryItem, item < 0 {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: decoder.codingPath, debugDescription: "a library clip names item \(item)"))
+        }
+        self.source = source
         // **Absence-tolerant.** A project written before speeds existed has no key, and its
         // clips play at the recording's own pace — which is what they did when it was saved.
         let speed = Swift.min(
@@ -210,7 +243,20 @@ public struct EditClip: Hashable, Sendable, Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sourceStart, duration, speed, fadeInSeconds, fadeOutSeconds
+        case id, sourceStart, duration, speed, fadeInSeconds, fadeOutSeconds, source
+    }
+
+    /// Written as before for a recording clip — no `source` key — so every saved project and
+    /// every digest over one is unchanged by the library; a library clip adds its source.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(sourceStart, forKey: .sourceStart)
+        try container.encode(duration, forKey: .duration)
+        try container.encode(speed, forKey: .speed)
+        try container.encode(fadeInSeconds, forKey: .fadeInSeconds)
+        try container.encode(fadeOutSeconds, forKey: .fadeOutSeconds)
+        if !source.isRecording { try container.encode(source, forKey: .source) }
     }
 
     /// One past the last nanosecond this clip reads from the recording.
@@ -287,7 +333,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// return more than one, and the assumption is stated here so that change is visible.
     public func clip(atSource sourceTime: Nanoseconds) -> EditClip? {
         clips.first {
-            sourceTime.rawValue >= $0.sourceStart.rawValue
+            $0.source.isRecording
+                && sourceTime.rawValue >= $0.sourceStart.rawValue
                 && sourceTime.rawValue < $0.sourceEnd.rawValue
         }
     }
@@ -475,6 +522,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         for clip in clips {
             let next = running + clip.outputDuration.rawValue
             if outputTime.rawValue < next {
+                // A library clip has no recording behind it: nothing observed plays here.
+                guard clip.source.isRecording else { return nil }
                 // Scaled by the clip's speed: an output offset covers `speed` times as much of
                 // the recording. This is the conversion the pointer, the camera, the captions
                 // and the text overlays all reach the source through.
@@ -524,7 +573,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     public func outputTime(atSource sourceTime: SourceTime) -> OutputTime? {
         var running: Int64 = 0
         for clip in clips {
-            if sourceTime.rawValue >= clip.sourceStart.rawValue,
+            if clip.source.isRecording,
+               sourceTime.rawValue >= clip.sourceStart.rawValue,
                sourceTime.rawValue < clip.sourceEnd.rawValue {
                 // The inverse of `sourceTime(atOutput:)`: a source offset takes `1/speed` as
                 // long to play.
@@ -559,7 +609,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     public func survival(ofSource range: Range<Int64>) -> Survival {
         guard range.upperBound > range.lowerBound else { return .gone }
         var kept: Int64 = 0
-        for clip in clips {
+        for clip in clips where clip.source.isRecording {
             let low = max(clip.sourceStart.rawValue, range.lowerBound)
             let high = min(clip.sourceEnd.rawValue, range.upperBound)
             if high > low { kept += high - low }
@@ -584,6 +634,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
     /// them, so a selection made before the trim still points at the clip a person can see.
     public func trimmed(toSource range: Range<Int64>) -> EditTimeline {
         EditTimeline(clips: clips.compactMap { clip -> EditClip? in
+            // A library clip is not a span of the recording; trimming the recording keeps it.
+            guard clip.source.isRecording else { return clip }
             let start = max(clip.sourceStart.rawValue, range.lowerBound)
             let end = min(clip.sourceEnd.rawValue, range.upperBound)
             guard end > start else { return nil }
@@ -607,6 +659,8 @@ public struct EditTimeline: Hashable, Sendable, Codable {
         var kept: [EditClip] = []
         var minting = nextID.rawValue
         for clip in clips {
+            // A cut of the recording leaves a library clip where it is.
+            guard clip.source.isRecording else { kept.append(clip); continue }
             let start = clip.sourceStart.rawValue
             let end = clip.sourceEnd.rawValue
             // The part before the cut.
@@ -655,7 +709,7 @@ public struct EditTimeline: Hashable, Sendable, Codable {
             // would silently give the whole run one of the two speeds. Before speeds existed
             // this condition was always true, which is why it was not written.
             if let last = merged.last, last.sourceEnd.rawValue == clip.sourceStart.rawValue,
-               last.speed == clip.speed {
+               last.speed == clip.speed, last.source == clip.source {
                 // The survivor keeps the FIRST clip's id: the merged clip starts where it did.
                 merged[merged.count - 1] = last.spanning(
                     sourceStart: last.sourceStart,
@@ -665,5 +719,25 @@ public struct EditTimeline: Hashable, Sendable, Codable {
             }
         }
         return EditTimeline(clips: merged, nextID: nextID)
+    }
+
+    /// A library clip put into the edit at `outputTime`, splitting the clip it lands inside; at
+    /// the very end it is appended. `nil` for the recording (it is not inserted from the library),
+    /// a place past the end, or a span that is not one.
+    public func inserting(_ source: ClipSource, sourceStart: Nanoseconds, duration: Nanoseconds,
+                          atOutput outputTime: Nanoseconds) -> EditTimeline? {
+        guard !source.isRecording, sourceStart.rawValue >= 0, duration.rawValue > 0,
+              (0...outputDuration.rawValue).contains(outputTime.rawValue) else { return nil }
+        let base = split(atOutput: outputTime) ?? self
+        let clip = EditClip(id: base.nextID, sourceStart: sourceStart, duration: duration, source: source)
+        var running: Int64 = 0
+        var index = base.clips.count
+        for (position, existing) in base.clips.enumerated() {
+            if running >= outputTime.rawValue { index = position; break }
+            running += existing.outputDuration.rawValue
+        }
+        var clips = base.clips
+        clips.insert(clip, at: index)
+        return EditTimeline(clips: clips, nextID: ClipID(rawValue: base.nextID.rawValue + 1))
     }
 }

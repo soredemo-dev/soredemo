@@ -129,6 +129,14 @@ public enum FinalCutXML {
     /// `camera`, when there is one, is laid on a connected lane and cut the same way the screen
     /// is. `cameraOffset` is `cameraStart - screenStart` in nanoseconds: positive when the camera
     /// began LATER, which is the usual direction because a camera takes a moment to wake.
+    /// Why this timeline cannot be written yet, or `nil`. **A library clip has no asset in the
+    /// document**, and leaving it out would hand an editor a cut that is missing pieces with
+    /// nothing saying so — so the export is refused, by name, until it does.
+    public static func refusal(for timeline: EditTimeline) -> String? {
+        let library = timeline.clips.filter { !$0.source.isRecording }.count
+        return library == 0 ? nil : "Final Cut XML does not carry clips from the library yet; this edit has \(library)."
+    }
+
     public static func document(timeline: EditTimeline, source: Source,
                                 camera: Source? = nil,
                                 cameraOffset: Nanoseconds = Nanoseconds(0),
@@ -143,7 +151,9 @@ public enum FinalCutXML {
 
         var spine = ""
         var offset: Int64 = 0
-        for clip in timeline.clips {
+        // `refusal(for:)` is asked first; a library clip that reaches here is skipped rather than
+        // written as a span of the recording, which it is not.
+        for clip in timeline.clips where clip.source.isRecording {
             let outputDuration = clip.outputDuration.rawValue
             // **`start` is the source in-point, and with a `timeMap` it is on the OUTPUT axis** —
             // divided by the speed, which is what `outputDuration` already is for the length.

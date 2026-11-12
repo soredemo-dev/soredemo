@@ -16,6 +16,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 
 | Document | What it settles |
 | --- | --- |
+| [2026-11-13-clips-from-the-library](2026-11-13-clips-from-the-library.md) | a library's videos and pictures as clips anywhere in the edit: a clip names its source, only the recording has a source time, the composition reads every source, and the compositor draws a library frame on the card with nothing from the recording |
 | [2026-11-13-the-library](2026-11-13-the-library.md) | the project's library: one per package, its list and the untrusted decoder, what is indexed (steps, words, text on pictures) and what a search hit carries; the person imports, the agent brings pictures from the web |
 | [2026-11-13-the-plan-usage-before-a-message](2026-11-13-the-plan-usage-before-a-message.md) | the panel shows the plan's 5-hour and weekly usage before a message, read with the panel's own agent's sign-in, never renewed; what was measured of both endpoints; how often it asks and what it shows when it cannot |
 | [2026-11-13-the-agent-may-search-the-web](2026-11-13-the-agent-may-search-the-web.md) | the panel's agent may search the web and read pages, behind a switch, and bring a picture into the project through a Soredemo tool that checks it; shell, files and publishing stay closed; what opening the web costs |

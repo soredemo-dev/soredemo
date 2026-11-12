@@ -865,6 +865,10 @@ struct StageWindow: View {
     /// panel has closed. Putting it in the queue would show a progress bar for something that has
     /// no progress.
     private func exportFinalCutXML() {
+        if let refusal = FinalCutXML.refusal(for: editor.timeline.editForExport) {
+            exportStatus = refusal
+            return
+        }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "fcpxml") ?? .xml]
         panel.nameFieldStringValue = recordingName + ".fcpxml"
