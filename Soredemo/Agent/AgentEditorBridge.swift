@@ -24,6 +24,8 @@ struct AgentEditRecord: Identifiable, Equatable {
         case cut(removed: Nanoseconds)
         /// A zoom turned on or off, by its number.
         case zoom(number: Int, on: Bool)
+        /// A library item put into the edit, and how long it plays.
+        case insert(item: Int, name: String, played: Nanoseconds)
         /// A caption edit: the lines it changed, numbered from one, and the captions either side
         /// of it — what a revert checks is still there, and what it puts back.
         case caption(lines: [Int], before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)
@@ -36,7 +38,7 @@ struct AgentEditRecord: Identifiable, Equatable {
     /// A step on the TIMELINE's history — a cut or a zoom — which a revert undoes there.
     var isTimelineStep: Bool {
         switch kind {
-        case .cut, .zoom: true
+        case .cut, .zoom, .insert: true
         case .caption, .look: false
         }
     }
@@ -133,6 +135,8 @@ final class AgentEditorBridge {
             return libraryReport()
         case .searchLibrary(let query):
             return searchLibrary(query)
+        case .insertFromLibrary(let item, let place, let seconds, let reason):
+            return insertFromLibrary(item, place: place, seconds: seconds, reason: reason)
         case .zooms:
             return zoomsReport()
         case .setZoom(let number, let on, let reason):
@@ -141,7 +145,7 @@ final class AgentEditorBridge {
             let notYours = MCPToolResult.failure(message: "The last edit is not yours, or something was edited after it; nothing was undone.", code: "notYours")
             guard let last = lastEdit else { return notYours }
             switch last.kind {
-            case .cut, .zoom:
+            case .cut, .zoom, .insert:
                 guard editor.timeline.undoStepName == last.stepName else { return notYours }
                 editor.timeline.undo()
             case .caption(_, let before, let after):
@@ -343,6 +347,40 @@ final class AgentEditorBridge {
             items.append(row)
         }
         return json(["items": items])
+    }
+
+    /// A library item into the edit, as one timeline step named for the agent.
+    private func insertFromLibrary(_ id: Int, place: AgentTools.InsertPlace, seconds: Double?, reason: String) -> MCPToolResult {
+        guard let item = editor.library.library.items.first(where: { $0.id == id }) else {
+            return .failure(message: "No library item has the id \(id). Read library for the items.", code: "noSuchItem")
+        }
+        guard let placed = LibraryModel.clip(for: item, seconds: seconds) else {
+            return .failure(message: "\(item.name) is \(item.kind.rawValue), which cannot be a clip in the edit.", code: "notAClip")
+        }
+        let at: Nanoseconds
+        switch place {
+        case .start: at = Nanoseconds(0)
+        case .end: at = editor.timeline.edit.outputDuration
+        case .before(let moment):
+            guard let output = editor.timeline.edit.outputTime(atSource: SourceTime(nanos: moment)) else {
+                return .failure(message: "\(moment) ns has been cut from the edit, so nothing can go before it.", code: "cut")
+            }
+            at = output.nanoseconds
+        }
+        let name = "\(agentName): \(reason)"
+        let before = editor.timeline.edit.outputDuration
+        guard editor.timeline.insertFromLibrary(placed.source, sourceStart: Nanoseconds(0), duration: placed.duration,
+                                                atOutput: at, named: name) else {
+            return .failure(message: "The edit refused the insert.", code: "refused")
+        }
+        let played = Nanoseconds(editor.timeline.edit.outputDuration.rawValue - before.rawValue)
+        editsMade += 1
+        let entry = AgentEditRecord(id: editsMade, stepName: name, reason: reason,
+                                    at: editor.timeline.playhead, kind: .insert(item: id, name: item.name, played: played))
+        lastEdit = entry
+        onEdit(entry)
+        return json(["undoStep": name, "insertedAtOutputNanos": at.rawValue, "playsNanos": played.rawValue,
+                     "editPlaysNanosNow": editor.timeline.edit.outputDuration.rawValue])
     }
 
     /// The hits, best first, at most 30, each with its evidence.

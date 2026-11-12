@@ -63,7 +63,7 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                           "set_look", "set_cursor", "set_audio",
                           "add_title", "edit_title", "remove_title", "add_chapter", "rename_chapter", "remove_chapter",
                           "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera", "set_zoom",
-                          "import_image"])
+                          "import_image", "insert_from_library"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -182,6 +182,21 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         #expect(request("library", "{}") == .success(.library))
         #expect(request("search_library", #"{"query":"export dialog"}"#) == .success(.searchLibrary("export dialog")))
         #expect(failure(request("search_library", #"{"query":"   "}"#)) == "`query` is required: the words to look for.")
+    }
+
+    /// A library item is inserted before a moment of the recording, or at the start or the end —
+    /// exactly one of those; a picture's length is optional.
+    @Test func aLibraryItemIsInsertedAtOnePlace() {
+        #expect(request("insert_from_library", #"{"item":3,"atNanos":4000000000,"seconds":2.5,"reason":"The dashboard before step 2"}"#)
+                == .success(.insertFromLibrary(item: 3, place: .before(4_000_000_000), seconds: 2.5, reason: "The dashboard before step 2")))
+        #expect(request("insert_from_library", #"{"item":0,"place":"start","reason":"An opening card"}"#)
+                == .success(.insertFromLibrary(item: 0, place: .start, seconds: nil, reason: "An opening card")))
+        #expect(failure(request("insert_from_library", #"{"item":0,"reason":"r"}"#))
+                == "Give one place: `atNanos` (before that moment of the recording) or `place` start or end.")
+        #expect(failure(request("insert_from_library", #"{"item":0,"place":"end","atNanos":5,"reason":"r"}"#))
+                == "Give one place: `atNanos` (before that moment of the recording) or `place` start or end.")
+        #expect(failure(request("insert_from_library", #"{"item":0,"atNanos":30000000000,"reason":"r"}"#))
+                == "`atNanos` 30000000000 is past the end of the recording, 20000000000.")
     }
 
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {

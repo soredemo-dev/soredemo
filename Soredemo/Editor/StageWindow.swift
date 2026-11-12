@@ -809,7 +809,7 @@ struct StageWindow: View {
                             })
                     }
             case .library:
-                LibraryPanel(model: editor.library)
+                LibraryPanel(model: editor.library, timeline: editor.timeline)
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes

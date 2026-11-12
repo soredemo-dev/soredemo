@@ -1,5 +1,6 @@
 import Project
 import SwiftUI
+import Timeline
 import UniformTypeIdentifiers
 
 /// The project's library, in the inspector: what is in it, and adding to it — a button and a drop
@@ -7,6 +8,8 @@ import UniformTypeIdentifiers
 /// (`docs/design/2026-11-13-the-library.md`).
 struct LibraryPanel: View {
     let model: LibraryModel
+    /// The timeline an item is inserted into, at the playhead.
+    let timeline: TimelineEditorModel
     @State private var isChoosing = false
     @State private var isDropTargeted = false
 
@@ -29,6 +32,9 @@ struct LibraryPanel: View {
                 ForEach(model.library.items) { item in
                     row(item)
                         .contextMenu {
+                            if item.kind == .image || item.kind == .video {
+                                Button("Insert at Playhead") { insert(item) }
+                            }
                             Button("Remove from Library", role: .destructive) { model.remove(item.id) }
                         }
                 }
@@ -53,6 +59,14 @@ struct LibraryPanel: View {
                 await model.importFiles(urls)
             }
         }
+    }
+
+    /// A picture held for three seconds, a video for its whole length, at the playhead.
+    private func insert(_ item: Library.Item) {
+        guard let placed = LibraryModel.clip(for: item) else { return }
+        timeline.insertFromLibrary(placed.source, sourceStart: Nanoseconds(0), duration: placed.duration,
+                                   atOutput: timeline.playheadOutput,
+                                   named: String(localized: "Insert \(item.name)"))
     }
 
     private func row(_ item: Library.Item) -> some View {

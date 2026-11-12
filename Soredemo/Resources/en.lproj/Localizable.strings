@@ -1021,3 +1021,11 @@
 
 /* Two pieces of text joined, each already localised */
 "%@ %@" = "%@ %@";
+
+/* Clips from the library */
+"Insert at Playhead" = "Insert at Playhead";
+"Insert %@" = "Insert %@";
+"A picture from the library, held here" = "A picture from the library, held here";
+"A video from the library, inserted here" = "A video from the library, inserted here";
+"Inserted %@ · %@" = "Inserted %@ · %@";
+"Move the playhead to where this was inserted" = "Move the playhead to where this was inserted";

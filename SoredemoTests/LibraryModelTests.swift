@@ -130,3 +130,56 @@ private func picture(saying words: String, at url: URL) throws {
     #expect(FileManager.default.fileExists(atPath: package.appending(path: "pictures/\(item.filename)").path(percentEncoded: false)),
             "copied where the compositor reads pictures from")
 }
+
+// MARK: - clips from the library in the edit
+
+/// The agent puts a library picture before a moment of the recording, as one timeline step that
+/// reverts with its turn; the edit gets longer by exactly what was inserted.
+@Test @MainActor func theAgentInsertsALibraryPictureBeforeAMomentAndItRevertsWithItsTurn() async throws {
+    let package = try package()
+    defer { try? FileManager.default.removeItem(at: package) }
+    let editor = EditorViewModel()
+    editor.timeline.load(duration: 20)
+    editor.mediaURL = package.appending(path: "media/master-00.mov")
+    editor.library.load(packageURL: package)
+    let source = FileManager.default.temporaryDirectory.appending(path: "dashboard-\(ProcessInfo.processInfo.globallyUniqueString.prefix(6)).png")
+    try picture(saying: "Dashboard", at: source)
+    defer { try? FileManager.default.removeItem(at: source) }
+    let item = try #require(await editor.library.importFiles([source]).first)
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    let mark = editor.timeline.historyDepth
+    guard case .success(let json) = bridge.perform(.insertFromLibrary(item: item.id, place: .before(4_000_000_000), seconds: 2,
+                                                                      reason: "The dashboard before step 2")) else {
+        Issue.record("refused"); return
+    }
+    #expect(editor.timeline.edit.outputDuration == Nanoseconds(22_000_000_000), "\(json)")
+    #expect(editor.timeline.edit.clips.map(\.source) == [.recording, .picture(item: item.id), .recording])
+    #expect(editor.timeline.undoStepName == "Claude Code: The dashboard before step 2")
+    #expect(editor.timeline.seam(of: editor.timeline.edit.clips[1].id) == Nanoseconds(4_000_000_000),
+            "drawn on the strip at the recording's 4 s, where it sits")
+    let turn = AgentPanelModel.Turn(id: 1, request: "assemble", items: records.map { .edit($0) }, running: false, checkpoint: mark)
+    #expect(AgentPanelModel(providers: [ClaudeCodeProvider()]).revert(turn, editor: editor) == nil)
+    #expect(editor.timeline.edit.clips.allSatisfy { $0.source.isRecording })
+    guard case .failure(_, let code) = bridge.perform(.insertFromLibrary(item: 99, place: .end, seconds: nil, reason: "r")) else {
+        Issue.record("inserted an item that is not there"); return
+    }
+    #expect(code == "noSuchItem")
+}
+
+/// What the preview hands the composition: videos and pictures by id, each at its library path.
+@Test @MainActor func theLibrarysFilesAreHandedOverByKind() async throws {
+    let package = try package()
+    defer { try? FileManager.default.removeItem(at: package) }
+    let library = LibraryModel()
+    library.load(packageURL: package)
+    let source = FileManager.default.temporaryDirectory.appending(path: "seal-\(ProcessInfo.processInfo.globallyUniqueString.prefix(6)).png")
+    try picture(saying: "Seal", at: source)
+    defer { try? FileManager.default.removeItem(at: source) }
+    let item = try #require(await library.importFiles([source]).first)
+    let files = library.files()
+    #expect(files.videos.isEmpty)
+    #expect(files.pictures[item.id] == package.appending(path: "library/\(item.filename)"))
+    #expect(LibraryModel.clip(for: item)?.duration == Nanoseconds(3_000_000_000), "a picture is held three seconds by default")
+}

@@ -388,6 +388,36 @@ final class TimelineEditorModel {
         publish()
     }
 
+    // MARK: - clips from the library
+
+    /// A library clip put into the edit at `atOutput`, as one step under `name` — the Library
+    /// tab's and the agent's insert (`docs/design/2026-11-13-clips-from-the-library.md`). `false`
+    /// when the timeline refuses it (a place past the end, a span that is not one).
+    @discardableResult
+    func insertFromLibrary(_ source: ClipSource, sourceStart: Nanoseconds, duration: Nanoseconds,
+                           atOutput: Nanoseconds, named name: String) -> Bool {
+        guard let updated = edit.inserting(source, sourceStart: sourceStart, duration: duration, atOutput: atOutput) else {
+            return false
+        }
+        record(name, updated)
+        return true
+    }
+
+    /// Where the playhead is in the OUTPUT — where an insert "at the playhead" lands. The end of
+    /// the edit when the playhead is on a moment that was cut.
+    var playheadOutput: Nanoseconds {
+        edit.outputTime(atSource: playhead).map(\.nanoseconds) ?? edit.outputDuration
+    }
+
+    /// **Where a library clip is drawn on a strip laid out in the recording's time**: it has no
+    /// span of the recording, so it is drawn at the seam it sits in — the end of the recording
+    /// clip before it, or the start of the one after when it comes first.
+    func seam(of id: ClipID) -> Nanoseconds? {
+        guard let index = edit.clips.firstIndex(where: { $0.id == id }) else { return nil }
+        if let before = edit.clips[..<index].last(where: { $0.source.isRecording }) { return before.sourceEnd }
+        return edit.clips[index...].first(where: { $0.source.isRecording })?.sourceStart ?? Nanoseconds(0)
+    }
+
     func toggleZoomSuppressed(_ origin: HostInstant) {
         let current = zoomAdjustments.adjustment(for: origin)
         let toggled = zoomAdjustments.replacing(current.settingSuppressed(!current.suppressed))
@@ -597,6 +627,12 @@ final class TimelineEditorModel {
     /// every clip — a tap on a cut span selects nothing rather than the nearest thing.
     func selectClip(atSource sourceTime: Nanoseconds) {
         selectedClip = edit.clip(atSource: sourceTime)?.id
+    }
+
+    /// Selects a clip by its id — a library clip, which has no source position to tap.
+    func selectClip(_ id: ClipID) {
+        guard edit.clips.contains(where: { $0.id == id }) else { return }
+        selectedClip = id
     }
 
     /// The selected clip's speed, or `nil` when nothing is selected.

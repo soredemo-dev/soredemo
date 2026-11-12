@@ -36,7 +36,11 @@ struct TimelineClipStrip: View {
                 // identity, and an index key would animate a deleted clip into its
                 // neighbour's place rather than removing it.
                 ForEach(model.edit.clips) { clip in
-                    clipView(clip, width: width, height: geometry.size.height)
+                    if clip.source.isRecording {
+                        clipView(clip, width: width, height: geometry.size.height)
+                    } else {
+                        libraryMarker(clip, width: width, height: geometry.size.height)
+                    }
                 }
 
                 if let selection = model.selection {
@@ -104,6 +108,28 @@ struct TimelineClipStrip: View {
             )
         }
         .overlay(alignment: .topLeading) { snapLine }
+    }
+
+    /// A library clip, drawn at its seam: the strip is the recording's time, in which a picture or
+    /// another video has no span — so it is a tile on the seam, its kind and its length, which
+    /// selects it like any clip (delete removes it).
+    @ViewBuilder private func libraryMarker(_ clip: EditClip, width: Double, height: Double) -> some View {
+        let seam = model.seam(of: clip.id) ?? Nanoseconds(0)
+        let x = model.window.fraction(of: seam) * width
+        let isSelected = clip.id == model.selectedClip
+        let isPicture: Bool = { if case .picture = clip.source { true } else { false } }()
+        VStack(spacing: 1) {
+            Image(systemName: isPicture ? "photo" : "film").font(.system(size: 10, weight: .semibold))
+            Text(verbatim: TimelineEditor.stamp(clip.outputDuration))
+                .font(.system(size: 8, weight: .medium).monospacedDigit())
+        }
+        .foregroundStyle(Theme.Ink.onAccent)
+        .frame(width: 30, height: max(height - 6, 10))
+        .background(RoundedRectangle(cornerRadius: Radius.strip).fill(Theme.accent.opacity(isSelected ? 1 : 0.8)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.strip).strokeBorder(Theme.Ink.primary, lineWidth: isSelected ? 2 : 0))
+        .offset(x: x - 15, y: 3)
+        .onTapGesture { model.selectClip(clip.id) }
+        .help(isPicture ? Text("A picture from the library, held here") : Text("A video from the library, inserted here"))
     }
 
     @ViewBuilder private func clipView(_ clip: EditClip, width: Double, height: Double) -> some View {

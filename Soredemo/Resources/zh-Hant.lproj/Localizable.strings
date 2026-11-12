@@ -1021,3 +1021,11 @@
 
 /* Two pieces of text joined, each already localised */
 "%@ %@" = "%@ %@";
+
+/* Clips from the library */
+"Insert at Playhead" = "插入到播放頭";
+"Insert %@" = "插入「%@」";
+"A picture from the library, held here" = "素材庫的圖片，停留在這裡";
+"A video from the library, inserted here" = "素材庫的影片，插入在這裡";
+"Inserted %@ · %@" = "插入了「%@」· %@";
+"Move the playhead to where this was inserted" = "把播放頭移到插入的位置";

@@ -1007,3 +1007,11 @@
 
 /* Two pieces of text joined, each already localised */
 "%@ %@" = "%@ %@";
+
+/* Clips from the library */
+"Insert at Playhead" = "再生ヘッドに挿入";
+"Insert %@" = "「%@」を挿入";
+"A picture from the library, held here" = "ライブラリの画像、ここで表示";
+"A video from the library, inserted here" = "ライブラリの動画、ここに挿入";
+"Inserted %@ · %@" = "「%@」を挿入 · %@";
+"Move the playhead to where this was inserted" = "再生ヘッドを挿入位置へ移動";

@@ -145,6 +145,14 @@ public enum AgentTools {
         case importImage(url: String, use: String, reason: String)
         case library
         case searchLibrary(String)
+        case insertFromLibrary(item: Int, place: InsertPlace, seconds: Double?, reason: String)
+    }
+
+    /// Where a library clip goes: before a moment of the recording, or at either end.
+    public enum InsertPlace: Equatable, Sendable {
+        case before(Int64)
+        case start
+        case end
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -162,6 +170,18 @@ public enum AgentTools {
         if name == "zooms" { return .success(.zooms) }
         if name == "library" { return .success(.library) }
         if name == "search_library" { return .success(.searchLibrary(arguments.string("query"))) }
+        if name == "insert_from_library" {
+            let at = arguments.optionalInteger("atNanos"), place = arguments.optionalString("place")
+            guard (at == nil) != (place == nil) else {
+                return .failure(.init("Give one place: `atNanos` (before that moment of the recording) or `place` start or end."))
+            }
+            if let at, at > duration {
+                return .failure(.init("`atNanos` \(at) is past the end of the recording, \(duration)."))
+            }
+            let where_: InsertPlace = at.map(InsertPlace.before) ?? (place == "start" ? .start : .end)
+            return .success(.insertFromLibrary(item: Int(arguments.integer("item")), place: where_,
+                                               seconds: arguments.optionalNumber("seconds"), reason: arguments.string("reason")))
+        }
         if name == "import_image" {
             let url = arguments.string("url")
             if let refusal = ImageImport.refusal(for: url) { return .failure(.init(refusal)) }
@@ -264,6 +284,15 @@ extension AgentTools {
         ToolSpec("library", title: "The project's library",
                  description: "Everything this project holds besides the edit: the recording, and the takes, clips, screenshots, logos and music added to it — each with an id, its kind, its size and length, and where it came from.",
                  readOnly: true),
+        ToolSpec("insert_from_library", title: "Insert from the library",
+                 description: "Put a picture or a video from the library into the edit, pushing everything after it later — nothing is overwritten — as one undo step. Before a moment of the recording (atNanos, e.g. a step's start from steps), or at the start or end (place). A picture is held for `seconds` (3 if not given); a video plays from its start for `seconds`, or whole. Nothing from the recording is drawn on it: no cursor, zoom, caption or title.",
+                 readOnly: false,
+                 parameters: [ToolParameter("item", .integer(minimum: 0), description: "The item's id, from library.",
+                                            invalid: "`item` must be an item's id from library."),
+                              ToolParameter("atNanos", .integer(minimum: 0), description: "Insert just before this moment of the recording.", required: false),
+                              ToolParameter("place", .choice(["start", "end"]), description: "Insert at the start or the end of the edit.", required: false),
+                              ToolParameter("seconds", .number(minimum: 0.5, maximum: 60), description: "How long it plays.", required: false),
+                              .reason]),
         ToolSpec("search_library", title: "Search the library",
                  description: "Find where something was shown or said: words are matched against the recording's pressed labels and applications (with each step's span), its captions (with their times), text read off the screenshots, and every item's name. Every hit says which item, which field and when. Strongest evidence first: a pressed label, then speech, then a picture's text, then a name.",
                  readOnly: true,
