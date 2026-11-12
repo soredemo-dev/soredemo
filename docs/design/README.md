@@ -16,6 +16,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 
 | Document | What it settles |
 | --- | --- |
+| [2026-11-12-captions-that-know-what-was-on-screen](2026-11-12-captions-that-know-what-was-on-screen.md) | correcting captions with what was on screen: names matched by sound as well as spelling, the observation log's labels as proposed vocabulary, and the agent's caption edits bounded and revertible |
 | [2026-11-11-caption-line-breaking](2026-11-11-caption-line-breaking.md) | caption line breaking and the pointer's spring, each rewritten from a specification after an audit found them following other programs' code; how both were checked |
 | [2026-11-09-two-clocks-two-types](2026-11-09-two-clocks-two-types.md) | a moment on the recording and a moment in the edit as two types, so a conversion done the wrong way round does not compile; what the migration found |
 | [2026-11-08-evidence-cut-and-the-agent-surface](2026-11-08-evidence-cut-and-the-agent-surface.md) | the director's cut as evidence-carrying proposals; the read-only CLI and MCP server; the agent panel, which drives the person's Claude Code or Codex and edits directly, every edit named and every turn revertible; the layers |

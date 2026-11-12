@@ -154,3 +154,62 @@ private func ns(_ seconds: Double) -> Nanoseconds { Nanoseconds(Int64(seconds * 
     #expect(Transcript.distance("soredemo", "elephant", noMoreThan: 1) == nil)
     #expect(Transcript.distance("", "", noMoreThan: 0) == 0)
 }
+
+// MARK: - matching by sound
+
+/// **The mishearings measured on macOS 27.2**, which a spelling pass cannot reach: "Cubernades" is
+/// three edits from "Kubernetes" against a tolerance of one, "Sorodimo" two from "Soredemo". Both
+/// are the same sounds with different letters — c for k, d for t, a vowel for a vowel — and a
+/// pass that matches by sound puts them right
+/// (`docs/design/2026-11-12-captions-that-know-what-was-on-screen.md`).
+@Test func aNameHeardWithTheSameSoundsButOtherLettersIsCorrected() {
+    let heard = Transcript(
+        text: "click export to Cubernades in Sorodimo",
+        words: [TranscribedWord(text: "click", start: ns(0), end: ns(0.3)),
+                TranscribedWord(text: "export", start: ns(0.3), end: ns(0.7)),
+                TranscribedWord(text: "to", start: ns(0.7), end: ns(0.8)),
+                TranscribedWord(text: "Cubernades", start: ns(0.8), end: ns(1.5)),
+                TranscribedWord(text: "in", start: ns(1.5), end: ns(1.6)),
+                TranscribedWord(text: "Sorodimo", start: ns(1.6), end: ns(2.2))])
+
+    let fixed = heard.correcting(terms: ["Kubernetes", "Soredemo"])
+
+    #expect(fixed.words.map(\.text) == ["click", "export", "to", "Kubernetes", "in", "Soredemo"])
+    #expect(fixed.text == "click export to Kubernetes in Soredemo")
+    #expect(fixed.words[3].start == ns(0.8) && fixed.words[3].end == ns(1.5), "the word keeps its time")
+}
+
+/// **Sounding alike is not enough.** "connote" shares a sound key with "Keynote" — k, n, t — and is
+/// a real English word somebody says. The spelling has to be close as well, within a third of the
+/// name, or every word that rhymes with a product becomes it.
+@Test func aWordThatSoundsAlikeButIsSpelledFarAwayIsLeftAlone() {
+    let heard = Transcript(text: "these words connote speed",
+                           words: [TranscribedWord(text: "these", start: ns(0), end: ns(0.3)),
+                                   TranscribedWord(text: "words", start: ns(0.3), end: ns(0.6)),
+                                   TranscribedWord(text: "connote", start: ns(0.6), end: ns(1.0)),
+                                   TranscribedWord(text: "speed", start: ns(1.0), end: ns(1.3))])
+    #expect(Transcript.soundKey("connote") == Transcript.soundKey("Keynote"), "the case this guards against")
+    #expect(heard.correcting(terms: ["Keynote"]) == heard)
+}
+
+/// The key folds what a listener confuses and nothing else: c/k/q and the voiced-unvoiced pairs,
+/// vowels after the first letter, a doubled consonant. Two words with different consonants differ.
+@Test func theSoundKeyFoldsWhatAListenerConfusesAndKeepsTheRest() {
+    #expect(Transcript.soundKey("Cubernades") == Transcript.soundKey("Kubernetes"))
+    #expect(Transcript.soundKey("Sorodimo") == Transcript.soundKey("Soredemo"))
+    #expect(Transcript.soundKey("Sora demo") == Transcript.soundKey("Soredemo"), "spacing is not a sound")
+    #expect(Transcript.soundKey("Kubernetes") != Transcript.soundKey("elephant"))
+    #expect(Transcript.soundKey("Keynote") != Transcript.soundKey("Keyboard"))
+    #expect(Transcript.soundKey("Export") == Transcript.soundKey("Egsbord") , "x is k-s, and b/p, t/d fold")
+}
+
+/// A short name is matched exactly, by sound as by spelling: "code" and a product called "Kode"
+/// share a key and are one edit apart, and a four-letter key is shared by too much English to be
+/// evidence that the name was said.
+@Test func aShortNameIsNotMatchedBySound() {
+    let heard = Transcript(text: "open the code", words: [TranscribedWord(text: "open", start: ns(0), end: ns(0.3)),
+                                                          TranscribedWord(text: "the", start: ns(0.3), end: ns(0.4)),
+                                                          TranscribedWord(text: "code", start: ns(0.4), end: ns(0.8))])
+    #expect(Transcript.soundKey("code") == Transcript.soundKey("Kode"), "the case this guards against")
+    #expect(heard.correcting(terms: ["Kode"]) == heard)
+}

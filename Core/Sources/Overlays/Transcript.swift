@@ -291,10 +291,38 @@ extension Transcript {
             } else {
                 found = candidate == term.normalised ? 0 : nil
             }
-            guard let found else { continue }
-            if best == nil || found < best!.distance { best = (index, found) }
+            // **By sound when not by spelling**, for a term long enough for its key to be
+            // evidence: a recogniser's errors are errors of hearing, and edit distance counts "c"
+            // for "k" as a spelling mistake (`docs/design/2026-11-12-captions-that-know-what-was-on-screen.md`).
+            let heardAlike = found ?? soundMatch(candidate, term.normalised)
+            guard let heardAlike else { continue }
+            if best == nil || heardAlike < best!.distance { best = (index, heardAlike) }
         }
         return best
+    }
+
+    /// The spelling distance between a candidate and a term that sound alike, or `nil`. Sounding
+    /// alike is not enough on its own: the spelling must also be within a third of the term,
+    /// because a key of three consonants is shared by many real words ("connote", "Keynote").
+    static func soundMatch(_ candidate: String, _ term: String) -> Int? {
+        guard term.count >= shortestFuzzyTerm, soundKey(candidate) == soundKey(term) else { return nil }
+        return distance(candidate, term, noMoreThan: term.count / 3)
+    }
+
+    /// What a listener hears in a word, as a key: letters folded to the consonant a recogniser
+    /// confuses them with (c/k/q/g, b/p, d/t, v/f, z/s; x is k-s), vowels and h/w dropped after the
+    /// first letter, a doubled consonant once. Two words with the same key sound alike.
+    static func soundKey(_ text: some StringProtocol) -> String {
+        let fold: [Character: String] = ["c": "k", "q": "k", "g": "k", "b": "p", "d": "t",
+                                         "v": "f", "z": "s", "x": "ks"]
+        var key = ""
+        for (index, letter) in normalised(text).enumerated() {
+            let silent = "aeiouyhw".contains(letter)
+            if silent, index > 0 { continue }
+            let sound = silent ? "a" : (fold[letter] ?? String(letter))
+            for unit in sound where key.last != unit { key.append(unit) }
+        }
+        return key
     }
 
     /// This transcript with every close-enough run rewritten to the term's own spelling.
