@@ -55,4 +55,24 @@ import Render
         coordinator.camera.onProblem("the camera is gone")
         #expect(coordinator.statusText.contains("the camera is gone"))
     }
+
+    /// **The camera is on only while a person can be framing a take**: a surface that starts one
+    /// is open, or a take is running. Closing the panel releases it, so the editor that opens
+    /// after a take does not hold a camera nobody is looking at.
+    @Test func theSelfViewIsShownOnlyWhileASurfaceThatStartsATakeIsOpen() {
+        let device = CameraSource.device(uniqueID: "cam", name: "FaceTime HD Camera")
+        #expect(CameraController.showsSelfView(source: device, openSurfaces: 1))
+        #expect(!CameraController.showsSelfView(source: device, openSurfaces: 0), "the editor, with the panel closed")
+        #expect(!CameraController.showsSelfView(source: .off, openSurfaces: 2))
+    }
+
+    /// Opening and closing are counted, so the notch and the menu open at once still need both
+    /// to close; and a close with nothing open does not go below zero.
+    @Test func surfacesAreCountedAndNeverBelowZero() {
+        let camera = CameraController(defaults: suite())
+        camera.surfaceOpened(); camera.surfaceOpened(); camera.surfaceClosed()
+        #expect(camera.openSurfaces == 1)
+        camera.surfaceClosed(); camera.surfaceClosed()
+        #expect(camera.openSurfaces == 0)
+    }
 }

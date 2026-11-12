@@ -47,6 +47,9 @@ struct MenuBarRecorderPanel: View {
         // built for a take and not for a screenshot — so a phone plugged in with Screenshot
         // selected was not refreshed. The panel is the one thing present whenever it is open.
         .task { coordinator.refreshMicrophones(); coordinator.camera.refresh(); coordinator.refreshMobileScreens() }
+        // The camera is shown while this is open to frame a take in, and released when it closes.
+        .onAppear { coordinator.camera.surfaceOpened() }
+        .onDisappear { coordinator.camera.surfaceClosed() }
         // **Plugged in while the panel is open, and it is in the list.** The `.task` above only
         // runs when the panel appears, so a camera or an interface connected while a person was
         // looking at the device rows would not be there until they closed the panel and opened it

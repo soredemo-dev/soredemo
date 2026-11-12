@@ -81,3 +81,20 @@ private let second: Int64 = 1_000_000_000
     #expect(model.offset(of: moved.end) == Nanoseconds(3 * second), "its end lined up with the playhead")
     #expect(model.offset(of: moved.start) == Nanoseconds(2 * second), "and it kept its one-second length")
 }
+
+/// **The preview's asset follows the committed edit**: a trim being dragged moves `edit` on every
+/// frame and leaves `committedEdit` alone, and a cut made by anyone — the agent included — moves it.
+@Test @MainActor func theCommittedEditMovesWhenAStepLandsAndNotDuringADrag() throws {
+    let model = TimelineEditorModel()
+    model.load(duration: 10)
+    let before = model.committedEdit
+    let clip = try #require(model.edit.clips.first)
+    model.previewTrim(of: clip.id, edge: .end, byNanoseconds: -2 * second)
+    #expect(model.edit != before, "the drag is drawn")
+    #expect(model.committedEdit == before, "and the preview is not rebuilt for it")
+    model.commitTrim(edge: .end)
+    #expect(model.committedEdit != before)
+    let trimmed = model.committedEdit
+    model.removeSourceRange(2 * second..<4 * second, named: "Claude Code: a pause")
+    #expect(model.committedEdit != trimmed, "an agent's cut moves it, which is what rebuilds the preview")
+}

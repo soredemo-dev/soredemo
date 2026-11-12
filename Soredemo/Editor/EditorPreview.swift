@@ -31,6 +31,9 @@ final class EditorPreview {
     /// asset's tracks, and after a cut the item's asset is a composition rather than the file.
     private(set) var playingAsset: AVAsset?
     private(set) var failure: String?
+    /// What the current item's composition was built from, so a paused frame can be redrawn
+    /// with a new composition of the same values — see `redrawPausedFrame`.
+    private var compositionConfiguration: AVVideoComposition.Configuration?
     /// What the last attempt to clean the microphone did, or why it could not. Shown, never
     /// swallowed — a person who turned this on and heard no difference is owed the reason.
     private(set) var noiseReductionNote: String?
@@ -50,6 +53,18 @@ final class EditorPreview {
     private(set) var musicFailure: String?
     /// The video track's thumbnails. Owned with the player so a cache is not discarded on every edit.
     let filmstrip = Filmstrip()
+
+    /// Makes a paused preview draw the frame it is holding again, after something the
+    /// compositor reads from its statics changed — a style, a caption, a background.
+    ///
+    /// **A new composition of the same values, not a seek.** It was a zero-distance seek, and a
+    /// paused player answers that from the frame it already has: measured with a counting
+    /// compositor, 0 frames asked for, which is why a change showed only after the playhead
+    /// was dragged. `CompositionBuilder.configuration` has the measurement.
+    func redrawPausedFrame() {
+        guard let item = player?.currentItem, let compositionConfiguration else { return }
+        item.videoComposition = AVVideoComposition(configuration: compositionConfiguration)
+    }
 
     // MARK: - building the preview
 
@@ -145,11 +160,12 @@ final class EditorPreview {
             musicTrackID = combined.musicTrackID
             StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : editor.cameraStyle
             let asset = combined.asset
-            let composition = try await StageWindow.configuredComposition(
+            let configuration = try await StageWindow.configuredConfiguration(
                 for: asset, logForMediaURL: files.mediaURL, resolution: editor.resolution,
                 recordingShortSide: editor.recordingShortSide, variant: editor.variant)
+            compositionConfiguration = configuration
             let item = AVPlayerItem(asset: asset)
-            item.videoComposition = composition
+            item.videoComposition = AVVideoComposition(configuration: configuration)
             // The mix is applied at load too, not only on change: reopening a saved project
             // with the microphone muted must sound muted before anyone touches a control.
             await AudioMixBuilder.apply(editor.audioMix, to: item, of: asset)

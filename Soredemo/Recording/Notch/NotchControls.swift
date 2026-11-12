@@ -69,6 +69,9 @@ struct NotchRecorderControls: View {
             coordinator.camera.refresh()
             coordinator.refreshMobileScreens()
         }
+        // As the menu bar panel: the camera is shown to frame in while this is open.
+        .onAppear { coordinator.camera.surfaceOpened() }
+        .onDisappear { coordinator.camera.surfaceClosed() }
     }
 
     /// A device on the cable that is not offering its screen — almost always locked. Shown, not

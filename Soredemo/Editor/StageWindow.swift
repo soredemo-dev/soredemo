@@ -436,34 +436,29 @@ struct StageWindow: View {
         }
         // **An agent's caption edit has no panel callback to bump the counter**, and neither
         // does ⌘Z on one: both change the track and nothing else. Burnt-in captions are read
-        // from a static at render time, so a paused preview needs the same zero-distance seek.
+        // from a static at render time, so a paused preview needs the same redraw.
         .onChange(of: editor.captions.track) { reviewRevision += 1 }
+        // **An agent's cut rebuilds the preview too.** Only the timeline's own controls bumped
+        // `editRevision`, so a cut made through the agent changed the timeline and left the
+        // player on the uncut asset — 45.5 s in the transport for a 37 s edit. The COMMITTED
+        // edit, so a trim being dragged does not reload the asset on every frame.
+        .onChange(of: editor.timeline.committedEdit) { editRevision += 1 }
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
         // decision changes, and a counter says exactly that. Observing the array would also fire
         // on a load that merely restored the same decisions.
         //
-        // **A style change rebuilds nothing; it seeks zero distance.** `StageCompositor` reads
-        // style, cursor, captions, text and redactions from statics at render time, so a change
-        // is already in force for the next frame and a PLAYING preview simply shows it. A PAUSED
-        // one needs a reason to redraw the frame it is holding, which this is. Rebuilding instead
-        // reloaded the asset, lost the position and stopped the sound — why every slider used to
-        // interrupt playback — and deferring the bump to end-of-drag left a paused preview frozen
-        // while the slider moved, which is a control people learn not to trust.
-        //
-        // **Seeking on every tick is safe, and AVPlayer is what makes it so.** A seek issued
-        // while one is in progress supersedes it — the earlier handler gets `finished: false` —
-        // and `.task(id:)` cancels the previous task, so nothing accumulates on either side.
+        // **A style change rebuilds nothing.** `StageCompositor` reads style, cursor, captions,
+        // text and redactions from statics at render time, so a PLAYING preview simply shows a
+        // change. A PAUSED one has to be given a reason to draw its frame again: it was a
+        // zero-distance seek, which a paused player answers from the frame it has — measured, 0
+        // frames asked for — so a change showed only once the playhead was dragged. It is now a
+        // new composition of the same values; see `EditorPreview.redrawPausedFrame`. Rebuilding
+        // the asset instead would lose the position and stop the sound.
         .task(id: reviewRevision) {
             guard reviewRevision > 0, let player = preview.player else { return }
-            // **Only when PAUSED, and that is the fix.** The seek is here to give a stopped
-            // player a reason to redraw the frame it is already showing. Running it during
-            // playback stops the playback — `AVPlayer.seek` does not resume — so dragging a
-            // slider halted the video, and what a person saw was a control that did nothing
-            // until they pressed play again. The comment above already said "while playing, it
-            // simply appears"; the guard to match it was never written.
+            // **Only when PAUSED.** A playing preview already shows the change on its next frame.
             guard player.timeControlStatus != .playing else { return }
-            await player.seek(to: player.currentTime(),
-                              toleranceBefore: .zero, toleranceAfter: .zero)
+            preview.redrawPausedFrame()
         }
         // **The two statics that only `load()` was writing.** Everything else in the inspector
         // publishes its own — `StageStylePicker`, `CaptionsPanel`, `TextPanel` and
@@ -659,6 +654,19 @@ struct StageWindow: View {
                                       recordingShortSide: Int = 1080,
                                       variant: AspectVariant = .landscape) async throws
         -> AVVideoComposition {
+        AVVideoComposition(configuration: try await configuredConfiguration(
+            for: asset, logForMediaURL: mediaURL, resolution: resolution,
+            recordingShortSide: recordingShortSide, variant: variant))
+    }
+
+    /// `configuredComposition`'s values, for the preview to rebuild a paused frame from — see
+    /// `CompositionBuilder.configuration`.
+    static func configuredConfiguration(for asset: AVAsset,
+                                        logForMediaURL mediaURL: URL? = nil,
+                                        resolution: ExportResolution = .matchRecording,
+                                        recordingShortSide: Int = 1080,
+                                        variant: AspectVariant = .landscape) async throws
+        -> AVVideoComposition.Configuration {
         let renderer = try CoreImageFrameRenderer()
         StageCompositor.renderer = renderer
         // Where an image background is read from. Set before the composition reaches
@@ -696,7 +704,7 @@ struct StageWindow: View {
         Task.detached(priority: .utility) {
             renderer.warmUp(outputWidth: size.width, outputHeight: size.height, style: warmStyle)
         }
-        return try await CompositionBuilder.composition(
+        return try await CompositionBuilder.configuration(
             for: asset, outputWidth: size.width, outputHeight: size.height,
             frameDuration: CMTime(value: 1, timescale: 60))
     }

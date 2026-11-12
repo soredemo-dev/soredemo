@@ -34,6 +34,9 @@ final class TimelineEditorModel {
     /// intermediate value would make ⌘Z undo a pixel. Committed once on release.
     private var liveEdit: EditTimeline?
     var edit: EditTimeline { liveEdit ?? history.current.timeline }
+    /// The edit as last recorded, without a drag in progress — what the preview's asset is cut
+    /// by, so it is rebuilt when a step lands and not on every frame of a trim.
+    var committedEdit: EditTimeline { history.current.timeline }
     /// Where the playhead sits, in SOURCE time — a `SourceTime`, so a site that treats it as
     /// output time does not compile (`docs/design/2026-11-09-two-clocks-two-types.md`).
     private(set) var playhead = SourceTime.zero

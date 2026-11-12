@@ -88,7 +88,10 @@ final class CameraController {
     /// before the hide. The panel now refuses the change during a recording (`cameraRow`), and
     /// this is the second lock on the same door.
     private func showOrHideSelfView() {
-        guard case .device = source else {
+        // A take owns the camera it is recording; a panel closing as the take starts must not
+        // take the person's face off the screen. Choosing `.off` still hides, below.
+        if case .device = source, isTakeRunning() { return }
+        guard Self.showsSelfView(source: source, openSurfaces: openSurfaces) else {
             CameraSelfView.shared.hide()
             // Only the preview session is released here. Once a recording has taken it over the
             // property is `nil` and the file belongs to `stopRecording`, which has to await the
@@ -97,7 +100,6 @@ final class CameraController {
             previewRecorder = nil
             return
         }
-        guard !isTakeRunning() else { return }
         let recorder = previewRecorder ?? CameraRecorder()
         do {
             try recorder.startPreview(camera: source, quality: quality)
@@ -108,6 +110,31 @@ final class CameraController {
         previewRecorder = recorder
         CameraSelfView.shared.onStyleChange = { [weak self] style in self?.style = style }
         CameraSelfView.shared.show(recorder: recorder, style: style)
+    }
+
+    /// How many surfaces that start a take — the menu bar panel, the notch — are open now.
+    private(set) var openSurfaces = 0
+
+    /// **The self-view is for framing a take, so it is shown only while one can be started**:
+    /// a camera is chosen and a surface that starts a take is open. It followed the choice alone
+    /// until 2026-11-12, and every `refresh()` re-assigned the choice — so the panel reopening as
+    /// a take ended turned the camera back on over the editor, with nobody framing anything.
+    /// During a take the take owns the camera; see `showOrHideSelfView`.
+    static func showsSelfView(source: CameraSource, openSurfaces: Int) -> Bool {
+        guard case .device = source else { return false }
+        return openSurfaces > 0
+    }
+
+    /// A surface that starts a take appeared: show the chosen camera to frame in.
+    func surfaceOpened() {
+        openSurfaces += 1
+        showOrHideSelfView()
+    }
+
+    /// One went away: with none left open, the camera is released.
+    func surfaceClosed() {
+        openSurfaces = max(0, openSurfaces - 1)
+        showOrHideSelfView()
     }
 
     /// The cameras this Mac offers, refreshed when a panel opens and when one is connected.
