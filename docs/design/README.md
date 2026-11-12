@@ -16,6 +16,7 @@ their name; renaming them would break the comments that cite them, so they keep 
 
 | Document | What it settles |
 | --- | --- |
+| [2026-11-12-from-a-demo-to-a-launch-video](2026-11-12-from-a-demo-to-a-launch-video.md) | the direction: a library of recordings, screenshots and clips indexed by the observation log, which the agent searches and assembles into a storyboard that renders to a hero loop, a launch video, a pitch and cut-downs; what was learned from how launch videos are made and from video written as code |
 | [2026-11-12-the-agent-gets-a-column](2026-11-12-the-agent-gets-a-column.md) | the agent's conversation as a full-height column on the left instead of a tab in the inspector, what the agent-driven editors do, and what it will point at next |
 | [2026-11-12-captions-that-know-what-was-on-screen](2026-11-12-captions-that-know-what-was-on-screen.md) | correcting captions with what was on screen: names matched by sound as well as spelling, the observation log's labels as proposed vocabulary, and the agent's caption edits bounded and revertible |
 | [2026-11-11-caption-line-breaking](2026-11-11-caption-line-breaking.md) | caption line breaking and the pointer's spring, each rewritten from a specification after an audit found them following other programs' code; how both were checked |
