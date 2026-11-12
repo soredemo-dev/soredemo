@@ -74,6 +74,16 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
     /// `startRequest` is handed OUTPUT times while every observation record is stamped in
     /// SOURCE time, so the pointer and the camera must be looked up through this or they land
     /// by however much was removed before them. Set on the same terms as the seams below.
+    /// The library's pictures by library id — what a picture clip draws
+    /// (`docs/design/2026-11-13-clips-from-the-library.md`). Set by whoever builds the composition.
+    private nonisolated(unsafe) static var _libraryPictures: [Int: URL] = [:]
+    public static var libraryPictures: [Int: URL] {
+        get { seamLock.withLock { unsafe _libraryPictures } }
+        set { seamLock.withLock { unsafe _libraryPictures = newValue } }
+    }
+    /// Each picture decoded once, as a source buffer: a picture is the same file on every frame.
+    private nonisolated(unsafe) static var _pictureBuffers: [URL: CVPixelBuffer] = [:]
+
     private nonisolated(unsafe) static var _editTimeline: EditTimeline?
     public static var editTimeline: EditTimeline? {
         get { seamLock.withLock { unsafe _editTimeline } }
@@ -267,6 +277,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         // was set when it ran.** Found when the pace was added beside it.
         var zoomIntensity: Double
         var cameraPace: CameraPace
+        // An export of an edit with pictures in it must draw the pictures it was queued with.
+        var libraryPictures: [Int: URL]
     }
 
     /// What the compositor would draw right now.
@@ -279,7 +291,8 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                         showsKeystrokes: showsKeystrokes,
                         cursorStyle: cursorStyle,
                         cameraStyle: cameraStyle, crop: crop, cameraTrackID: cameraTrackID,
-                        zoomIntensity: zoomIntensity, cameraPace: cameraPace)
+                        zoomIntensity: zoomIntensity, cameraPace: cameraPace,
+                        libraryPictures: libraryPictures)
     }
 
     /// Puts them all back. Every field, so a value captured before one was added cannot leave a
@@ -290,6 +303,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         observationLogURL = settings.observationLogURL
         overrides = settings.overrides
         editTimeline = settings.editTimeline
+        libraryPictures = settings.libraryPictures
         framingOverrides = settings.framingOverrides
         zoomAdjustments = settings.zoomAdjustments
         captions = settings.captions
@@ -407,6 +421,11 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
             Self.recordDroppedFrame(reason.refusal)
             request.finish(with: reason)
         }
+        // **A library clip first, before anything asks for the recording's track** — inside a
+        // picture there is none (D6b-37), and none of what follows is about a library frame.
+        if let clip = Self.libraryClip(at: request.compositionTime) {
+            return renderLibraryFrame(request, clip: clip, cameraTrackID: cameraTrackID, refuse: refuse)
+        }
         guard let trackID = request.sourceTrackIDs
                 .map(\.int32Value)
                 .first(where: { $0 != cameraTrackID })
@@ -463,7 +482,7 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                               // and against the OUTPUT offset — a fade is measured in what a
                               // viewer watches, not in what the recording contains.
                               cardOpacity: Self.cardOpacity(at: request.compositionTime))
-        do {
+        complete(request, into: destination) { destination in
             // Scoped so the plain `CVPixelBuffer` never outlives the call.
             // The camera's buffer, when the composition carries one. Read inside the same
             // scope as the screen's so neither plain `CVPixelBuffer` outlives the call.
@@ -480,6 +499,17 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
                                         into: destination)
                 }
             }
+        }
+    }
+
+    /// **The one place a drawn frame is finished, and the one place a render that threw is
+    /// counted** — for the recording's frames and a library clip's alike, so the dropped-frame
+    /// counter keeps exactly its two branches (a refusal, a render that threw) however many kinds
+    /// of frame there are. `theDroppedFrameCounterHasExactlyTwoCallSites…` holds it to that.
+    private func complete(_ request: AVAsynchronousVideoCompositionRequest, into destination: sending CVPixelBuffer,
+                          _ draw: (CVPixelBuffer) throws -> Void) {
+        do {
+            try draw(destination)
             request.finish(withComposedPixelBuffer: CVReadOnlyPixelBuffer(unsafeBuffer: destination))
         } catch {
             Self.recordDroppedFrame(.renderThrew)
@@ -1207,5 +1237,69 @@ public nonisolated final class StageCompositor: NSObject, AVVideoCompositing {
         return (pointer: pointer, click: click, anchor: anchor, camera: camera,
                 keystrokes: KeystrokeTrack(presses: presses), movement: movement,
                 contentCrops: ContentCropTrack(samples: contentCrops))
+    }
+
+    // MARK: - clips from the library
+
+    /// The library clip playing at `compositionTime`, or `nil` for the recording or no edit.
+    nonisolated static func libraryClip(at compositionTime: CMTime) -> EditClip? {
+        guard compositionTime.isValid, let timeline = editTimeline,
+              let offset = Nanoseconds(rationalSeconds: compositionTime.value, timescale: compositionTime.timescale),
+              let clip = timeline.clip(atOutput: offset), !clip.source.isRecording else { return nil }
+        return clip
+    }
+
+    /// **A library frame on the card, with nothing from the recording**: the style's background,
+    /// card, corners and shadow so it belongs to the same video; no crop, zoom, pointer,
+    /// keystroke, caption, title, mark, hidden region or camera, because none of them were
+    /// observed here. The clip's fades still apply.
+    private func renderLibraryFrame(_ request: AVAsynchronousVideoCompositionRequest, clip: EditClip,
+                                    cameraTrackID: CMPersistentTrackID?,
+                                    refuse: (CompositorError) -> Void) {
+        guard let context = unsafe renderContext else { return refuse(.noRenderContext) }
+        guard let destination = context.newPixelBuffer() else { return refuse(.noDestinationBuffer) }
+        guard let renderer = Self.renderer else { return refuse(.noRenderer) }
+        func plan(width: Int, height: Int) -> RenderPlan {
+            let base = StagePlanner.plan(outputWidth: Int(context.size.width), outputHeight: Int(context.size.height),
+                                         sourceWidth: width, sourceHeight: height, style: Self.style)
+            return RenderPlan(outputWidth: base.outputWidth, outputHeight: base.outputHeight, card: base.card,
+                              cornerRadius: base.cornerRadius, style: base.style, pointer: nil,
+                              cardOpacity: Self.cardOpacity(at: request.compositionTime))
+        }
+        switch clip.source {
+        case .picture(let item):
+            guard let url = Self.libraryPictures[item], let picture = Self.pictureBuffer(url) else {
+                return refuse(.noSourceBuffer)
+            }
+            let picturePlan = plan(width: CVPixelBufferGetWidth(picture), height: CVPixelBufferGetHeight(picture))
+            complete(request, into: destination) { destination in
+                try renderer.render(picturePlan, source: picture, camera: nil, into: destination)
+            }
+        case .video:
+            guard let trackID = request.sourceTrackIDs.map(\.int32Value).first(where: { $0 != cameraTrackID }),
+                  let frame = request.sourceReadOnlyPixelBuffer(byTrackID: trackID) else { return refuse(.noSourceBuffer) }
+            let framePlan = plan(width: frame.size.width, height: frame.size.height)
+            complete(request, into: destination) { destination in
+                try frame.withUnsafeBuffer { buffer in
+                    try renderer.render(framePlan, source: buffer, camera: nil, into: destination)
+                }
+            }
+        case .recording:
+            refuse(.noScreenTrack)
+        }
+    }
+
+    /// The picture at `url` as a source buffer, decoded once and kept. The decoding is the
+    /// renderer's — it is the file that speaks Core Image — and the keeping is here.
+    nonisolated static func pictureBuffer(_ url: URL) -> CVPixelBuffer? {
+        if let cached = seamLock.withLock({ unsafe _pictureBuffers[url] }) { return cached }
+        guard let buffer = CoreImageFrameRenderer.sourceBuffer(ofPictureAt: url) else { return nil }
+        seamLock.withLock { unsafe _pictureBuffers[url] = buffer }
+        return buffer
+    }
+
+    /// Forgets the decoded pictures — when one is replaced under the same name.
+    public nonisolated static func forgetLibraryPictures() {
+        seamLock.withLock { unsafe _pictureBuffers = [:] }
     }
 }

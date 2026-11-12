@@ -242,3 +242,40 @@ extension StageCompositorTests {
 
     private enum CameraParityError: Error { case noPixels }
 }
+
+// MARK: - clips from the library (`docs/design/2026-11-13-clips-from-the-library.md`)
+
+extension StageCompositorTests {
+    /// A picture is empty time on the video track, as long as it is held for; the recording
+    /// after it plays on, later by exactly that.
+    @Test func aPictureClipIsEmptyTimeAsLongAsItIsHeld() async throws {
+        let source = Self.fixture()
+        let nanos = Int64(try await source.load(.duration).seconds * 1_000_000_000)
+        let edit = try #require(EditTimeline.whole(duration: Nanoseconds(nanos))
+            .inserting(.picture(item: 1), sourceStart: Nanoseconds(0), duration: Nanoseconds(1_000_000_000),
+                       atOutput: Nanoseconds(nanos / 2)))
+        let cut = try await EditedAsset.make(from: source, by: edit)
+        let duration = try await cut.load(.duration).seconds
+        #expect(abs(duration - (Double(nanos) / 1e9 + 1)) < 0.05, "\(duration)")
+        let track = try #require(try await cut.loadTracks(withMediaType: .video).first)
+        let middle = CMTime(seconds: Double(nanos / 2) / 1e9 + 0.5, preferredTimescale: 600)
+        let segment = try #require(try await track.load(.segments).first { $0.timeMapping.target.containsTime(middle) })
+        #expect(segment.isEmpty, "the picture's span holds no recording")
+    }
+
+    /// A library video is read from its own file; a library clip whose file is not given is
+    /// refused by its id rather than played as black.
+    @Test func aLibraryVideoIsReadFromItsOwnFileAndAMissingOneIsRefused() async throws {
+        let source = Self.fixture()
+        let nanos = Int64(try await source.load(.duration).seconds * 1_000_000_000)
+        let edit = try #require(EditTimeline.whole(duration: Nanoseconds(nanos))
+            .inserting(.video(item: 2), sourceStart: Nanoseconds(0), duration: Nanoseconds(nanos / 2),
+                       atOutput: Nanoseconds(nanos)))
+        let cut = try await EditedAsset.make(from: source, by: edit, library: [2: Self.fixture()])
+        let duration = try await cut.load(.duration).seconds
+        #expect(abs(duration - Double(nanos + nanos / 2) / 1e9) < 0.05)
+        await #expect(throws: EditedAssetError.libraryItemMissing(2)) {
+            _ = try await EditedAsset.make(from: source, by: edit, library: [:])
+        }
+    }
+}

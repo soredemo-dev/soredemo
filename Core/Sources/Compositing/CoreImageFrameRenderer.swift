@@ -1292,3 +1292,20 @@ public nonisolated final class CoreImageFrameRenderer: FrameRendering {
                                                y: placement.y - tip * press))
     }
 }
+
+extension CoreImageFrameRenderer {
+    /// A picture as a BGRA source buffer the size of the picture — what a library picture clip
+    /// hands the renderer in place of a frame of the recording. `nil` for a file that does not
+    /// decode, which the compositor reports as a missing source rather than drawing black.
+    nonisolated static func sourceBuffer(ofPictureAt url: URL) -> CVPixelBuffer? {
+        guard let image = CIImage(contentsOf: url) else { return nil }
+        let width = Int(image.extent.width), height = Int(image.extent.height)
+        guard width > 0, height > 0 else { return nil }
+        var buffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+        guard unsafe CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, attributes, &buffer) == kCVReturnSuccess,
+              let buffer else { return nil }
+        CIContext().render(image.transformed(by: .init(translationX: -image.extent.minX, y: -image.extent.minY)), to: buffer)
+        return buffer
+    }
+}

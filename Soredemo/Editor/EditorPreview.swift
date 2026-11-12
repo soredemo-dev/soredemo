@@ -149,9 +149,15 @@ final class EditorPreview {
             // for the two to drift apart.
             editor.mediaURL = files.mediaURL
             editor.library.load(packageURL: ProjectStore.packageURL(forMediaAt: files.mediaURL))
+            // The library's files for its clips in the edit: videos read by the composition,
+            // pictures drawn by the compositor (`docs/design/2026-11-13-clips-from-the-library.md`).
+            let library = editor.library.files()
+            StageCompositor.libraryPictures = library.pictures
+            StageCompositor.forgetLibraryPictures()
             let cut = try await EditedAsset.make(
                 from: recording, by: editor.timeline.edit,
-                substitutingAudio: await microphoneSubstitution(for: recording, files: files, editor: editor))
+                substitutingAudio: await microphoneSubstitution(for: recording, files: files, editor: editor),
+                library: library.videos.mapValues { AVURLAsset(url: $0) })
             // The camera laid alongside the cut recording, so one composition sees both. Returns
             // the cut asset untouched when there is no camera, so the common path costs nothing.
             let combined = try await CameraComposition.combine(

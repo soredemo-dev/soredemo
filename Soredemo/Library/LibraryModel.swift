@@ -92,6 +92,38 @@ final class LibraryModel {
         try? save()
     }
 
+    /// The library's files by id, videos and pictures apart — what the composition and the
+    /// compositor read a library clip from.
+    func files() -> (videos: [Int: URL], pictures: [Int: URL]) {
+        guard let folder else { return ([:], [:]) }
+        var videos: [Int: URL] = [:], pictures: [Int: URL] = [:]
+        for item in library.items {
+            switch item.kind {
+            case .video, .recording: videos[item.id] = folder.appending(path: item.filename)
+            case .image: pictures[item.id] = folder.appending(path: item.filename)
+            case .audio: break
+            }
+        }
+        return (videos, pictures)
+    }
+
+    /// What inserting `item` puts in the edit: a picture held for `pictureSeconds`, a video for its
+    /// length. `nil` for what cannot be a clip — sound, or a video whose length is not known.
+    static let pictureSeconds: Int64 = 3
+    static func clip(for item: Library.Item, seconds: Double? = nil) -> (source: ClipSource, duration: Nanoseconds)? {
+        switch item.kind {
+        case .image:
+            let held = seconds.map { Int64($0 * 1e9) } ?? pictureSeconds * 1_000_000_000
+            return held > 0 ? (.picture(item: item.id), Nanoseconds(held)) : nil
+        case .video, .recording:
+            guard let length = item.durationNanos, length > 0 else { return nil }
+            let wanted = seconds.map { min(Int64($0 * 1e9), length) } ?? length
+            return wanted > 0 ? (.video(item: item.id), Nanoseconds(wanted)) : nil
+        case .audio:
+            return nil
+        }
+    }
+
     // MARK: - the index
 
     /// Everything the agent can search: the recording's steps and words, and every item's name and
