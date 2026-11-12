@@ -68,6 +68,14 @@ struct StageWindow: View {
     /// How tall the timeline area is, remembered between launches — see the divider's comment.
     @AppStorage("timelineHeight") private var timelineHeight: Double = 210
     @AppStorage("timelineCollapsed") private var isTimelineCollapsed = false
+    /// The agent's column: whether it is open and how wide, remembered between launches, for the
+    /// timeline's reason — a layout re-made every launch is one people stop making.
+    @AppStorage("agentColumnShown") private var isAgentShown = true
+    @AppStorage("agentColumnWidth") private var agentWidth: Double = 380
+    /// Narrower and the edit cards wrap every line; wider and the preview gives up more than the
+    /// conversation gains.
+    static let minimumAgentWidth: Double = 300
+    static let maximumAgentWidth: Double = 560
 
     /// The band the timeline may be dragged within. A floor because a strip shorter than its
     /// tracks is a strip nothing can be aimed at; a ceiling because a timeline taller than the
@@ -89,7 +97,10 @@ struct StageWindow: View {
         // icons over one subject — what was said — and the two lists look alike enough that a
         // person had to know which icon held which. One tab, one segmented control inside it;
         // see `CaptionsPanel.Words` for why the two lists stay two.
-        case project, selection, cuts, agent, captions, chapters, text, hide, mark
+        // **`agent` is gone too, to a column of its own** on the window's left
+        // (`docs/design/2026-11-12-the-agent-gets-a-column.md`): a tab closed the conversation
+        // whenever another one opened, and a conversation runs beside everything else.
+        case project, selection, cuts, captions, chapters, text, hide, mark
 
         var title: String {
             switch self {
@@ -98,7 +109,6 @@ struct StageWindow: View {
             case .project: "Look"
             case .selection: "Zooms"
             case .cuts: "Cuts"
-            case .agent: "Agent"
             // "Captions" rather than "Overlays": the tab is the recording's words now, and
             // "Overlays" was already a poor name for a tab whose contents were captions.
             case .captions: "Captions"
@@ -121,7 +131,6 @@ struct StageWindow: View {
             // is what a viewfinder with a dot in it says and a magnifier does not.
             case .selection: "dot.viewfinder"
             case .cuts: "scissors"
-            case .agent: "sparkles"
             case .captions: "captions.bubble"
             case .chapters: "list.bullet.rectangle"
             case .text: "textformat"
@@ -135,7 +144,6 @@ struct StageWindow: View {
             case .project: Theme.accent
             case .selection: Theme.Lane.zoom
             case .cuts: Theme.accent
-            case .agent: Theme.accent
             case .captions: Theme.Lane.caption
             case .chapters: Theme.Lane.chapter
             case .text: Theme.Lane.text
@@ -181,7 +189,21 @@ struct StageWindow: View {
         //
         // **The timeline sits under the preview**, because a timeline is read along its length
         // while watching the picture above it, and an inspector is read down a column.
-        stage
+        //
+        // **The agent's conversation is a column on the left, beside both** — a peer of the
+        // picture rather than a section of the inspector, so it stays open whatever the inspector
+        // shows. See `docs/design/2026-11-12-the-agent-gets-a-column.md`.
+        HStack(spacing: 0) {
+            if isAgentShown {
+                AgentPanel(model: editor.agent, editor: editor)
+                    .frame(width: agentWidth)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                SplitHandle(axis: .horizontal, label: "Resize the agent column") { delta in
+                    agentWidth = min(max(agentWidth + delta, Self.minimumAgentWidth), Self.maximumAgentWidth)
+                }
+            }
+            stage
+        }
             // **The one view that watches the playhead at the playhead's own rate.** Installed
             // here because this is where both models are; it draws nothing. See its header.
             .background(CaptionCueTracker(timeline: editor.timeline, captions: editor.captions))
@@ -580,6 +602,18 @@ struct StageWindow: View {
                     Label("Review", systemImage: "sidebar.right")
                 }
             }
+            // **At the leading edge, over the column it opens**, as the inspector's toggle sits
+            // over the inspector. Closing it does not stop a running turn: `AgentPresence` over
+            // the picture still says who is editing and what it is doing.
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    withAnimation(.snappy) { isAgentShown.toggle() }
+                } label: {
+                    Label("Agent", systemImage: "sidebar.left")
+                }
+                .keyboardShortcut("a", modifiers: [.command, .option])
+                .help(isAgentShown ? Text("Hide the agent (\u{2325}\u{2318}A)") : Text("Show the agent (\u{2325}\u{2318}A)"))
+            }
         }
         .sheet(isPresented: $isExportSheetShown) {
             ExportSheet(editor: editor, onExportFinalCutXML: { exportFinalCutXML() },
@@ -758,8 +792,6 @@ struct StageWindow: View {
                                 }
                             })
                     }
-            case .agent:
-                AgentPanel(model: editor.agent, editor: editor)
             case .captions:
                 let size = editor.outputSize
                 // No `AtPlayhead`: the panel reads `captions.currentCueIndex`, which changes

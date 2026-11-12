@@ -393,7 +393,12 @@ private struct ToolbarAction: View {
 /// a divider's hit rect has to be wider than its line for the same reason
 /// (`PaddedDividerSplitViewController`).
 struct SplitHandle: View {
-    /// The INCREMENT since the last callback, in points, positive downward.
+    /// Which way it drags: `.vertical` resizes a strip above or below it, `.horizontal` a column
+    /// beside it.
+    var axis: Axis = .vertical
+    /// What it resizes, for VoiceOver.
+    var label: LocalizedStringKey = "Resize the timeline"
+    /// The INCREMENT since the last callback, in points, positive downward or rightward.
     let onDrag: (Double) -> Void
     @State private var isHovering = false
     /// **`DragGesture.translation` is cumulative from where the drag began**, so handing it
@@ -405,22 +410,23 @@ struct SplitHandle: View {
     var body: some View {
         Rectangle()
             .fill(isHovering ? Theme.Line.divider : Theme.Line.hairline)
-            .frame(height: 1)
-            .frame(height: 7)
+            .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
+            .frame(width: axis == .horizontal ? 7 : nil, height: axis == .vertical ? 7 : nil)
             .contentShape(Rectangle())
             .onHover { hovering in
                 isHovering = hovering
-                if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                let cursor: NSCursor = axis == .vertical ? .resizeUpDown : .resizeLeftRight
+                if hovering { cursor.push() } else { NSCursor.pop() }
             }
             .gesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
-                        let total = Double(value.translation.height)
+                        let total = Double(axis == .vertical ? value.translation.height : value.translation.width)
                         onDrag(total - applied)
                         applied = total
                     }
                     .onEnded { _ in applied = 0 }
             )
-            .accessibilityLabel("Resize the timeline")
+            .accessibilityLabel(Text(label))
     }
 }

@@ -877,7 +877,6 @@
 "Done in %@" = "%@ 完成";
 "Edit with %@" = "用 %@ 剪輯";
 "Install it, sign in once in Terminal, then check again. Soredemo uses your own login and holds no key." = "安裝之後，在「終端機」登入一次，再按「再檢查一次」。Soredemo 用的是你自己的登入，不保存任何金鑰。";
-"It runs on this Mac under your own login and can read this recording's steps and cut its timeline while you watch. Every cut is one undo step, and a whole turn reverts at once. It cannot publish anything." = "它在這台 Mac 上、用你自己的登入執行，能讀這段錄影的步驟，在你眼前剪時間軸。每一刀都是一個復原步驟，一整輪也能一次還原。它不能發布任何東西。";
 "Model" = "模型";
 "Move the playhead to where this cut is" = "把播放頭移到這一刀的位置";
 "Not sending what is on screen" = "不傳送畫面上的情境";
@@ -965,3 +964,10 @@
 "Fixed %lld caption lines" = "修正了 %lld 行字幕";
 "Revert the Agent's Caption Edits" = "復原代理的字幕修改";
 "Move the playhead to the first line this changed" = "把播放頭移到這次改的第一行";
+
+/* The agent's column */
+"It runs on this Mac under your own login and can read this recording's steps, cut its timeline and fix its captions while you watch. Every edit is one undo step, and a whole turn reverts at once. It cannot publish anything." = "它在這台 Mac 上、用你自己的登入執行，能讀這段錄影的步驟、剪時間軸、修字幕，都在你眼前進行。每一項修改都是一個復原步驟，一整輪也能一次還原。它不能發布任何東西。";
+"Resize the agent column" = "調整代理欄寬度";
+"Hide the agent (⌥⌘A)" = "隱藏代理(⌥⌘A)";
+"Show the agent (⌥⌘A)" = "顯示代理(⌥⌘A)";
+"Fix the names the captions misheard" = "修正字幕聽錯的名稱";

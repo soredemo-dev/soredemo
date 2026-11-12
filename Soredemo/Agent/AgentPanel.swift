@@ -4,7 +4,7 @@ import Surface
 import SwiftUI
 import Timeline
 
-/// The agent tab: the person's own Claude Code, editing the open recording while they watch.
+/// The agent's column: the person's own Claude Code, editing the open recording while they watch.
 ///
 /// **Laid out the way the chat surfaces people already know are**: the person's words in a bubble
 /// on the right, the agent's in full width on the left; what it is doing now as one shimmering
@@ -168,7 +168,7 @@ private struct AgentWelcome: View {
                 Button("Check again") { Task { await model.checkAvailability() } }
             default:
                 Text("Edit with \(model.providerName)").font(.title3.weight(.semibold))
-                Text("It runs on this Mac under your own login and can read this recording's steps and cut its timeline while you watch. Every cut is one undo step, and a whole turn reverts at once. It cannot publish anything.")
+                Text("It runs on this Mac under your own login and can read this recording's steps, cut its timeline and fix its captions while you watch. Every edit is one undo step, and a whole turn reverts at once. It cannot publish anything.")
                     .font(Type.label).foregroundStyle(Theme.Ink.secondary)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -176,6 +176,7 @@ private struct AgentWelcome: View {
                     suggestion("Tighten the pauses between steps", icon: "scissors")
                     suggestion("Cut this to about 45 seconds", icon: "timer")
                     suggestion("Which steps could go, and why?", icon: "list.bullet")
+                    suggestion("Fix the names the captions misheard", icon: "captions.bubble")
                 }
                 .padding(.top, Space.tight)
             }

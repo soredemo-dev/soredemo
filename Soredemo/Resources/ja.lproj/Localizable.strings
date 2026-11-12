@@ -863,7 +863,6 @@
 "Done in %@" = "%@ で完了";
 "Edit with %@" = "%@ で編集";
 "Install it, sign in once in Terminal, then check again. Soredemo uses your own login and holds no key." = "インストールしてターミナルで一度サインインし、もう一度確認してください。Soredemo はあなた自身のログインを使い、キーは保持しません。";
-"It runs on this Mac under your own login and can read this recording's steps and cut its timeline while you watch. Every cut is one undo step, and a whole turn reverts at once. It cannot publish anything." = "この Mac 上であなた自身のログインで動作し、録画のステップを読み、見ている前でタイムラインをカットします。カットはそれぞれ取り消せる1ステップで、1ターン分をまとめて元に戻せます。何も公開できません。";
 "Model" = "モデル";
 "Move the playhead to where this cut is" = "再生ヘッドをこのカットの位置へ移動";
 "Not sending what is on screen" = "画面上の情報は送信しません";
@@ -951,3 +950,10 @@
 "Fixed %lld caption lines" = "字幕を %lld 行修正";
 "Revert the Agent's Caption Edits" = "エージェントの字幕修正を元に戻す";
 "Move the playhead to the first line this changed" = "再生ヘッドを変更した最初の行へ移動";
+
+/* The agent's column */
+"It runs on this Mac under your own login and can read this recording's steps, cut its timeline and fix its captions while you watch. Every edit is one undo step, and a whole turn reverts at once. It cannot publish anything." = "このMac上であなた自身のログインで動作し、この録画のステップを読み、タイムラインをカットし、字幕を直すところを目の前で見られます。編集は一つずつ取り消せ、ターン全体も一度に元に戻せます。何も公開できません。";
+"Resize the agent column" = "エージェント欄の幅を変更";
+"Hide the agent (⌥⌘A)" = "エージェントを隠す(⌥⌘A)";
+"Show the agent (⌥⌘A)" = "エージェントを表示(⌥⌘A)";
+"Fix the names the captions misheard" = "字幕が聞き違えた名前を直す";
