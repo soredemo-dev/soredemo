@@ -871,7 +871,6 @@
 "Send (⌘↩)" = "送信（⌘↩）";
 "Sent by your %@, under your account." = "あなたの %@ が、あなたのアカウントで送信します。";
 "Stop. Cuts already made stay, and the turn can be reverted." = "停止します。済んだカットは残り、このターンは元に戻せます。";
-"Undo every cut this turn made" = "このターンのカットをすべて取り消す";
 "What goes with your message: the playhead and its step. Click to leave it out." = "メッセージと一緒に送るもの：再生ヘッドとそのステップ。クリックで含めません。";
 "Which model your %@ uses for this panel" = "このパネルで %@ が使うモデル";
 "Your default" = "既定";
@@ -945,3 +944,10 @@
 "In line %lld" = "%lld 行目";
 "In lines %@" = "%@ 行目";
 "Use the On-Screen Spelling" = "画面上の綴りを使う";
+
+/* The agent's caption edits */
+"Undo every edit this turn made" = "このターンの編集をすべて取り消す";
+"Fixed caption line %lld" = "字幕の %lld 行目を修正";
+"Fixed %lld caption lines" = "字幕を %lld 行修正";
+"Revert the Agent's Caption Edits" = "エージェントの字幕修正を元に戻す";
+"Move the playhead to the first line this changed" = "再生ヘッドを変更した最初の行へ移動";

@@ -412,6 +412,10 @@ struct StageWindow: View {
             await player.seek(to: CMTime(value: output.rawValue, timescale: 1_000_000_000),
                               toleranceBefore: .zero, toleranceAfter: .zero)
         }
+        // **An agent's caption edit has no panel callback to bump the counter**, and neither
+        // does ⌘Z on one: both change the track and nothing else. Burnt-in captions are read
+        // from a static at render time, so a paused preview needs the same zero-distance seek.
+        .onChange(of: editor.captions.track) { reviewRevision += 1 }
         // `reviewRevision` and not `review.overrides`: the composition is rebuilt when a
         // decision changes, and a counter says exactly that. Observing the array would also fire
         // on a load that merely restored the same decisions.

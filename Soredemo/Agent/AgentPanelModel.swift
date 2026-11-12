@@ -202,16 +202,26 @@ final class AgentPanelModel {
         usage.contextUsed = nil
     }
 
-    /// Undoes the turn's edits, newest first, while each is still the step on top.
-    /// Returns why it could not, or `nil` when it did.
+    /// Undoes the turn's edits — its cuts newest first while each is still the step on top, and
+    /// its caption edits at once, back to the captions before its first one, while they are still
+    /// exactly as its last one left them. **Both checks before either acts**, so a turn is
+    /// reverted whole or not at all. Returns why it could not, or `nil` when it did.
     func revert(_ turn: Turn, editor: EditorViewModel) -> String? {
-        let names = turn.edits.map(\.stepName)
-        guard !names.isEmpty else { return nil }
-        guard editor.timeline.historyDepth == turn.checkpoint + names.count,
-              editor.timeline.undoStepName == names.last else {
+        let cuts = turn.edits.filter(\.isCut).map(\.stepName)
+        let captionEdits = turn.edits.compactMap { record -> (before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)? in
+            if case .caption(_, let before, let after) = record.kind { (before, after) } else { nil }
+        }
+        guard !cuts.isEmpty || !captionEdits.isEmpty else { return nil }
+        let cutsOnTop = cuts.isEmpty
+            || (editor.timeline.historyDepth == turn.checkpoint + cuts.count && editor.timeline.undoStepName == cuts.last)
+        let captionsUntouched = captionEdits.last.map { editor.captions.snapshot == $0.after } ?? true
+        guard cutsOnTop, captionsUntouched else {
             return String(localized: "Something was edited after this turn, so it cannot be reverted at once. Undo its steps one at a time instead.")
         }
-        for _ in names { editor.timeline.undo() }
+        for _ in cuts { editor.timeline.undo() }
+        if let first = captionEdits.first {
+            editor.captions.restore(first.before, named: String(localized: "Revert the Agent's Caption Edits"))
+        }
         if let index = turns.firstIndex(where: { $0.id == turn.id }) {
             turns[index].items.removeAll { if case .edit = $0 { true } else { false } }
         }

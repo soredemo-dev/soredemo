@@ -272,6 +272,40 @@ final class CaptionsModel {
     /// the caret leaves a line — which is what `CaptionField.onCommit` already reports.
     func endTypingRun() { typingRun = nil }
 
+    // MARK: - an agent's edits
+
+    /// The lines and the names list together: what an agent's caption edit changes, and what
+    /// reverting it puts back. **Both, because `fixEverywhere` and `accept` change both**; a
+    /// revert that restored the lines alone would leave the name to re-apply on the next
+    /// transcription what the person had just taken back.
+    struct Snapshot: Equatable {
+        let track: CaptionTrack
+        let terms: [String]
+    }
+
+    var snapshot: Snapshot { Snapshot(track: track, terms: spokenTerms) }
+
+    /// Puts a snapshot back as one undo step — how a turn of caption edits is reverted at once.
+    /// The caller checks that nothing changed since; this only performs it.
+    func restore(_ snapshot: Snapshot, named name: String) {
+        typingRun = nil
+        change(name, to: snapshot.track, terms: snapshot.terms)
+    }
+
+    /// One line's text replaced as one undo step under `name` — never coalesced with typing,
+    /// because it is not typing: an agent's edit is a step of its own with its own reason.
+    func replaceText(at index: Int, with text: String, named name: String) {
+        typingRun = nil
+        change(name, to: track.replacingText(at: index, with: text))
+    }
+
+    /// `was` replaced in every line and `now` added to the names list, as one undo step under
+    /// `name` — `applyEverywhere` with the run given rather than diffed from a person's typing.
+    func replaceEverywhere(_ was: String, with now: String, named name: String) {
+        typingRun = nil
+        change(name, to: track.replacing(was, with: now), terms: Self.adding(now, to: spokenTerms))
+    }
+
     func setText(_ text: String, at index: Int) {
         change(String(localized: "Edit Caption"),
                to: track.replacingText(at: index, with: text), typingAt: index)

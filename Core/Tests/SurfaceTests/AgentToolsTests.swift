@@ -58,7 +58,8 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
     /// Reads are marked read-only and edits are not — a client reads this to decide what to ask.
     @Test func everyEditIsMarkedAsOneAndEveryReadAsARead() {
         let edits = Set(AgentTools.definitions.filter { !$0.readOnly }.map(\.name))
-        #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit", "resolve_note", "skip_note"])
+        #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit", "resolve_note", "skip_note",
+                          "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -70,6 +71,36 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         #expect(request("skip_note", #"{"id":3,"reason":"The step is needed"}"#) == .success(.skipNote(3, reason: "The step is needed")))
         #expect(failure(request("resolve_note", #"{"id":3}"#))?.contains("`reason` is required") == true)
         #expect(failure(request("resolve_note", #"{"id":0,"reason":"r"}"#)) == "`id` must be a note's id from notes.")
+    }
+
+    /// A caption line is fixed by its number from `captions`, with the whole new text and a reason.
+    /// How much of the line may change is the editor's to check — it holds the line.
+    @Test func aCaptionLineIsFixedByItsNumberWithTheNewTextAndAReason() {
+        #expect(request("captions", "{}") == .success(.captions))
+        #expect(request("fix_caption", #"{"line":4,"text":"  Open Kubernetes  ","reason":"Kubernetes is the app in step 2"}"#)
+                == .success(.fixCaption(line: 4, text: "Open Kubernetes", reason: "Kubernetes is the app in step 2")))
+        #expect(failure(request("fix_caption", #"{"line":0,"text":"a","reason":"r"}"#)) == "`line` must be a line number from captions.")
+        #expect(failure(request("fix_caption", #"{"line":1,"text":"   ","reason":"r"}"#))?.contains("delete") == true,
+                "an empty line is a deletion, which this tool does not do, and the refusal says so")
+        let long = String(repeating: "x", count: AgentTools.longestCaption + 1)
+        #expect(failure(request("fix_caption", #"{"line":1,"text":"\#(long)","reason":"r"}"#))?.contains("characters") == true)
+    }
+
+    /// A run replaced everywhere takes what to find and what to put; a one-character run is
+    /// refused, as it is for a person, because nobody can predict what replacing every "a" does.
+    @Test func aRunIsReplacedEverywhereOnlyWhenItIsLongEnoughToMeanSomething() {
+        #expect(request("fix_captions_everywhere", #"{"find":"Cubernades","replace":"Kubernetes","reason":"Step 2's app"}"#)
+                == .success(.fixCaptionsEverywhere(find: "Cubernades", replace: "Kubernetes", reason: "Step 2's app")))
+        #expect(failure(request("fix_captions_everywhere", #"{"find":"a","replace":"b","reason":"r"}"#))
+                == "`find` is 1 character; the shortest run replaced everywhere is 2.")
+        #expect(failure(request("fix_captions_everywhere", #"{"find":"ab","replace":"ab","reason":"r"}"#))
+                == "`find` and `replace` are the same; nothing would change.")
+    }
+
+    @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {
+        #expect(request("use_on_screen_spelling", #"{"id":"Sorodimo\u001fSoredemo","reason":"Pressed in step 3"}"#)
+                == .success(.useOnScreenSpelling(id: "Sorodimo\u{1F}Soredemo", reason: "Pressed in step 3")))
+        #expect(failure(request("use_on_screen_spelling", #"{"reason":"r"}"#)) == "`id` is required: a suggestion's id from captions.")
     }
 }
 

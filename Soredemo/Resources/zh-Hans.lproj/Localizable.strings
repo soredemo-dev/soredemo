@@ -871,7 +871,6 @@
 "Send (⌘↩)" = "发送（⌘↩）";
 "Sent by your %@, under your account." = "消息由你的 %@、用你的账号发送。";
 "Stop. Cuts already made stay, and the turn can be reverted." = "停止。已经剪的会留下，这一轮也还能还原。";
-"Undo every cut this turn made" = "撤销这一轮剪的每一刀";
 "What goes with your message: the playhead and its step. Click to leave it out." = "会随消息一起发送的：播放头位置和它所在的步骤。点一下就不发送。";
 "Which model your %@ uses for this panel" = "你的 %@ 在这个面板用哪个模型";
 "Your default" = "你的默认";
@@ -945,3 +944,10 @@
 "In line %lld" = "第 %lld 行";
 "In lines %@" = "第 %@ 行";
 "Use the On-Screen Spelling" = "使用屏幕上的拼法";
+
+/* The agent's caption edits */
+"Undo every edit this turn made" = "撤销这一轮的每一项修改";
+"Fixed caption line %lld" = "修正了第 %lld 行字幕";
+"Fixed %lld caption lines" = "修正了 %lld 行字幕";
+"Revert the Agent's Caption Edits" = "撤销代理的字幕修改";
+"Move the playhead to the first line this changed" = "把播放头移到这次改的第一行";

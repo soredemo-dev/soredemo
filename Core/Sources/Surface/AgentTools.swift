@@ -20,11 +20,23 @@ public enum AgentTools {
     public static let notes = "notes"
     public static let resolveNote = "resolve_note"
     public static let skipNote = "skip_note"
+    public static let captions = "captions"
+    public static let fixCaption = "fix_caption"
+    public static let fixCaptionsEverywhere = "fix_captions_everywhere"
+    public static let useOnScreenSpelling = "use_on_screen_spelling"
 
     /// Shortest span an agent may cut: under this a cut is a slip of the arithmetic, not an edit.
     public static let shortestCut: Int64 = 100_000_000
     /// Longest reason kept: it is an undo step's name, read in a menu.
     public static let longestReason = 160
+    /// Longest caption line an agent may write: two lines of a caption, generously.
+    public static let longestCaption = 200
+    /// Longest run replaced everywhere: a name or a phrase, not a sentence.
+    public static let longestRun = 80
+    /// Shortest run replaced everywhere — the same as a person's "Fix them too", for its reason:
+    /// replacing every "a" is a change nobody can predict. `Overlays.RunEdit.shortestRun` is the
+    /// person's half; Surface does not see Overlays, so the two are held equal by a test.
+    public static let shortestRun = 2
 
     private static let noteID = ToolParameter("id", .integer(minimum: 1), description: "The note's id, from notes.",
                                               invalid: "`id` must be a note's id from notes.")
@@ -75,6 +87,32 @@ public enum AgentTools {
         ToolSpec(skipNote, title: "Leave a note open",
                  description: "Leave an open note as it is because you cannot or should not do what it asks, and say why. It stays for the person.",
                  readOnly: false, parameters: [noteID, .reason]),
+        ToolSpec(captions, title: "Captions",
+                 description: "The caption lines, numbered from 1, each with its span on the recording's clock, its text, and the word the recogniser was least sure of when it was unsure; the names list; and the corrections the screen suggests — words on screen during the recording that are close to something misheard, each with an id and where it came from.",
+                 readOnly: true),
+        ToolSpec(fixCaption, title: "Fix a caption line",
+                 description: "Replace one line's text, keeping its timing, as one undo step. For a word or name the recogniser misheard: one edit may change at most a third of the line's words (at least two; a Chinese or Japanese character counts as a word). Never rewrite what was said. For the same fix in many lines use fix_captions_everywhere.",
+                 readOnly: false,
+                 parameters: [ToolParameter("line", .integer(minimum: 1), description: "The line's number, from captions.",
+                                            invalid: "`line` must be a line number from captions."),
+                              ToolParameter("text", .string(longest: longestCaption, allowsEmpty: false),
+                                            description: "The line's whole new text.",
+                                            invalid: "`text` is required: the line's whole new text. This tool does not delete a line; tell the person which one to delete."),
+                              .reason]),
+        ToolSpec(fixCaptionsEverywhere, title: "Fix a run in every line",
+                 description: "Replace a run of text in every caption line that has it, and add the replacement to the names list so transcribing again keeps it — one undo step. The same bound as fix_caption applies to every line it changes.",
+                 readOnly: false,
+                 parameters: [ToolParameter("find", .string(longest: longestRun, allowsEmpty: false), description: "The run as the captions have it now.",
+                                            invalid: "`find` is required: the run as the captions have it now."),
+                              ToolParameter("replace", .string(longest: longestRun, allowsEmpty: false), description: "What it should be.",
+                                            invalid: "`replace` is required: what the run should be."),
+                              .reason]),
+        ToolSpec(useOnScreenSpelling, title: "Use an on-screen spelling",
+                 description: "Accept one of the corrections captions suggests from the screen, by its id: the spelling replaces the misheard run in every line it is in and joins the names list, as one undo step.",
+                 readOnly: false,
+                 parameters: [ToolParameter("id", .string(longest: 200, allowsEmpty: false), description: "The suggestion's id, from captions.",
+                                            invalid: "`id` is required: a suggestion's id from captions."),
+                              .reason]),
     ]
 
     /// The tools as a client lists them.
@@ -90,6 +128,10 @@ public enum AgentTools {
         case notes
         case resolveNote(Int, reason: String)
         case skipNote(Int, reason: String)
+        case captions
+        case fixCaption(line: Int, text: String, reason: String)
+        case fixCaptionsEverywhere(find: String, replace: String, reason: String)
+        case useOnScreenSpelling(id: String, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -131,6 +173,22 @@ public enum AgentTools {
             return .success(.cutStep(Int(arguments.integer("step")), reason: arguments.string("reason")))
         case acceptProposal:
             return .success(.acceptProposal(id: arguments.string("id"), reason: arguments.string("reason")))
+        case captions:
+            return .success(.captions)
+        case fixCaption:
+            return .success(.fixCaption(line: Int(arguments.integer("line")), text: arguments.string("text"),
+                                        reason: arguments.string("reason")))
+        case fixCaptionsEverywhere:
+            let find = arguments.string("find"), replace = arguments.string("replace")
+            guard find.count >= shortestRun else {
+                return .failure(.init("`find` is \(find.count) character\(find.count == 1 ? "" : "s"); the shortest run replaced everywhere is \(shortestRun)."))
+            }
+            guard find != replace else {
+                return .failure(.init("`find` and `replace` are the same; nothing would change."))
+            }
+            return .success(.fixCaptionsEverywhere(find: find, replace: replace, reason: arguments.string("reason")))
+        case useOnScreenSpelling:
+            return .success(.useOnScreenSpelling(id: arguments.string("id"), reason: arguments.string("reason")))
         default:
             return nil
         }

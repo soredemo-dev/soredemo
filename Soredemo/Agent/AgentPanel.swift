@@ -271,7 +271,7 @@ private struct TurnView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.Ink.secondary)
-                .help("Undo every cut this turn made")
+                .help("Undo every edit this turn made")
             }
             Spacer()
             if let seconds = turn.seconds {
@@ -449,7 +449,8 @@ private struct ToolStep: View {
     }
 }
 
-/// One cut the agent made: what it removed, why, and a jump to where it is.
+/// One edit the agent made — a cut and what it removed, or the caption lines it fixed — why, and
+/// a jump to where it is.
 private struct EditCard: View {
     let record: AgentEditRecord
     let onShow: () -> Void
@@ -457,13 +458,13 @@ private struct EditCard: View {
     var body: some View {
         Button(action: onShow) {
             HStack(alignment: .top, spacing: Space.regular) {
-                Image(systemName: "scissors")
+                Image(systemName: record.isCut ? "scissors" : "captions.bubble")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Ink.onAccent)
                     .frame(width: 26, height: 26)
                     .background(Theme.accent, in: RoundedRectangle(cornerRadius: 7))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Cut \(EditorToolbar.seconds(record.removed))").font(Type.label.weight(.semibold))
+                    title.font(Type.label.weight(.semibold))
                     Text(verbatim: record.reason).font(Type.detail).foregroundStyle(Theme.Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -476,7 +477,15 @@ private struct EditCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(HoverLift())
-        .help("Move the playhead to where this cut is")
+        .help(record.isCut ? Text("Move the playhead to where this cut is") : Text("Move the playhead to the first line this changed"))
+    }
+
+    private var title: Text {
+        switch record.kind {
+        case .cut(let removed): Text("Cut \(EditorToolbar.seconds(removed))")
+        case .caption(let lines, _, _) where lines.count == 1: Text("Fixed caption line \(lines[0])")
+        case .caption(let lines, _, _): Text("Fixed \(lines.count) caption lines")
+        }
     }
 }
 

@@ -885,7 +885,6 @@
 "Send (⌘↩)" = "Send (⌘↩)";
 "Sent by your %@, under your account." = "Sent by your %@, under your account.";
 "Stop. Cuts already made stay, and the turn can be reverted." = "Stop. Cuts already made stay, and the turn can be reverted.";
-"Undo every cut this turn made" = "Undo every cut this turn made";
 "What goes with your message: the playhead and its step. Click to leave it out." = "What goes with your message: the playhead and its step. Click to leave it out.";
 "Which model your %@ uses for this panel" = "Which model your %@ uses for this panel";
 "Your default" = "Your default";
@@ -959,3 +958,10 @@
 "In line %lld" = "In line %lld";
 "In lines %@" = "In lines %@";
 "Use the On-Screen Spelling" = "Use the On-Screen Spelling";
+
+/* The agent's caption edits */
+"Undo every edit this turn made" = "Undo every edit this turn made";
+"Fixed caption line %lld" = "Fixed caption line %lld";
+"Fixed %lld caption lines" = "Fixed %lld caption lines";
+"Revert the Agent's Caption Edits" = "Revert the Agent's Caption Edits";
+"Move the playhead to the first line this changed" = "Move the playhead to the first line this changed";

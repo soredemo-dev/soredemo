@@ -5,6 +5,8 @@ import Surface
 import Timeline
 import Framing
 import Geometry
+import Overlays
+import Render
 @testable import Soredemo
 
 // The agent panel's app half: the relay to the open editor, the live tools, and reverting a turn.
@@ -113,7 +115,7 @@ private func exchange(_ line: String, socketPath: String) async throws -> String
     #expect(json.contains(#""removedNanos":10000000000"#), "the agent is told what changed")
     #expect(editor.timeline.edit.outputDuration == Nanoseconds(10 * second))
     #expect(editor.timeline.undoStepName == "Claude Code: Nothing happens after step 1")
-    #expect(recorded.map(\.removed) == [Nanoseconds(10 * second)])
+    #expect(recorded.map(\.kind) == [.cut(removed: Nanoseconds(10 * second))])
     #expect(recorded.first?.at == SourceTime(nanos: 14 * second),
             "\"show me\" goes to the first moment of the recording after the cut, which plays at 4 s")
 }
@@ -382,4 +384,114 @@ private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, 
     reopened.timeline.load(duration: 20)
     #expect(reopened.restore(editor.currentEditState(hasCamera: false)).isEmpty)
     #expect(reopened.notes.board == editor.notes.board)
+}
+
+// MARK: - the agent's caption edits
+
+/// Three lines, the second misheard, so a fix has a line to land on and lines to leave alone.
+@MainActor private func captioned() -> EditorViewModel {
+    let editor = editor()
+    func cue(_ text: String, _ start: Int64) -> CaptionCue {
+        CaptionCue(text: text, start: Nanoseconds(start * second), end: Nanoseconds((start + 2) * second))
+    }
+    editor.captions.restore(track: CaptionTrack(cues: [cue("First we sign in", 1),
+                                                       cue("Now open Cubernades and pick a cluster", 4),
+                                                       cue("Cubernades shows the pods", 8)]),
+                            style: .default, burnsIn: false)
+    return editor
+}
+
+/// A misheard name in one line is fixed as one edit named for the agent, and the panel is told
+/// which line and where it is.
+@Test @MainActor func aCaptionLineIsFixedWithinTheBoundAndRecordedAsTheAgents() {
+    let editor = captioned()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var recorded: [AgentEditRecord] = []
+    bridge.onEdit = { recorded.append($0) }
+    guard case .success(let json) = bridge.perform(.fixCaption(line: 2, text: "Now open Kubernetes and pick a cluster",
+                                                               reason: "Kubernetes is the app in step 2")) else {
+        Issue.record("refused"); return
+    }
+    #expect(editor.captions.track.cues.map(\.text) == ["First we sign in", "Now open Kubernetes and pick a cluster", "Cubernades shows the pods"])
+    #expect(json.contains(#""linesChanged":[2]"#), "\(json)")
+    #expect(recorded.first?.stepName == "Claude Code: Kubernetes is the app in step 2")
+    #expect(recorded.first?.at == SourceTime(nanos: 4 * second), "\"show me\" goes to the line it changed")
+}
+
+/// A rewrite is refused with the numbers, and the line is left as it was.
+@Test @MainActor func aRewriteOfACaptionLineIsRefusedWithWhatItWouldHaveChanged() {
+    let editor = captioned()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .failure(let message, let code) = bridge.perform(.fixCaption(line: 2, text: "Next we deploy the service to production",
+                                                                            reason: "Clearer")) else {
+        Issue.record("a rewrite passed"); return
+    }
+    #expect(code == "tooMuch")
+    #expect(message.contains("changes 7 of line 2's 7 words; one edit may change 3"), "\(message)")
+    #expect(editor.captions.track.cues[1].text == "Now open Cubernades and pick a cluster")
+    guard case .failure(_, let missing) = bridge.perform(.fixCaption(line: 4, text: "x", reason: "r")) else {
+        Issue.record("line 4 of 3 was fixed"); return
+    }
+    #expect(missing == "noSuchLine")
+}
+
+/// A run replaced everywhere reaches every line that has it and joins the names list; and every
+/// line it would change is held to the one-line bound, or it would be the way round it.
+@Test @MainActor func aRunIsFixedEverywhereAndEachLineItChangesIsBounded() {
+    let editor = captioned()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .failure(_, let code) = bridge.perform(.fixCaptionsEverywhere(find: "Cubernades shows the pods", replace: "We are done here now",
+                                                                             reason: "r")) else {
+        Issue.record("a whole line was replaced as a run"); return
+    }
+    #expect(code == "tooMuch")
+    guard case .success = bridge.perform(.fixCaptionsEverywhere(find: "Cubernades", replace: "Kubernetes", reason: "Step 2's app")) else {
+        Issue.record("refused"); return
+    }
+    #expect(editor.captions.track.cues.map(\.text).filter { $0.contains("Kubernetes") }.count == 2)
+    #expect(editor.captions.spokenTerms == ["Kubernetes"], "kept for the next transcription")
+}
+
+/// A turn that fixed captions reverts at once — lines and names — and not over a person's later
+/// edit to them.
+@Test @MainActor func aTurnOfCaptionEditsRevertsAtOnceUnlessSomeoneEditedAfterIt() {
+    let editor = captioned()
+    let before = editor.captions.snapshot
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    _ = bridge.perform(.fixCaptionsEverywhere(find: "Cubernades", replace: "Kubernetes", reason: "one"))
+    _ = bridge.perform(.fixCaption(line: 1, text: "First we log in", reason: "two"))
+    #expect(records.count == 2)
+    let turn = AgentPanelModel.Turn(id: 1, request: "fix", items: records.map { .edit($0) }, running: false,
+                                    checkpoint: editor.timeline.historyDepth)
+    let panel = AgentPanelModel(providers: [ClaudeCodeProvider()])
+
+    editor.captions.setText("First we sign on", at: 0)
+    #expect(panel.revert(turn, editor: editor) != nil, "a person's later edit is not undone with the turn")
+    #expect(editor.captions.track.cues[0].text == "First we sign on")
+
+    editor.captions.setText("First we log in", at: 0)
+    #expect(panel.revert(turn, editor: editor) == nil)
+    #expect(editor.captions.snapshot == before, "the lines and the names list, both")
+}
+
+/// The agent's own undo reaches a caption edit too — and only while it is still as it left it.
+@Test @MainActor func theAgentUndoesItsOwnLastCaptionEdit() {
+    let editor = captioned()
+    let before = editor.captions.snapshot
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.fixCaption(line: 2, text: "Now open Kubernetes and pick a cluster", reason: "r"))
+    editor.captions.setText("Now open Kubernetes and pick a node", at: 1)
+    guard case .failure(_, let code) = bridge.perform(.undoLastAgentEdit) else { Issue.record("undid a person's edit"); return }
+    #expect(code == "notYours")
+    editor.captions.setText("Now open Kubernetes and pick a cluster", at: 1)
+    guard case .success = bridge.perform(.undoLastAgentEdit) else { Issue.record("refused its own"); return }
+    #expect(editor.captions.snapshot == before)
+}
+
+/// The agent's shortest run replaced everywhere is a person's, held equal here because Surface,
+/// which refuses it, cannot see Overlays, which defines it.
+@Test func theAgentsShortestRunIsAPersons() {
+    #expect(AgentTools.shortestRun == RunEdit.shortestRun)
 }
