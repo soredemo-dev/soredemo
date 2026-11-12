@@ -1,6 +1,7 @@
 import Compositing
 import Foundation
 import Framing
+import Overlays
 import Observation
 import Project
 import Timeline
@@ -22,6 +23,20 @@ final class RecordedStepsModel {
 
     /// Reads the steps for one recording. `duration` closes the last step; without it the last
     /// step ends where it began, which is the honest length of a step whose end is unknown.
+    /// What was on screen in each step, as vocabulary for the captions: the pressed element's
+    /// label and the application's name, each credited to its step. Blank ones are not words.
+    var vocabulary: [VocabularyEvidence] {
+        steps.flatMap { step -> [VocabularyEvidence] in
+            var words: [VocabularyEvidence] = []
+            let label = step.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !label.isEmpty { words.append(VocabularyEvidence(term: label, origin: .pressedLabel(step: step.number))) }
+            if let application = step.application?.trimmingCharacters(in: .whitespacesAndNewlines), !application.isEmpty {
+                words.append(VocabularyEvidence(term: application, origin: .application(step: step.number)))
+            }
+            return words
+        }
+    }
+
     func load(observationLogAt url: URL?, anchor: EpochAnchor?, duration: Nanoseconds?) {
         self.anchor = anchor
         guard let url else {

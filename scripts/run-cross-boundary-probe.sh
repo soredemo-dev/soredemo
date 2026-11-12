@@ -234,6 +234,7 @@ xcrun swiftc \
   Soredemo/Inspector/Captions/CaptionsModel.swift \
   Soredemo/Inspector/Captions/TranscriptionControls.swift \
   Soredemo/Inspector/Captions/CaptionTermControls.swift \
+  Soredemo/Inspector/Captions/CaptionSuggestionList.swift \
   Soredemo/Inspector/Captions/CaptionPresetControls.swift \
   Soredemo/Inspector/Captions/CaptionLookControls.swift \
   Soredemo/Inspector/Captions/CaptionField.swift \

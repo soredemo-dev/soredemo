@@ -949,3 +949,13 @@
 "Limit reached" = "Limit reached";
 "How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them." = "How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them.";
 "Which agent this panel drives. Switching starts a new conversation; cuts already made stay." = "Which agent this panel drives. Switching starts a new conversation; cuts already made stay.";
+"From the screen" = "From the screen";
+"Words that were on screen while you recorded, close to something the recogniser heard. Nothing changes until you choose." = "Words that were on screen while you recorded, close to something the recogniser heard. Nothing changes until you choose.";
+"Use" = "Use";
+"Replace it in every line it is in, and add it to Names" = "Replace it in every line it is in, and add it to Names";
+"Not this one" = "Not this one";
+"Pressed in step %lld" = "Pressed in step %lld";
+"The app in step %lld" = "The app in step %lld";
+"In line %lld" = "In line %lld";
+"In lines %@" = "In lines %@";
+"Use the On-Screen Spelling" = "Use the On-Screen Spelling";

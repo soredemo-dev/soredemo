@@ -287,3 +287,36 @@ import Timeline
     undo.undo()
     #expect(model.track.cues.map(\.text) == ["corrected by hand"])
 }
+
+// MARK: - corrections from what was on screen
+
+/// A label that was on screen proposes its spelling for every line that misheard it; using it is
+/// one undo step that fixes the lines and remembers the name, and undoing it takes back both.
+@Test @MainActor func usingAnOnScreenSpellingIsOneUndoStepThatFixesTheLinesAndRemembersTheName() {
+    let (model, undo) = undoable([("click export to Cubernades", 0, 1_000_000_000),
+                                  ("Cubernades deploys it", 1_000_000_000, 2_000_000_000)])
+    model.setEvidence([VocabularyEvidence(term: "Kubernetes", origin: .pressedLabel(step: 4))])
+    #expect(model.suggestions.map(\.now) == ["Kubernetes"])
+    #expect(model.suggestions.first?.lines == [0, 1])
+
+    model.accept(model.suggestions[0])
+    #expect(model.track.cues.map(\.text) == ["click export to Kubernetes", "Kubernetes deploys it"])
+    #expect(model.spokenTerms == ["Kubernetes"])
+    #expect(model.suggestions.isEmpty, "a correction that has been made is not offered again")
+    #expect(undo.names == [String(localized: "Use the On-Screen Spelling")])
+
+    undo.undo()
+    #expect(model.track.cues[0].text == "click export to Cubernades")
+    #expect(model.spokenTerms.isEmpty)
+    #expect(model.suggestions.map(\.now) == ["Kubernetes"], "undone, it is offered again")
+}
+
+/// A suggestion turned down is gone, and the lines are untouched.
+@Test @MainActor func turningASuggestionDownChangesNoLine() {
+    let (model, undo) = undoable([("open Sorodimo now", 0, 1_000_000_000)])
+    model.setEvidence([VocabularyEvidence(term: "Soredemo", origin: .application(step: 1))])
+    model.dismiss(model.suggestions[0])
+    #expect(model.suggestions.isEmpty)
+    #expect(model.track.cues[0].text == "open Sorodimo now")
+    #expect(undo.names.isEmpty, "turning one down is not an edit")
+}

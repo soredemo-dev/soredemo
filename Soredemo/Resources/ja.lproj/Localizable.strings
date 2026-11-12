@@ -935,3 +935,13 @@
 "Limit reached" = "上限に達しました";
 "How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them." = "この会話がコンテキストをどれだけ使っているか、アカウントの使用量枠がどれだけ使われているか。エージェントのプロバイダが最後に報告した値です。";
 "Which agent this panel drives. Switching starts a new conversation; cuts already made stay." = "このパネルで動かすエージェント。切り替えると新しい会話になり、すでに行ったカットは残ります。";
+"From the screen" = "画面から";
+"Words that were on screen while you recorded, close to something the recogniser heard. Nothing changes until you choose." = "録画中に画面に出ていた言葉で、認識結果に近いものです。選ぶまで何も変わりません。";
+"Use" = "使う";
+"Replace it in every line it is in, and add it to Names" = "出てくるすべての行で置き換え、名前に追加します";
+"Not this one" = "これは使わない";
+"Pressed in step %lld" = "ステップ %lld で押したもの";
+"The app in step %lld" = "ステップ %lld のアプリ";
+"In line %lld" = "%lld 行目";
+"In lines %@" = "%@ 行目";
+"Use the On-Screen Spelling" = "画面上の綴りを使う";

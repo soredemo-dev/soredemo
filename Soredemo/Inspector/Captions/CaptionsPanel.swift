@@ -92,6 +92,9 @@ struct CaptionsPanel: View {
                 // alike — and it was in neither until 2026-10-23. See
                 // `everyPrivateViewInTheAppIsPlacedSomewhere`.
                 Section("Names") { CaptionTermControls(model: model, onTermsChanged: rebuildAndPublish) }
+                if !model.suggestions.isEmpty {
+                    CaptionSuggestionList(model: model, onChange: onChange)
+                }
                 if showing == .sentences {
                     // `edit ?? EditTimeline(clips: [])`: the panel already holds an optional
                     // edit — `nil` before the asset loads — and a sentence asked whether its

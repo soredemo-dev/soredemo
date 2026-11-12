@@ -18,7 +18,44 @@ import Timeline
 /// The corrections are authored either way, so the track has to be saved for them to survive.
 @Observable
 final class CaptionsModel {
-    private(set) var track = CaptionTrack()
+    private(set) var track = CaptionTrack() { didSet { refreshSuggestions() } }
+
+    /// Words that were on screen while the recording was made — pressed labels and application
+    /// names — which propose corrections rather than make them
+    /// (`docs/design/2026-11-12-captions-that-know-what-was-on-screen.md`).
+    private(set) var evidence: [VocabularyEvidence] = []
+    /// The corrections the evidence proposes for the lines as they are now, not yet accepted or
+    /// turned down. Recomputed when the lines or the evidence change, not when a view reads it.
+    private(set) var suggestions: [CaptionSuggestion] = []
+    /// What the person turned down, by the correction rather than by line, so a rebuild does not
+    /// offer it again.
+    private(set) var dismissedSuggestions: Set<String> = []
+
+    func setEvidence(_ next: [VocabularyEvidence]) {
+        guard next != evidence else { return }
+        evidence = next
+        refreshSuggestions()
+    }
+
+    /// The on-screen spelling, everywhere the misheard run is, and in the names list so the next
+    /// transcription keeps it — one undo step, as "Fix Captions Everywhere" is. `name` is the undo
+    /// step's name; the agent passes its own.
+    func accept(_ suggestion: CaptionSuggestion, named name: String? = nil) {
+        change(name ?? String(localized: "Use the On-Screen Spelling"),
+               to: track.replacing(suggestion.was, with: suggestion.now),
+               terms: Self.adding(suggestion.now, to: spokenTerms))
+    }
+
+    func dismiss(_ suggestion: CaptionSuggestion) {
+        dismissedSuggestions.insert(suggestion.id)
+        refreshSuggestions()
+    }
+
+    private func refreshSuggestions() {
+        let next = evidence.isEmpty ? [] : CaptionSuggestions.suggestions(for: track, evidence: evidence,
+                                                                          dismissed: dismissedSuggestions)
+        if next != suggestions { suggestions = next }
+    }
     private(set) var style: CaptionStyle = .default
 
     /// Which cue the playhead is inside, or `nil` between cues.

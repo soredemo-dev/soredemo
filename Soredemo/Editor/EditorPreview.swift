@@ -119,6 +119,8 @@ final class EditorPreview {
             // log and anchor the zooms were read with.
             editor.steps.load(observationLogAt: observationLog, anchor: editor.review.anchor,
                               duration: editor.timeline.duration)
+            // What was on screen, as the captions' vocabulary: corrections it proposes, never applies.
+            editor.captions.setEvidence(editor.steps.vocabulary)
             // The cut proposals from the same log, anchor and length, so the steps they name are
             // the steps the lane draws.
             editor.cuts.load(observationLogAt: observationLog, anchor: editor.review.anchor,

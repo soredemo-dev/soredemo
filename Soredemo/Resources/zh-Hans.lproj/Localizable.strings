@@ -935,3 +935,13 @@
 "Limit reached" = "已达上限";
 "How full this conversation is, and how much of your account's usage windows are used, as your agent's provider last reported them." = "这段对话用掉多少上下文，以及你账号的用量窗口用了多少，以你的 agent 服务商最近一次的报告为准。";
 "Which agent this panel drives. Switching starts a new conversation; cuts already made stay." = "这个面板要驱动哪个 agent。切换会开始新的对话，已经剪掉的地方会保留。";
+"From the screen" = "来自画面";
+"Words that were on screen while you recorded, close to something the recogniser heard. Nothing changes until you choose." = "录制时屏幕上出现过的字，与识别结果很接近。你选择之前，什么都不会改。";
+"Use" = "使用";
+"Replace it in every line it is in, and add it to Names" = "在出现的每一行替换，并加入名称列表";
+"Not this one" = "不要这个";
+"Pressed in step %lld" = "第 %lld 步按下的";
+"The app in step %lld" = "第 %lld 步的 app";
+"In line %lld" = "第 %lld 行";
+"In lines %@" = "第 %@ 行";
+"Use the On-Screen Spelling" = "使用屏幕上的拼法";
