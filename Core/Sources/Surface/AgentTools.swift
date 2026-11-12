@@ -42,7 +42,9 @@ public enum AgentTools {
                                               invalid: "`id` must be a note's id from notes.")
     private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let specs: [ToolSpec] = [
+    public static let specs: [ToolSpec] = editSpecs + lookSpecs
+
+    static let editSpecs: [ToolSpec] = [
         ToolSpec(status, title: "Project status",
                  description: "The open recording: its length, what still plays, its steps, the playhead, and how many cuts are pending.",
                  readOnly: true),
@@ -132,6 +134,10 @@ public enum AgentTools {
         case fixCaption(line: Int, text: String, reason: String)
         case fixCaptionsEverywhere(find: String, replace: String, reason: String)
         case useOnScreenSpelling(id: String, reason: String)
+        case look
+        case setLook(LookChange, reason: String)
+        case setCursor(CursorChange, reason: String)
+        case setAudio(AudioChange, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -144,6 +150,7 @@ public enum AgentTools {
         case .failure(let failure): return .failure(failure)
         case .success(let checked): arguments = checked
         }
+        if let answer = lookRequest(name, arguments) { return answer }
         switch name {
         case status: return .success(.status)
         case steps: return .success(.steps)

@@ -133,7 +133,10 @@ struct StageWindow: View {
             case .cuts: "scissors"
             case .captions: "captions.bubble"
             case .chapters: "list.bullet.rectangle"
-            case .text: "textformat"
+            // **Not `textformat`**: that symbol is localised, and in Chinese it draws the
+            // characters 格式 — above the label 文字 it read as a tab with no icon. Measured
+            // by rendering both in en, zh-Hant and ja; this one is a box in every language.
+            case .text: "character.textbox"
             case .hide: "eye.slash"
             case .mark: "arrow.up.right"
             }
@@ -438,6 +441,8 @@ struct StageWindow: View {
         // does ⌘Z on one: both change the track and nothing else. Burnt-in captions are read
         // from a static at render time, so a paused preview needs the same redraw.
         .onChange(of: editor.captions.track) { reviewRevision += 1 }
+        // The same for an agent's change to the look: it moves the statics and nothing else.
+        .onChange(of: editor.look) { reviewRevision += 1 }
         // **An agent's cut rebuilds the preview too.** Only the timeline's own controls bumped
         // `editRevision`, so a cut made through the agent changed the timeline and left the
         // player on the uncut asset — 45.5 s in the transport for a 37 s edit. The COMMITTED

@@ -133,6 +133,37 @@ public enum StageBackground: Hashable, Codable, Sendable {
         ("Paper", .linearGradient(startRed: 0.93, startGreen: 0.92, startBlue: 0.89,
                                   endRed: 0.82, endGreen: 0.83, endBlue: 0.85,
                                   angleDegrees: 100)),
+        // **Added 2026-11-12, when the owner found five too few for a launch video.** Dark, light
+        // and coloured, so a product's own palette has a near neighbour; every one a gradient a
+        // person could have made by hand, so nothing here is a look they cannot adjust.
+        ("Graphite", .solid(red: 0.17, green: 0.18, blue: 0.20)),
+        ("Midnight", .linearGradient(startRed: 0.03, startGreen: 0.05, startBlue: 0.14,
+                                 endRed: 0.1, endGreen: 0.16, endBlue: 0.34,
+                                 angleDegrees: 135)),
+        ("Aurora", .linearGradient(startRed: 0.05, startGreen: 0.3, startBlue: 0.36,
+                                 endRed: 0.36, endGreen: 0.2, endBlue: 0.52,
+                                 angleDegrees: 120)),
+        ("Ocean", .linearGradient(startRed: 0.04, startGreen: 0.27, startBlue: 0.55,
+                                 endRed: 0.18, endGreen: 0.62, endBlue: 0.78,
+                                 angleDegrees: 45)),
+        ("Forest", .linearGradient(startRed: 0.06, startGreen: 0.2, startBlue: 0.14,
+                                 endRed: 0.24, endGreen: 0.46, endBlue: 0.3,
+                                 angleDegrees: 80)),
+        ("Sunset", .linearGradient(startRed: 0.93, startGreen: 0.42, startBlue: 0.29,
+                                 endRed: 0.86, endGreen: 0.26, endBlue: 0.47,
+                                 angleDegrees: 110)),
+        ("Rose", .linearGradient(startRed: 0.96, startGreen: 0.7, startBlue: 0.72,
+                                 endRed: 0.98, endGreen: 0.84, endBlue: 0.74,
+                                 angleDegrees: 60)),
+        ("Lavender", .linearGradient(startRed: 0.8, startGreen: 0.78, startBlue: 0.96,
+                                 endRed: 0.95, endGreen: 0.82, endBlue: 0.92,
+                                 angleDegrees: 90)),
+        ("Mint", .linearGradient(startRed: 0.8, startGreen: 0.94, startBlue: 0.88,
+                                 endRed: 0.88, endGreen: 0.95, endBlue: 0.98,
+                                 angleDegrees: 70)),
+        ("Sand", .linearGradient(startRed: 0.96, startGreen: 0.91, startBlue: 0.82,
+                                 endRed: 0.9, endGreen: 0.82, endBlue: 0.7,
+                                 angleDegrees: 100)),
     ]
 
     /// The directory an image background's file lives in, inside the package.

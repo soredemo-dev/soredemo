@@ -24,6 +24,9 @@ struct AgentEditRecord: Identifiable, Equatable {
         /// A caption edit: the lines it changed, numbered from one, and the captions either side
         /// of it — what a revert checks is still there, and what it puts back.
         case caption(lines: [Int], before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)
+        /// A change to the look, the cursor or the sound: the fields it changed, and the look
+        /// either side of it.
+        case look(changed: [String], before: EditorLook, after: EditorLook)
     }
 
     var isCut: Bool { if case .cut = kind { true } else { false } }
@@ -34,15 +37,15 @@ struct AgentEditRecord: Identifiable, Equatable {
 /// edit as one undo step named for the agent and its reason.
 @MainActor
 final class AgentEditorBridge {
-    private let editor: EditorViewModel
+    let editor: EditorViewModel
     /// The agent's name, the prefix of every undo step it records.
     let agentName: String
     /// Called with each edit, so the panel can list it under the turn.
     var onEdit: (AgentEditRecord) -> Void = { _ in }
     /// Called with each note the agent resolves or leaves open, with what it said.
     var onNote: (PinnedNote) -> Void = { _ in }
-    private var lastEdit: AgentEditRecord?
-    private var editsMade = 0
+    var lastEdit: AgentEditRecord?
+    var editsMade = 0
 
     init(editor: EditorViewModel, agentName: String) {
         self.editor = editor
@@ -101,6 +104,14 @@ final class AgentEditorBridge {
                 return .failure(message: "No suggestion has the id \(id). Read captions for the current ones.", code: "noSuchSuggestion")
             }
             return recordCaption(reason: reason) { name in editor.captions.accept(suggestion, named: name) }
+        case .look:
+            return lookReport()
+        case .setLook(let change, let reason):
+            return setLook(change, reason: reason)
+        case .setCursor(let change, let reason):
+            return setCursor(change, reason: reason)
+        case .setAudio(let change, let reason):
+            return setAudio(change, reason: reason)
         case .undoLastAgentEdit:
             let notYours = MCPToolResult.failure(message: "The last edit is not yours, or something was edited after it; nothing was undone.", code: "notYours")
             guard let last = lastEdit else { return notYours }
@@ -113,6 +124,9 @@ final class AgentEditorBridge {
                 // asked of the captions themselves: exactly as this edit left them.
                 guard editor.captions.snapshot == after else { return notYours }
                 editor.captions.restore(before, named: String(localized: "Undo \(last.stepName)"))
+            case .look(_, let before, let after):
+                guard editor.look == after else { return notYours }
+                editor.restoreLook(before)
             }
             lastEdit = nil
             return .success(json: #"{"undone":true}"#)
@@ -298,7 +312,30 @@ final class AgentEditorBridge {
                      "names": after.terms])
     }
 
-    private func json(_ object: [String: Any]) -> MCPToolResult {
+    /// Performs one change to the look under the agent's name, and reports each field it moved
+    /// from what to what — so the agent's next step starts from the look as it is now.
+    func recordLook(reason: String, _ edit: () -> String?) -> MCPToolResult {
+        let name = "\(agentName): \(reason)"
+        let before = editor.look
+        if let refusal = edit() {
+            // A refusal part-way leaves nothing half-done: what was applied is put back.
+            editor.restoreLook(before)
+            return .failure(message: refusal, code: "usage")
+        }
+        let after = editor.look
+        let changed = EditorLook.differences(before, after)
+        guard !changed.isEmpty else {
+            return .failure(message: "That is how it already is; nothing changed.", code: "unchanged")
+        }
+        editsMade += 1
+        let entry = AgentEditRecord(id: editsMade, stepName: name, reason: reason, at: editor.timeline.playhead,
+                                    kind: .look(changed: changed.map(\.field), before: before, after: after))
+        lastEdit = entry
+        onEdit(entry)
+        return json(["undoStep": name, "changed": changed.map { ["field": $0.field, "was": $0.was, "now": $0.now] }])
+    }
+
+    func json(_ object: [String: Any]) -> MCPToolResult {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]) else {
             return .failure(message: "The answer could not be encoded.", code: "internal")
         }

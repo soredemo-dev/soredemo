@@ -971,3 +971,19 @@
 "Hide the agent (⌥⌘A)" = "Hide the agent (⌥⌘A)";
 "Show the agent (⌥⌘A)" = "Show the agent (⌥⌘A)";
 "Fix the names the captions misheard" = "Fix the names the captions misheard";
+
+/* The agent's changes to the look */
+"Changed %@" = "Changed %@";
+"Changed %lld settings" = "Changed %lld settings";
+"Move the playhead to where this was changed" = "Move the playhead to where this was changed";
+
+/* More background presets (Graphite is already above, for the device finish) */
+"Midnight" = "Midnight";
+"Aurora" = "Aurora";
+"Ocean" = "Ocean";
+"Forest" = "Forest";
+"Sunset" = "Sunset";
+"Rose" = "Rose";
+"Lavender" = "Lavender";
+"Mint" = "Mint";
+"Sand" = "Sand";

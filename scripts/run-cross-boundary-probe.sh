@@ -175,6 +175,8 @@ xcrun swiftc \
   Soredemo/Editor/CutProposalsModel.swift \
   Soredemo/Agent/AgentRelay.swift \
   Soredemo/Agent/AgentEditorBridge.swift \
+  Soredemo/Agent/AgentEditorBridge+Look.swift \
+  Soredemo/Editor/EditorLook.swift \
   Soredemo/Agent/ClaudeCodeProvider.swift \
   Soredemo/Agent/AgentProvider.swift \
   Soredemo/Agent/CodexProvider.swift \

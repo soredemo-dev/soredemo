@@ -45,17 +45,18 @@ public struct ToolSpec: Sendable {
         if let extra = raw.keys.sorted().first(where: { !known.contains($0) }) {
             return .failure(.init("Unexpected argument `\(extra)` for \(name)."))
         }
-        var integers: [String: Int64] = [:]
-        var strings: [String: String] = [:]
+        var arguments = ToolArguments()
         for parameter in parameters {
             switch parameter.check(raw[parameter.name]) {
             case .failure(let failure): return .failure(failure)
-            case .success(.integer(let value)?): integers[parameter.name] = value
-            case .success(.string(let value)?): strings[parameter.name] = value
+            case .success(.integer(let value)?): arguments.integers[parameter.name] = value
+            case .success(.string(let value)?): arguments.strings[parameter.name] = value
+            case .success(.number(let value)?): arguments.numbers[parameter.name] = value
+            case .success(.boolean(let value)?): arguments.booleans[parameter.name] = value
             case .success(nil): continue
             }
         }
-        return .success(ToolArguments(integers: integers, strings: strings))
+        return .success(arguments)
     }
 }
 
@@ -69,6 +70,16 @@ public struct ToolParameter: Sendable {
         case string(longest: Int, allowsEmpty: Bool)
         /// Why — the undo step's name a person reads. Required, trimmed, at most `AgentTools.longestReason`.
         case reason
+        /// A number from `minimum` to `maximum`, both included — the range the person's own
+        /// control has, so the agent can ask for nothing the person could not.
+        case number(minimum: Double, maximum: Double)
+        /// A JSON `true` or `false`. Not 1, not "yes": a model that sends either has misread the
+        /// schema, and saying so is cheaper than guessing what it meant.
+        case boolean
+        /// One of a fixed set of names.
+        case choice([String])
+        /// A colour, `#RRGGBB`, given back upper-case.
+        case color
     }
 
     public let name: String
@@ -83,7 +94,24 @@ public struct ToolParameter: Sendable {
         self.description = description
         self.kind = kind
         self.required = required
-        self.invalid = invalid ?? "`\(name)` is required: \(description)"
+        self.invalid = invalid ?? Self.defaultRefusal(name, kind, description: description, required: required)
+    }
+
+    /// What a value of the wrong kind is refused with when the declaration says nothing: what the
+    /// argument must be, which is what the model needs to correct it.
+    private static func defaultRefusal(_ name: String, _ kind: Kind, description: String, required: Bool) -> String {
+        switch kind {
+        case .number(let minimum, let maximum): "`\(name)` must be a number from \(format(minimum)) to \(format(maximum))."
+        case .boolean: "`\(name)` must be true or false."
+        case .choice(let options): "`\(name)` must be one of: \(options.joined(separator: ", "))."
+        case .color: "`\(name)` must be a colour written #RRGGBB."
+        case .integer, .string, .reason: required ? "`\(name)` is required: \(description)" : "`\(name)` must be: \(description)"
+        }
+    }
+
+    /// A bound as a person writes it: 3, not 3.0.
+    static func format(_ value: Double) -> String {
+        value == value.rounded() && abs(value) < 1e15 ? String(Int64(value)) : String(value)
     }
 
     /// The reason every edit carries, with the wording every edit tool shares.
@@ -91,12 +119,17 @@ public struct ToolParameter: Sendable {
         "reason", .reason,
         description: "Why, in one short sentence a person will read as the undo step's name. Name the step or proposal it rests on.")
 
-    enum Value { case integer(Int64), string(String) }
+    enum Value { case integer(Int64), string(String), number(Double), boolean(Bool) }
 
     var schema: [String: Any] {
         switch kind {
         case .integer: ["type": "integer", "description": description]
         case .string, .reason: ["type": "string", "description": description]
+        case .number(let minimum, let maximum):
+            ["type": "number", "minimum": minimum, "maximum": maximum, "description": description]
+        case .boolean: ["type": "boolean", "description": description]
+        case .choice(let options): ["type": "string", "enum": options, "description": description]
+        case .color: ["type": "string", "pattern": "^#[0-9A-Fa-f]{6}$", "description": description]
         }
     }
 
@@ -128,6 +161,35 @@ public struct ToolParameter: Sendable {
                 return .failure(.init("`reason` is \(text.count) characters; keep it under \(AgentTools.longestReason) — it is an undo step's name."))
             }
             return .success(.string(text))
+        case .number(let minimum, let maximum):
+            // A JSON boolean is an `NSNumber` too, and `true` read as 1 would pass a range.
+            guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite else {
+                return value == nil && !required ? .success(nil) : .failure(.init(invalid))
+            }
+            let double = number.doubleValue
+            guard (minimum...maximum).contains(double) else {
+                return .failure(.init("`\(name)` is \(Self.format(double)); it goes from \(Self.format(minimum)) to \(Self.format(maximum))."))
+            }
+            return .success(.number(double))
+        case .boolean:
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+                return value == nil && !required ? .success(nil) : .failure(.init(invalid))
+            }
+            return .success(.boolean(number.boolValue))
+        case .choice(let options):
+            guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  options.contains(text) else {
+                return value == nil && !required ? .success(nil) : .failure(.init(invalid))
+            }
+            return .success(.string(text))
+        case .color:
+            guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                  text.count == 7, text.first == "#",
+                  text.dropFirst().allSatisfy({ $0.isHexDigit }) else {
+                return value == nil && !required ? .success(nil) : .failure(.init(invalid))
+            }
+            return .success(.string(text))
         }
     }
 }
@@ -135,8 +197,10 @@ public struct ToolParameter: Sendable {
 /// Arguments that passed their declarations. A required one is always present, so reading it is
 /// not a question the caller has to answer again.
 public struct ToolArguments: Sendable {
-    let integers: [String: Int64]
-    let strings: [String: String]
+    var integers: [String: Int64] = [:]
+    var strings: [String: String] = [:]
+    var numbers: [String: Double] = [:]
+    var booleans: [String: Bool] = [:]
 
     /// A required integer. **Asking for one that was not declared required is a programming error,
     /// and traps** rather than answering 0 — a default inside the legal range would let a missing
@@ -154,4 +218,10 @@ public struct ToolArguments: Sendable {
 
     /// An optional string, `nil` when it was not given.
     public func optionalString(_ name: String) -> String? { strings[name] }
+
+    /// An optional number, `nil` when it was not given — never 0, which is a legal value.
+    public func optionalNumber(_ name: String) -> Double? { numbers[name] }
+
+    /// An optional boolean, `nil` when it was not given — never `false`, which is a decision.
+    public func optionalBool(_ name: String) -> Bool? { booleans[name] }
 }

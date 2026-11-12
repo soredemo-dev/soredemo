@@ -957,3 +957,19 @@
 "Hide the agent (⌥⌘A)" = "エージェントを隠す(⌥⌘A)";
 "Show the agent (⌥⌘A)" = "エージェントを表示(⌥⌘A)";
 "Fix the names the captions misheard" = "字幕が聞き違えた名前を直す";
+
+/* The agent's changes to the look */
+"Changed %@" = "%@ を変更";
+"Changed %lld settings" = "%lld 項目の設定を変更";
+"Move the playhead to where this was changed" = "再生ヘッドを変更した位置へ移動";
+
+/* More background presets (Graphite is already above, for the device finish) */
+"Midnight" = "ミッドナイト";
+"Aurora" = "オーロラ";
+"Ocean" = "オーシャン";
+"Forest" = "フォレスト";
+"Sunset" = "サンセット";
+"Rose" = "ローズ";
+"Lavender" = "ラベンダー";
+"Mint" = "ミント";
+"Sand" = "サンド";

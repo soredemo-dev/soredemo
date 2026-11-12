@@ -7,6 +7,8 @@ import Framing
 import Geometry
 import Overlays
 import Render
+import Project
+import Variants
 @testable import Soredemo
 
 // The agent panel's app half: the relay to the open editor, the live tools, and reverting a turn.
@@ -494,4 +496,110 @@ private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, 
 /// which refuses it, cannot see Overlays, which defines it.
 @Test func theAgentsShortestRunIsAPersons() {
     #expect(AgentTools.shortestRun == RunEdit.shortestRun)
+}
+
+// MARK: - the agent's changes to the look, the cursor and the sound
+
+/// Only the fields given change, through the inspector's own setters, and the agent is told each
+/// one it moved from what to what.
+@Test @MainActor func aLookChangeMovesOnlyTheFieldsGivenAndSaysWhatMoved() {
+    let editor = editor()
+    let before = editor.look
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var recorded: [AgentEditRecord] = []
+    bridge.onEdit = { recorded.append($0) }
+    guard case .success(let json) = bridge.perform(.setLook(.init(backgroundColor: "#112233", padding: 0.1),
+                                                          reason: "Calmer for the landing page")) else {
+        Issue.record("refused"); return
+    }
+    #expect(editor.stageStyle.style.background == .solid(red: Double(0x11) / 255, green: Double(0x22) / 255, blue: Double(0x33) / 255))
+    #expect(editor.stageStyle.style.insetFraction == 0.1)
+    #expect(editor.look.cursor == before.cursor && editor.look.audioMix == before.audioMix, "nothing else moved")
+    #expect(json.contains(#""field":"padding""#) && json.contains(#""now":"colour #112233""#), "\(json)")
+    if case .look(let changed, _, _)? = recorded.first?.kind {
+        #expect(changed == ["background", "padding"])
+    } else { Issue.record("not recorded as a look change") }
+}
+
+/// A refusal part-way leaves nothing half-done, and a change to what already is, is no step.
+@Test @MainActor func aRefusedLookChangeLeavesTheLookAsItWas() {
+    let editor = editor()
+    let before = editor.look
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .failure(let message, _) = bridge.perform(.setLook(.init(backgroundPreset: "Neon", padding: 0.2), reason: "r")) else {
+        Issue.record("an unknown preset passed"); return
+    }
+    #expect(message.contains("Charcoal"), "the refusal lists the presets: \(message)")
+    #expect(editor.look == before)
+    // Refused at the LAST field, after the padding had already been applied: it is put back.
+    guard case .failure = bridge.perform(.setLook(.init(padding: 0.2, shape: "Match Recording"), reason: "r")) else {
+        Issue.record("a shape this recording does not offer passed"); return
+    }
+    #expect(editor.look == before, "the padding applied before the refusal is put back")
+    guard case .failure(_, let code) = bridge.perform(.setCursor(.init(size: before.cursor.scale), reason: "r")) else {
+        Issue.record("a no-op was recorded"); return
+    }
+    #expect(code == "unchanged")
+}
+
+/// The cursor and the sound, through the same path.
+@Test @MainActor func theCursorAndTheSoundAreChangedThroughTheInspectorsSetters() {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.setCursor(.init(size: 1.5, clickEffect: "pulse", color: "#FF0000", showsKeystrokes: false), reason: "r"))
+    #expect(editor.stageStyle.cursor.scale == 1.5)
+    #expect(editor.stageStyle.cursor.clickEffect == .pulse)
+    #expect(editor.stageStyle.cursor.red == 1 && editor.stageStyle.cursor.green == 0)
+    #expect(!editor.stageStyle.showsKeystrokes)
+    _ = bridge.perform(.setAudio(.init(microphoneGain: 1.4, systemAudioMuted: true, targetLoudness: -16), reason: "r"))
+    #expect(editor.audioMix.gain(for: .microphone) == 1.4)
+    #expect(editor.audioMix.muted.contains(.systemAudio))
+    #expect(editor.audioMix.targetLoudness == -16)
+    guard case .failure(let message, _) = bridge.perform(.setAudio(.init(musicEnabled: true), reason: "r")) else {
+        Issue.record("music turned on with no music"); return
+    }
+    #expect(message.contains("no music"))
+}
+
+/// A turn of look changes reverts at once, and not over a person's later change.
+@Test @MainActor func aTurnOfLookChangesRevertsAtOnceUnlessSomeoneChangedItAfter() {
+    let editor = editor()
+    let before = editor.look
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    _ = bridge.perform(.setLook(.init(backgroundPreset: "Tide"), reason: "one"))
+    _ = bridge.perform(.setCursor(.init(size: 2, showsKeystrokes: !before.showsKeystrokes), reason: "two"))
+    let turn = AgentPanelModel.Turn(id: 1, request: "style it", items: records.map { .edit($0) }, running: false,
+                                    checkpoint: editor.timeline.historyDepth)
+    let panel = AgentPanelModel(providers: [ClaudeCodeProvider()])
+    editor.stageStyle.setCornerRadius(30)
+    #expect(panel.revert(turn, editor: editor) != nil, "a person's later change is not undone with the turn")
+    #expect(editor.stageStyle.style.cornerRadius == 30)
+    editor.stageStyle.setCornerRadius(before.style.cornerRadius)
+    #expect(panel.revert(turn, editor: editor) == nil)
+    #expect(editor.look == before)
+}
+
+/// The agent's own undo reaches a look change, only while it is as it left it.
+@Test @MainActor func theAgentUndoesItsOwnLastLookChange() {
+    let editor = editor()
+    let before = editor.look
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.setAudio(.init(microphoneGain: 2), reason: "r"))
+    let left = editor.audioMix
+    editor.audioMix = editor.audioMix.setting(.systemAudio, gain: 0.5)
+    guard case .failure(_, let code) = bridge.perform(.undoLastAgentEdit) else { Issue.record("undid over a person"); return }
+    #expect(code == "notYours")
+    editor.audioMix = left
+    guard case .success = bridge.perform(.undoLastAgentEdit) else { Issue.record("refused its own"); return }
+    #expect(editor.look == before)
+}
+
+/// The option names the tools offer are the app's own, which Surface cannot see to check.
+@Test func theAgentsOptionNamesAreTheAppsOwn() {
+    #expect(AgentTools.clickEffects == CursorStyle.ClickEffect.allCases.map(\.rawValue))
+    #expect(AgentTools.movements == PointerPath.Tuning.Movement.allCases.map(\.rawValue))
+    #expect(AgentTools.cameraPaces == CameraPace.allCases.map(\.rawValue))
+    #expect(Set(AgentTools.shapes) == Set(AspectVariant.all.map(\.name) + [AspectVariant.matchRecordingName]))
 }

@@ -459,7 +459,7 @@ private struct EditCard: View {
     var body: some View {
         Button(action: onShow) {
             HStack(alignment: .top, spacing: Space.regular) {
-                Image(systemName: record.isCut ? "scissors" : "captions.bubble")
+                Image(systemName: icon)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Ink.onAccent)
                     .frame(width: 26, height: 26)
@@ -478,7 +478,7 @@ private struct EditCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(HoverLift())
-        .help(record.isCut ? Text("Move the playhead to where this cut is") : Text("Move the playhead to the first line this changed"))
+        .help(help)
     }
 
     private var title: Text {
@@ -486,6 +486,24 @@ private struct EditCard: View {
         case .cut(let removed): Text("Cut \(EditorToolbar.seconds(removed))")
         case .caption(let lines, _, _) where lines.count == 1: Text("Fixed caption line \(lines[0])")
         case .caption(let lines, _, _): Text("Fixed \(lines.count) caption lines")
+        case .look(let changed, _, _) where changed.count == 1: Text("Changed \(changed[0])")
+        case .look(let changed, _, _): Text("Changed \(changed.count) settings")
+        }
+    }
+
+    private var help: Text {
+        switch record.kind {
+        case .cut: Text("Move the playhead to where this cut is")
+        case .caption: Text("Move the playhead to the first line this changed")
+        case .look: Text("Move the playhead to where this was changed")
+        }
+    }
+
+    private var icon: String {
+        switch record.kind {
+        case .cut: "scissors"
+        case .caption: "captions.bubble"
+        case .look: "paintbrush"
         }
     }
 }

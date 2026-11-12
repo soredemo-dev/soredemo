@@ -147,6 +147,7 @@ final class EditorPreview {
             // cannot disagree.** Export is handed the asset the preview is playing — see
             // `runExport`'s header — so wiring it here wires both, and there is no second place
             // for the two to drift apart.
+            editor.mediaURL = files.mediaURL
             let cut = try await EditedAsset.make(
                 from: recording, by: editor.timeline.edit,
                 substitutingAudio: await microphoneSubstitution(for: recording, files: files, editor: editor))

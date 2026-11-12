@@ -59,7 +59,8 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
     @Test func everyEditIsMarkedAsOneAndEveryReadAsARead() {
         let edits = Set(AgentTools.definitions.filter { !$0.readOnly }.map(\.name))
         #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit", "resolve_note", "skip_note",
-                          "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling"])
+                          "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling",
+                          "set_look", "set_cursor", "set_audio"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -95,6 +96,32 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                 == "`find` is 1 character; the shortest run replaced everywhere is 2.")
         #expect(failure(request("fix_captions_everywhere", #"{"find":"ab","replace":"ab","reason":"r"}"#))
                 == "`find` and `replace` are the same; nothing would change.")
+    }
+
+    /// The look is changed field by field: only what is given changes, and a call that gives
+    /// nothing to change is refused rather than recorded as an empty undo step.
+    @Test func theLookIsChangedOnlyInTheFieldsGiven() {
+        #expect(request("look", "{}") == .success(.look))
+        #expect(request("set_look", ##"{"backgroundColor":"#112233","padding":0.1,"reason":"Calmer for the landing page"}"##)
+                == .success(.setLook(.init(backgroundColor: "#112233", padding: 0.1), reason: "Calmer for the landing page")))
+        #expect(failure(request("set_look", #"{"reason":"r"}"#))?.hasPrefix("Nothing to change") == true)
+        #expect(failure(request("set_look", #"{"padding":0.5,"reason":"r"}"#)) == "`padding` is 0.5; it goes from 0 to 0.3.")
+    }
+
+    /// A background is one thing: a preset, a colour or an image — two at once is a contradiction,
+    /// and the refusal names them.
+    @Test func aBackgroundIsOneOfAPresetAColourOrAnImage() {
+        #expect(failure(request("set_look", ##"{"backgroundPreset":"Dusk","backgroundColor":"#000000","reason":"r"}"##))
+                == "Give one background: `backgroundPreset`, `backgroundColor` or `backgroundImage` — this gave backgroundColor and backgroundPreset.")
+    }
+
+    @Test func theCursorAndTheAudioAreChangedTheSameWay() {
+        #expect(request("set_cursor", #"{"size":1.5,"clickEffect":"pulse","hidesWhenIdle":true,"reason":"Easier to follow"}"#)
+                == .success(.setCursor(.init(size: 1.5, clickEffect: "pulse", hidesWhenIdle: true), reason: "Easier to follow")))
+        #expect(failure(request("set_cursor", #"{"clickEffect":"sparkle","reason":"r"}"#)) == "`clickEffect` must be one of: ripple, pulse, none.")
+        #expect(request("set_audio", #"{"microphoneGain":1.4,"systemAudioMuted":true,"reason":"The voice carries the pitch"}"#)
+                == .success(.setAudio(.init(microphoneGain: 1.4, systemAudioMuted: true), reason: "The voice carries the pitch")))
+        #expect(failure(request("set_audio", #"{"microphoneGain":9,"reason":"r"}"#)) == "`microphoneGain` is 9; it goes from 0 to 4.")
     }
 
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {

@@ -971,3 +971,19 @@
 "Hide the agent (⌥⌘A)" = "隱藏代理(⌥⌘A)";
 "Show the agent (⌥⌘A)" = "顯示代理(⌥⌘A)";
 "Fix the names the captions misheard" = "修正字幕聽錯的名稱";
+
+/* The agent's changes to the look */
+"Changed %@" = "改了 %@";
+"Changed %lld settings" = "改了 %lld 項設定";
+"Move the playhead to where this was changed" = "把播放頭移到做這項修改時的位置";
+
+/* More background presets (Graphite is already above, for the device finish) */
+"Midnight" = "午夜";
+"Aurora" = "極光";
+"Ocean" = "海洋";
+"Forest" = "森林";
+"Sunset" = "夕陽";
+"Rose" = "玫瑰";
+"Lavender" = "薰衣草";
+"Mint" = "薄荷";
+"Sand" = "沙丘";

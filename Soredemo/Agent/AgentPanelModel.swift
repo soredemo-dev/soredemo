@@ -203,25 +203,30 @@ final class AgentPanelModel {
     }
 
     /// Undoes the turn's edits — its cuts newest first while each is still the step on top, and
-    /// its caption edits at once, back to the captions before its first one, while they are still
-    /// exactly as its last one left them. **Both checks before either acts**, so a turn is
+    /// its caption edits and its changes to the look each at once, back to before its first one,
+    /// while they are still exactly as its last one left them. **Both checks before either acts**, so a turn is
     /// reverted whole or not at all. Returns why it could not, or `nil` when it did.
     func revert(_ turn: Turn, editor: EditorViewModel) -> String? {
         let cuts = turn.edits.filter(\.isCut).map(\.stepName)
         let captionEdits = turn.edits.compactMap { record -> (before: CaptionsModel.Snapshot, after: CaptionsModel.Snapshot)? in
             if case .caption(_, let before, let after) = record.kind { (before, after) } else { nil }
         }
-        guard !cuts.isEmpty || !captionEdits.isEmpty else { return nil }
+        let lookEdits = turn.edits.compactMap { record -> (before: EditorLook, after: EditorLook)? in
+            if case .look(_, let before, let after) = record.kind { (before, after) } else { nil }
+        }
+        guard !cuts.isEmpty || !captionEdits.isEmpty || !lookEdits.isEmpty else { return nil }
         let cutsOnTop = cuts.isEmpty
             || (editor.timeline.historyDepth == turn.checkpoint + cuts.count && editor.timeline.undoStepName == cuts.last)
         let captionsUntouched = captionEdits.last.map { editor.captions.snapshot == $0.after } ?? true
-        guard cutsOnTop, captionsUntouched else {
+        let lookUntouched = lookEdits.last.map { editor.look == $0.after } ?? true
+        guard cutsOnTop, captionsUntouched, lookUntouched else {
             return String(localized: "Something was edited after this turn, so it cannot be reverted at once. Undo its steps one at a time instead.")
         }
         for _ in cuts { editor.timeline.undo() }
         if let first = captionEdits.first {
             editor.captions.restore(first.before, named: String(localized: "Revert the Agent's Caption Edits"))
         }
+        if let first = lookEdits.first { editor.restoreLook(first.before) }
         if let index = turns.firstIndex(where: { $0.id == turn.id }) {
             turns[index].items.removeAll { if case .edit = $0 { true } else { false } }
         }

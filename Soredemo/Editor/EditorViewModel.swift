@@ -193,6 +193,9 @@ final class EditorViewModel {
 
     /// Where this recording has been saved, or `nil` for a scratch recording.
     var savedPackage: URL?
+    /// The recording this editor is showing, set when it loads — what the agent's background
+    /// tools copy a picture into the package of.
+    var mediaURL: URL?
     /// The edit as it was when last saved or opened, so "has anything changed" compares against
     /// what is on disk rather than against nothing.
     var savedEdit = EditState.untouched
