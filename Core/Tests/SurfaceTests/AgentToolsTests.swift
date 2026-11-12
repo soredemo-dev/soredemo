@@ -60,7 +60,9 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         let edits = Set(AgentTools.definitions.filter { !$0.readOnly }.map(\.name))
         #expect(edits == ["cut_span", "cut_step", "accept_proposal", "undo_last_agent_edit", "resolve_note", "skip_note",
                           "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling",
-                          "set_look", "set_cursor", "set_audio"])
+                          "set_look", "set_cursor", "set_audio",
+                          "add_title", "edit_title", "remove_title", "add_chapter", "rename_chapter", "remove_chapter",
+                          "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -122,6 +124,33 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         #expect(request("set_audio", #"{"microphoneGain":1.4,"systemAudioMuted":true,"reason":"The voice carries the pitch"}"#)
                 == .success(.setAudio(.init(microphoneGain: 1.4, systemAudioMuted: true), reason: "The voice carries the pitch")))
         #expect(failure(request("set_audio", #"{"microphoneGain":9,"reason":"r"}"#)) == "`microphoneGain` is 9; it goes from 0 to 4.")
+    }
+
+    /// A title is placed by its words, with every other field optional; a time past the end of
+    /// the recording is refused with both numbers.
+    @Test func aTitleIsItsWordsAndWhateverElseIsGiven() {
+        #expect(request("overlays", "{}") == .success(.overlays))
+        #expect(request("add_title", #"{"text":"Ship it","startNanos":1000000000,"y":0.1,"reason":"The hook"}"#)
+                == .success(.overlay(.addTitle(.init(text: "Ship it", startNanos: 1_000_000_000, y: 0.1)), reason: "The hook")))
+        #expect(failure(request("add_title", #"{"text":"x","startNanos":30000000000,"reason":"r"}"#))
+                == "`startNanos` 30000000000 is past the end of the recording, 20000000000.")
+        #expect(failure(request("edit_title", #"{"id":2,"reason":"r"}"#))?.hasPrefix("Nothing to change") == true)
+        #expect(request("edit_title", #"{"id":2,"bold":true,"reason":"r"}"#) == .success(.overlay(.editTitle(id: 2, .init(bold: true)), reason: "r")))
+    }
+
+    /// A mark needs two different points; a hidden region needs an end after its start and an area.
+    @Test func aMarkAndAHiddenRegionMustEachBeSomething() {
+        #expect(request("add_mark", #"{"shape":"arrow","fromX":0.2,"fromY":0.2,"toX":0.5,"toY":0.6,"startNanos":0,"reason":"r"}"#)
+                == .success(.overlay(.addMark(.init(shape: "arrow", fromX: 0.2, fromY: 0.2, toX: 0.5, toY: 0.6, startNanos: 0, seconds: 3)), reason: "r")))
+        #expect(failure(request("add_mark", #"{"shape":"arrow","fromX":0.2,"fromY":0.2,"toX":0.2,"toY":0.2,"startNanos":0,"reason":"r"}"#))?
+                .contains("same point") == true)
+        #expect(failure(request("hide_region", #"{"startNanos":5,"endNanos":5,"x":0,"y":0,"width":0.2,"height":0.2,"reason":"r"}"#))?
+                .contains("not after") == true)
+        #expect(failure(request("hide_region", #"{"startNanos":0,"endNanos":5,"x":0,"y":0,"width":0,"height":0.2,"reason":"r"}"#))?
+                .contains("width and a height") == true)
+        #expect(request("add_chapter", #"{"atNanos":4000000000,"title":"Export","reason":"r"}"#)
+                == .success(.overlay(.addChapter(atNanos: 4_000_000_000, title: "Export"), reason: "r")))
+        #expect(failure(request("set_camera", #"{"reason":"r"}"#))?.hasPrefix("Nothing to change") == true)
     }
 
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {

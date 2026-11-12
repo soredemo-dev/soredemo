@@ -112,6 +112,10 @@ final class AgentEditorBridge {
             return setCursor(change, reason: reason)
         case .setAudio(let change, let reason):
             return setAudio(change, reason: reason)
+        case .overlays:
+            return overlaysReport()
+        case .overlay(let edit, let reason):
+            return performOverlay(edit, reason: reason)
         case .undoLastAgentEdit:
             let notYours = MCPToolResult.failure(message: "The last edit is not yours, or something was edited after it; nothing was undone.", code: "notYours")
             guard let last = lastEdit else { return notYours }

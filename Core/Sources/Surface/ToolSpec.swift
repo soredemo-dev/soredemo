@@ -219,6 +219,15 @@ public struct ToolArguments: Sendable {
     /// An optional string, `nil` when it was not given.
     public func optionalString(_ name: String) -> String? { strings[name] }
 
+    /// A required number. Traps on an undeclared name, for `integer`'s reason.
+    public func number(_ name: String) -> Double {
+        guard let value = numbers[name] else { preconditionFailure("`\(name)` was not declared as a required number") }
+        return value
+    }
+
+    /// An optional integer, `nil` when it was not given.
+    public func optionalInteger(_ name: String) -> Int64? { integers[name] }
+
     /// An optional number, `nil` when it was not given — never 0, which is a legal value.
     public func optionalNumber(_ name: String) -> Double? { numbers[name] }
 

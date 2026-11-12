@@ -23,13 +23,21 @@ struct EditorLook: Equatable {
     var zoomIntensity: Double
     var cameraPace: CameraPace
     var variant: AspectVariant
+    // What is drawn over the recording, so an agent's title, chapter, mark, hidden region or
+    // camera move reverts with its turn the same way.
+    var texts: TextTrack
+    var chapters: ChapterTrack
+    var marks: AnnotationTrack
+    var hidden: RedactionTrack
+    var camera: CameraOverlayStyle
 }
 
 extension EditorViewModel {
     var look: EditorLook {
         EditorLook(style: stageStyle.style, cursor: stageStyle.cursor, showsKeystrokes: stageStyle.showsKeystrokes,
                    audioMix: audioMix, music: music, zoomIntensity: zoomIntensity, cameraPace: cameraPace,
-                   variant: variant)
+                   variant: variant, texts: texts.track, chapters: chapters.track, marks: annotations.track,
+                   hidden: redactions.track, camera: cameraStyle)
     }
 
     /// Puts a look back, through the same restores a saved project uses.
@@ -42,6 +50,11 @@ extension EditorViewModel {
         zoomIntensity = look.zoomIntensity
         cameraPace = look.cameraPace
         variant = look.variant
+        if texts.track != look.texts { texts.restore(look.texts) }
+        if chapters.track != look.chapters { chapters.replaceTrack(look.chapters) }
+        if annotations.track != look.marks { annotations.restore(look.marks) }
+        if redactions.track != look.hidden { redactions.restore(look.hidden) }
+        cameraStyle = look.camera
     }
 }
 
@@ -88,6 +101,11 @@ extension EditorLook {
         check("targetLoudness", a.audioMix.targetLoudness, b.audioMix.targetLoudness) { $0.map(number) ?? "off" }
         check("musicEnabled", a.music.isEnabled, b.music.isEnabled) { "\($0)" }
         check("musicDucks", a.music.ducks, b.music.ducks) { "\($0)" }
+        check("titles", a.texts, b.texts) { "\($0.items.count) title(s)" }
+        check("chapters", a.chapters, b.chapters) { "\($0.chapters.count) chapter(s)" }
+        check("marks", a.marks, b.marks) { "\($0.items.count) mark(s)" }
+        check("hiddenRegions", a.hidden, b.hidden) { "\($0.items.count) region(s)" }
+        check("camera", a.camera, b.camera) { "\($0.shape.rawValue) \(String(format: "%g", $0.widthFraction)) wide\($0.isHidden ? ", hidden" : "")" }
         return found
     }
 

@@ -196,6 +196,8 @@ final class EditorViewModel {
     /// The recording this editor is showing, set when it loads — what the agent's background
     /// tools copy a picture into the package of.
     var mediaURL: URL?
+    /// Whether the recording carries a camera to place — set when the preview is built.
+    var hasCamera = false
     /// The edit as it was when last saved or opened, so "has anything changed" compares against
     /// what is on disk rather than against nothing.
     var savedEdit = EditState.untouched

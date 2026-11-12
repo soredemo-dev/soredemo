@@ -603,3 +603,82 @@ private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, 
     #expect(AgentTools.cameraPaces == CameraPace.allCases.map(\.rawValue))
     #expect(Set(AgentTools.shapes) == Set(AspectVariant.all.map(\.name) + [AspectVariant.matchRecordingName]))
 }
+
+// MARK: - the agent's titles, chapters, marks, hidden regions and camera
+
+/// A title the agent places at y = 0.1 from the TOP is stored 0.9 up from the bottom, which is
+/// where the compositor draws a title near the top of the frame; and it reads back as 0.1.
+@Test @MainActor func aTitleIsPlacedFromTheTopAndReadBackTheSameWay() throws {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .success = bridge.perform(.overlay(.addTitle(.init(text: "Ship it", startNanos: 2 * second, seconds: 4, y: 0.1, bold: true)),
+                                                   reason: "The hook")) else { Issue.record("refused"); return }
+    let item = try #require(editor.texts.track.items.first)
+    #expect(item.text == "Ship it")
+    #expect(item.start == Nanoseconds(2 * second) && item.end == Nanoseconds(6 * second))
+    #expect(abs(item.style.y - 0.9) < 1e-9, "0.1 down from the top is 0.9 up from the bottom")
+    #expect(item.style.isBold)
+    guard case .success(let json) = bridge.perform(.overlays) else { Issue.record("no overlays"); return }
+    #expect(json.contains(#""y":0.1,"#) || json.contains(#""y":0.1}"#), "read back as written, not as 0.0999…: \(json)")
+    #expect(json.contains(#""camera":null"#), "a recording with no camera reports none")
+}
+
+/// A hidden region keeps y from the top — its own type's convention — and a mark flips like a title.
+@Test @MainActor func aHiddenRegionKeepsItsYAndAMarkFlipsIt() throws {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.overlay(.hideRegion(.init(startNanos: 0, endNanos: 5 * second, x: 0.1, y: 0.2, width: 0.3, height: 0.1)), reason: "An email"))
+    let region = try #require(editor.redactions.track.items.first)
+    #expect(region.region.y == 0.2 && region.end == Nanoseconds(5 * second))
+    _ = bridge.perform(.overlay(.addMark(.init(shape: "arrow", fromX: 0.2, fromY: 0.25, toX: 0.6, toY: 0.5, startNanos: 0, seconds: 2)), reason: "r"))
+    let mark = try #require(editor.annotations.track.items.first)
+    #expect(mark.shape == .arrow && abs(mark.startY - 0.75) < 1e-9 && abs(mark.endY - 0.5) < 1e-9)
+}
+
+/// Chapters keep their pending suggestions through an agent's edit; an id that is not there is refused.
+@Test @MainActor func aChapterIsAddedRenamedAndAMissingOneIsRefused() throws {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    _ = bridge.perform(.overlay(.addChapter(atNanos: 4 * second, title: "Export"), reason: "r"))
+    let chapter = try #require(editor.chapters.track.chapters.first)
+    _ = bridge.perform(.overlay(.renameChapter(id: chapter.id, title: "Export to MP4"), reason: "r"))
+    #expect(editor.chapters.track.chapters.first?.title == "Export to MP4")
+    guard case .failure(let message, _) = bridge.perform(.overlay(.removeChapter(id: 99), reason: "r")) else {
+        Issue.record("a missing chapter was removed"); return
+    }
+    #expect(message.contains("99"))
+}
+
+/// The camera is placed only where there is one.
+@Test @MainActor func theCameraIsPlacedOnlyWhenThereIsOne() {
+    let editor = editor()
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    guard case .failure = bridge.perform(.overlay(.setCamera(.init(size: 0.3)), reason: "r")) else {
+        Issue.record("placed a camera that is not there"); return
+    }
+    editor.hasCamera = true
+    _ = bridge.perform(.overlay(.setCamera(.init(shape: "square", size: 0.3, y: 0.2)), reason: "r"))
+    #expect(editor.cameraStyle.widthFraction == 0.3 && editor.cameraStyle.shape == .square)
+    #expect(abs(editor.cameraStyle.y - 0.8) < 1e-9)
+}
+
+/// A turn that added titles and hid a region reverts as a whole.
+@Test @MainActor func aTurnOfOverlayEditsRevertsAtOnce() {
+    let editor = editor()
+    let before = editor.look
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    _ = bridge.perform(.overlay(.addTitle(.init(text: "One")), reason: "r"))
+    _ = bridge.perform(.overlay(.hideRegion(.init(startNanos: 0, endNanos: second, x: 0, y: 0, width: 0.1, height: 0.1)), reason: "r"))
+    let turn = AgentPanelModel.Turn(id: 1, request: "dress it", items: records.map { .edit($0) }, running: false,
+                                    checkpoint: editor.timeline.historyDepth)
+    #expect(AgentPanelModel(providers: [ClaudeCodeProvider()]).revert(turn, editor: editor) == nil)
+    #expect(editor.look == before)
+}
+
+/// The names the overlay tools offer are the app's own.
+@Test func theOverlayOptionNamesAreTheAppsOwn() {
+    #expect(Set(AgentTools.markShapes).isSubset(of: Set(AnnotationShape.allCases.map(\.rawValue))))
+    #expect(AgentTools.cameraShapes == CameraOverlayStyle.Shape.allCases.map(\.rawValue))
+}

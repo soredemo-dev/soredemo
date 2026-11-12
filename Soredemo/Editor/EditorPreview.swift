@@ -158,6 +158,7 @@ final class EditorPreview {
                 cameraStartOffset: CMTime(value: files.cameraStartOffsetNanos, timescale: 1_000_000_000),
                 musicURL: musicFileURL(files, editor: editor))
             StageCompositor.cameraTrackID = combined.cameraTrackID
+            editor.hasCamera = combined.cameraTrackID != nil
             musicTrackID = combined.musicTrackID
             StageCompositor.cameraStyle = combined.cameraTrackID == nil ? nil : editor.cameraStyle
             let asset = combined.asset

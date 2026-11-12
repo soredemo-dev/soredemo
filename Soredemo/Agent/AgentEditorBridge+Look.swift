@@ -12,6 +12,14 @@ import Variants
 extension AgentEditorBridge {
     // MARK: - reads
 
+    /// A reading as a person writes it. `JSONSerialization` prints a `Double` to seventeen
+    /// digits, so a title placed at 0.1 read back as 0.099999999999999978 — a number the agent
+    /// then has to recognise as the one it chose. Six significant digits, through `Decimal`,
+    /// which prints what it holds.
+    func tidy(_ value: Double) -> Decimal {
+        Decimal(string: String(format: "%.6g", value)) ?? Decimal(value)
+    }
+
     func lookReport() -> MCPToolResult {
         let look = editor.look
         let style = look.style, cursor = look.cursor
@@ -19,20 +27,20 @@ extension AgentEditorBridge {
             "background": EditorLook.describe(style.background),
             "backgroundPresets": StageBackground.presets.map(\.name),
             "backgroundImages": backgroundImages().map(\.name),
-            "backgroundBlur": style.backgroundBlur, "padding": style.insetFraction,
-            "cornerRadius": style.cornerRadius, "shadow": style.shadowOpacity, "edge": style.borderOpacity,
-            "zoomAmount": look.zoomIntensity, "cameraPace": look.cameraPace.rawValue,
+            "backgroundBlur": tidy(style.backgroundBlur), "padding": tidy(style.insetFraction),
+            "cornerRadius": tidy(style.cornerRadius), "shadow": tidy(style.shadowOpacity), "edge": tidy(style.borderOpacity),
+            "zoomAmount": tidy(look.zoomIntensity), "cameraPace": look.cameraPace.rawValue,
             "shape": look.variant.name, "shapes": availableShapes().map(\.name),
             "cursor": [
-                "size": cursor.scale, "clickEffect": cursor.clickEffect.rawValue, "clickSize": cursor.clickSize,
-                "clickOpacity": cursor.clickOpacity, "color": EditorLook.hex(cursor.red, cursor.green, cursor.blue),
-                "hidesWhenIdle": cursor.hidesWhenIdle, "hideAfter": cursor.idleDelay, "tilt": cursor.tilt,
+                "size": tidy(cursor.scale), "clickEffect": cursor.clickEffect.rawValue, "clickSize": tidy(cursor.clickSize),
+                "clickOpacity": tidy(cursor.clickOpacity), "color": EditorLook.hex(cursor.red, cursor.green, cursor.blue),
+                "hidesWhenIdle": cursor.hidesWhenIdle, "hideAfter": tidy(cursor.idleDelay), "tilt": tidy(cursor.tilt),
                 "movement": cursor.movement.rawValue, "loopsToStart": cursor.loopsToStart,
             ] as [String: Any],
             "showsKeystrokes": look.showsKeystrokes,
             "audio": [
-                "systemAudioGain": look.audioMix.gain(for: .systemAudio),
-                "microphoneGain": look.audioMix.gain(for: .microphone),
+                "systemAudioGain": tidy(look.audioMix.gain(for: .systemAudio)),
+                "microphoneGain": tidy(look.audioMix.gain(for: .microphone)),
                 "systemAudioMuted": look.audioMix.muted.contains(.systemAudio),
                 "microphoneMuted": look.audioMix.muted.contains(.microphone),
                 "targetLoudness": look.audioMix.targetLoudness ?? NSNull(),

@@ -42,7 +42,7 @@ public enum AgentTools {
                                               invalid: "`id` must be a note's id from notes.")
     private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let specs: [ToolSpec] = editSpecs + lookSpecs
+    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs
 
     static let editSpecs: [ToolSpec] = [
         ToolSpec(status, title: "Project status",
@@ -138,6 +138,8 @@ public enum AgentTools {
         case setLook(LookChange, reason: String)
         case setCursor(CursorChange, reason: String)
         case setAudio(AudioChange, reason: String)
+        case overlays
+        case overlay(OverlayEdit, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -151,6 +153,7 @@ public enum AgentTools {
         case .success(let checked): arguments = checked
         }
         if let answer = lookRequest(name, arguments) { return answer }
+        if let answer = overlayRequest(name, arguments, duration: duration) { return answer }
         switch name {
         case status: return .success(.status)
         case steps: return .success(.steps)

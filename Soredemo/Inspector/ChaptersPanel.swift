@@ -28,6 +28,10 @@ final class ChaptersModel {
     func retitle(_ id: Int, to title: String) { track = track.retitled(id, to: title) }
     func remove(_ id: Int) { track = track.removing(id) }
 
+    /// The chapters replaced and the pending suggestions kept — what an agent's edit, and the
+    /// revert of one, need; `restore` is for opening a project, where old suggestions are stale.
+    func replaceTrack(_ track: ChapterTrack) { self.track = track }
+
     func restore(_ saved: ChapterTrack) {
         track = saved
         suggestions = []
