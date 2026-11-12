@@ -681,6 +681,7 @@ private struct AgentComposer: View {
                     .onSubmit { if canSend { onSend() } }
                 HStack(spacing: Space.snug) {
                     ContextChip(model: model, editor: editor)
+                    WebChip(model: model)
                     Spacer(minLength: Space.tight)
                     Menu {
                         Picker("Model", selection: Binding(get: { model.model ?? "" }, set: { model.model = $0.isEmpty ? nil : $0 })) {
@@ -739,6 +740,30 @@ private struct AgentComposer: View {
             .keyboardShortcut(.return, modifiers: .command)
             .help("Send (⌘↩)")
         }
+    }
+}
+
+/// Whether the agent may use the web, as a chip beside what goes with the message — and what that
+/// means, in the help, where the person deciding it will read it.
+private struct WebChip: View {
+    let model: AgentPanelModel
+
+    var body: some View {
+        Button {
+            model.webAccess.toggle()
+        } label: {
+            HStack(spacing: Space.tight) {
+                Image(systemName: model.webAccess ? "globe" : "network.slash").font(.system(size: 10))
+                model.webAccess ? Text("Web") : Text("No web")
+            }
+            .font(Type.detail)
+            .foregroundStyle(model.webAccess ? Theme.Ink.secondary : Theme.Ink.tertiary)
+            .padding(.horizontal, Space.snug).padding(.vertical, 3)
+            .background(Theme.Fill.rest, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isRunning)
+        .help("The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off.")
     }
 }
 

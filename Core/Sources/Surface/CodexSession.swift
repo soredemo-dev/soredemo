@@ -17,8 +17,14 @@ public enum CodexAppServer {
 
     /// Set as configuration: plugins and apps are how computer use and connected services came back
     /// with `computer_use` off, and web search is a setting rather than a feature.
-    static let closingConfiguration = ["-c", "features.plugins=false", "-c", "features.apps=false",
-                                       "-c", #"web_search="disabled""#]
+    static let closingConfiguration = closing(webAccess: false)
+
+    /// The configuration with web search opened or not — the one switch the panel offers
+    /// (`docs/design/2026-11-13-the-agent-may-search-the-web.md`). Everything else stays closed.
+    static func closing(webAccess: Bool) -> [String] {
+        ["-c", "features.plugins=false", "-c", "features.apps=false",
+         "-c", webAccess ? #"web_search="live""# : #"web_search="disabled""#]
+    }
 
     /// The listing of the person's MCP servers, read **under the same switches**, so a plugin's
     /// servers — closed by `features.plugins=false` — do not appear in it.
@@ -40,9 +46,9 @@ public enum CodexAppServer {
     /// The arguments that start the server with every listed MCP server switched off by name.
     /// The names come from the listing, never from a list written here: a list of what we close
     /// rots by omission, and the server it omits is the one that stays on.
-    public static func serverArguments(closing servers: [String]) -> [String] {
+    public static func serverArguments(closing servers: [String], webAccess: Bool = false) -> [String] {
         let entries = servers.map { "\(tomlString($0))={enabled=false}" }.joined(separator: ",")
-        return closingConfiguration
+        return closing(webAccess: webAccess)
             + ["-c", "mcp_servers={\(entries)}"]
             + closedFeatures.flatMap { ["--disable", $0] }
             + ["app-server"]
@@ -115,6 +121,8 @@ public struct CodexSession: Sendable {
     private let tools: [MCPTool]
     private let instructions: String
     private let workingDirectory: String
+    /// Whether a web search in a turn is the person's choice rather than a foreign item.
+    private let webAccess: Bool
 
     private var initialized = false
     private var thread: String?
@@ -128,7 +136,8 @@ public struct CodexSession: Sendable {
     private var counted = 0
     private var waiting: [Int: Purpose] = [:]
 
-    public init(tools: [MCPTool], instructions: String, workingDirectory: String) {
+    public init(tools: [MCPTool], instructions: String, workingDirectory: String, webAccess: Bool = false) {
+        self.webAccess = webAccess
         self.tools = tools
         self.instructions = instructions
         self.workingDirectory = workingDirectory
@@ -270,6 +279,11 @@ public struct CodexSession: Sendable {
         let kind = item["type"] as? String ?? ""
         let id = item["id"] as? String ?? ""
         if Self.passingKinds.contains(kind) { return [] }
+        // Shown as a tool, so the panel lists it beside Soredemo's — the person sees it searched.
+        if kind == "webSearch", webAccess {
+            return [.event(.toolStarted(id: id, name: "web_search")),
+                    .event(.toolCalled(id: id, name: "web_search", input: Self.json(["query": item["query"] ?? ""])))]
+        }
         if kind == "dynamicToolCall", let tool = ownTool(item["tool"] as? String ?? "") {
             return [.event(.toolStarted(id: id, name: tool)),
                     .event(.toolCalled(id: id, name: tool, input: Self.json(item["arguments"])))]
@@ -337,6 +351,9 @@ public struct CodexSession: Sendable {
             let output = (item["contentItems"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
             let failed = item["success"] as? Bool != true || item["status"] as? String == "failed"
             return [.event(.toolFinished(id: id, isError: failed, output: output))]
+        case "webSearch":
+            guard webAccess else { return [] }
+            return [.event(.toolFinished(id: id, isError: false, output: item["query"] as? String ?? ""))]
         case "mcpToolCall":
             guard item["server"] as? String == "codex", Self.codexReadOnlyTools.contains(item["tool"] as? String ?? "") else { return [] }
             let content = (item["result"] as? [String: Any])?["content"] as? [[String: Any]] ?? []

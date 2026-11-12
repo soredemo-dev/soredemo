@@ -70,10 +70,18 @@ extension AgentEditorBridge {
                 editor.chapters.remove(id)
             case .addMark(let mark):
                 guard let shape = AnnotationShape(rawValue: mark.shape) else { return "There is no mark shape \(mark.shape)." }
+                if let picture = mark.picture {
+                    let file = editor.mediaURL.map(ProjectStore.packageURL(forMediaAt:))?
+                        .appending(path: AnnotationOverlay.imageDirectory).appending(path: picture)
+                    guard let file, FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) else {
+                        return "This project has no picture \(picture). Bring one in with import_image."
+                    }
+                }
                 var track = editor.annotations.track.adding(
                     shape: shape, startX: mark.fromX, startY: Self.up(mark.fromY), endX: mark.toX, endY: Self.up(mark.toY),
                     start: Nanoseconds(mark.startNanos),
-                    end: Nanoseconds(mark.startNanos + Int64(mark.seconds * 1e9)))
+                    end: Nanoseconds(mark.startNanos + Int64(mark.seconds * 1e9)),
+                    imageName: mark.picture ?? "")
                 if let text = mark.text, var item = track.items.first(where: { $0.id == editor.annotations.track.nextID }) {
                     item.text = text
                     track = track.replacing(item)

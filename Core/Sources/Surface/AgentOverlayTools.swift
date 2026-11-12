@@ -38,9 +38,12 @@ public struct MarkFields: Equatable, Sendable {
     public var startNanos: Int64
     public var seconds: Double
     public var text: String?
+    /// A picture's name, from `import_image` or the project's pictures, for the `image` shape.
+    public var picture: String?
 
     public init(shape: String, fromX: Double, fromY: Double, toX: Double, toY: Double,
-                startNanos: Int64, seconds: Double, text: String? = nil) {
+                startNanos: Int64, seconds: Double, text: String? = nil, picture: String? = nil) {
+        self.picture = picture
         self.shape = shape
         self.fromX = fromX
         self.fromY = fromY
@@ -107,7 +110,7 @@ public enum OverlayEdit: Equatable, Sendable {
 
 extension AgentTools {
     public static let overlays = "overlays"
-    public static let markShapes = ["arrow", "line", "rectangle", "ellipse", "callout"]
+    public static let markShapes = ["arrow", "line", "rectangle", "ellipse", "callout", "image"]
     public static let cameraShapes = ["circle", "rounded", "square"]
     /// Longest title: two lines of a headline.
     public static let longestTitle = 120
@@ -161,6 +164,7 @@ extension AgentTools {
                     req("startNanos", at, "When it appears, nanoseconds on the recording's clock."),
                     opt("seconds", .number(minimum: 0.5, maximum: 30), "How long it stays; 3 if not given."),
                     opt("text", .string(longest: longestTitle, allowsEmpty: false), "A callout's words."),
+                    opt("picture", .string(longest: 200, allowsEmpty: false), "For shape image: the picture's name, from import_image; it fills the box from `from` to `to`."),
                     .reason]),
         ToolSpec("remove_mark", title: "Remove a mark", description: "Remove a mark, as one undo step.",
                  readOnly: false, parameters: [id("mark"), .reason]),
@@ -216,7 +220,13 @@ extension AgentTools {
             if let failure = inside("startNanos", a.integer("startNanos")) { return .failure(failure) }
             let fields = MarkFields(shape: a.string("shape"), fromX: a.number("fromX"), fromY: a.number("fromY"),
                                     toX: a.number("toX"), toY: a.number("toY"), startNanos: a.integer("startNanos"),
-                                    seconds: a.optionalNumber("seconds") ?? 3, text: a.optionalString("text"))
+                                    seconds: a.optionalNumber("seconds") ?? 3, text: a.optionalString("text"),
+                                    picture: a.optionalString("picture"))
+            guard (fields.shape == "image") == (fields.picture != nil) else {
+                return .failure(.init(fields.shape == "image"
+                    ? "Shape image needs `picture`: a name from import_image."
+                    : "`picture` is only for shape image."))
+            }
             guard fields.fromX != fields.toX || fields.fromY != fields.toY else {
                 return .failure(.init("`from` and `to` are the same point, so there is nothing to draw."))
             }

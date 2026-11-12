@@ -689,7 +689,7 @@
 "Nothing is sent unless you ask" = "Nothing is sent unless you ask";
 "Updates" = "Updates";
 "Check for updates when Soredemo starts" = "Check for updates when Soredemo starts";
-"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo itself can make is asking GitHub whether there is a newer version, and only when you choose to. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send." = "Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo itself can make is asking GitHub whether there is a newer version, and only when you choose to. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send.";
+"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages.";
 "Export Frame…" = "Export Frame…";
 "Export Guide…" = "Export Guide…";
 "Export Walkthrough…" = "Export Walkthrough…";
@@ -992,3 +992,8 @@
 "Turned zoom %lld on" = "Turned zoom %lld on";
 "Turned zoom %lld off" = "Turned zoom %lld off";
 "Move the playhead to this zoom" = "Move the playhead to this zoom";
+
+/* The agent's web switch */
+"Web" = "Web";
+"No web" = "No web";
+"The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off." = "The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off.";

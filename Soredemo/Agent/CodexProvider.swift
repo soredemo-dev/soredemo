@@ -25,6 +25,9 @@ final class CodexProvider: AgentProvider {
 
     private var executable: String?
     private var connection: CodexConnection?
+    /// What the running server was started with: the web is a server setting, so a change of the
+    /// switch starts a new server rather than leaving the old one answering to the old setting.
+    private var connectedWebAccess: Bool?
 
     func availability() async -> AgentAvailability {
         guard let path = await AgentExecutable.locate("codex", candidates: Self.candidates) else { return .notInstalled }
@@ -69,7 +72,9 @@ final class CodexProvider: AgentProvider {
 
     /// The running server, or a new one: its MCP servers listed and each closed by name first.
     private func connect(tools: AgentTurnTools) async throws -> CodexConnection {
-        if let connection, connection.isRunning { return connection }
+        if let connection, connection.isRunning, connectedWebAccess == tools.webAccess { return connection }
+        connection?.terminate()
+        connection = nil
         guard let executable else { throw CodexStartError("Codex was not found on this Mac.") }
         let environment = Self.environment()
         let listing = await AgentExecutable.output(of: executable, CodexAppServer.listingArguments, environment: environment) ?? ""
@@ -81,11 +86,13 @@ final class CodexProvider: AgentProvider {
         }
         let directory = URL(fileURLWithPath: tools.relayConfigPath).deletingLastPathComponent()
         let session = CodexSession(tools: tools.toolbox.tools, instructions: AgentPrompt.systemPrompt,
-                                   workingDirectory: directory.path(percentEncoded: false))
-        let connection = try CodexConnection(executable: executable, arguments: CodexAppServer.serverArguments(closing: servers),
+                                   workingDirectory: directory.path(percentEncoded: false), webAccess: tools.webAccess)
+        let connection = try CodexConnection(executable: executable,
+                                             arguments: CodexAppServer.serverArguments(closing: servers, webAccess: tools.webAccess),
                                              directory: directory, environment: environment,
                                              session: session, toolbox: tools.toolbox)
         self.connection = connection
+        connectedWebAccess = tools.webAccess
         return connection
     }
 

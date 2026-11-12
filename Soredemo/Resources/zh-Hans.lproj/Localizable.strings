@@ -675,7 +675,7 @@
 "Nothing is sent unless you ask" = "除非你要求，否则不发送任何东西";
 "Updates" = "更新";
 "Check for updates when Soredemo starts" = "启动 Soredemo 时检查更新";
-"Transcription runs on device. There is no account, no upload and no telemetry. The one request Soredemo itself can make is asking GitHub whether there is a newer version, and only when you choose to. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send." = "转录在设备上进行。没有账号、没有上传、没有使用统计。Soredemo 自己唯一会发出的请求，是在你选择时问 GitHub 有没有新版本。“Agent”标签页只在你点按发送时，通过你自己的 Claude Code 或 Codex、用你的账号，把你输入的内容和它读到的录像步骤发送给它的服务商。";
+"Transcription runs on device. There is no account, no upload and no telemetry. Soredemo itself makes two kinds of request: asking GitHub whether there is a newer version, only when you choose to; and, with the agent's Web switch on, fetching a picture the agent asked for, only during a turn you sent. The Agent tab sends what you type, with the recording steps it reads, through your own Claude Code or Codex to its provider under your account — only when you press Send — and with Web on, the agent can also search the web and read pages." = "转录在本机进行。没有账号、不上传、没有使用追踪。Soredemo 本身只会发出两种请求：在你选择时向 GitHub 查询有没有新版；以及代理的「网络」开关打开时，在你发送的回合中下载代理要的图片。代理标签页会把你输入的内容，连同它读到的录屏步骤，经由你自己的 Claude Code 或 Codex、以你的账号发送到它的服务商——只在你按下发送时；网络打开时，代理也能搜索网络、读取网页。";
 "Export Frame…" = "导出画面…";
 "Export Guide…" = "导出操作指南…";
 "Export Walkthrough…" = "导出互动演示…";
@@ -978,3 +978,8 @@
 "Turned zoom %lld on" = "开启了第 %lld 个放大";
 "Turned zoom %lld off" = "关闭了第 %lld 个放大";
 "Move the playhead to this zoom" = "把播放头移到这个放大";
+
+/* The agent's web switch */
+"Web" = "网络";
+"No web" = "不用网络";
+"The agent can search the web, read pages and bring in pictures. A page can carry instructions meant for the agent; the agent can still change only this project, every change can be reverted, and it cannot publish. It can make web requests, which could carry what it read from this recording. Click to turn the web off." = "代理可以搜索网络、读网页、导入图片。网页里可能夹带写给代理的指示；代理仍然只能改这个项目，每项修改都能撤销，也不能发布任何东西。但它能发出网络请求，请求里可能带着它从这段录屏读到的内容。点一下关闭网络。";

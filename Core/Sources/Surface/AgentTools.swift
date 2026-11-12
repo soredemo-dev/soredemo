@@ -42,7 +42,7 @@ public enum AgentTools {
                                               invalid: "`id` must be a note's id from notes.")
     private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs + zoomSpecs
+    public static let specs: [ToolSpec] = editSpecs + lookSpecs + overlaySpecs + zoomSpecs + [importImageSpec]
 
     static let editSpecs: [ToolSpec] = [
         ToolSpec(status, title: "Project status",
@@ -142,6 +142,7 @@ public enum AgentTools {
         case overlay(OverlayEdit, reason: String)
         case zooms
         case setZoom(Int, on: Bool, reason: String)
+        case importImage(url: String, use: String, reason: String)
     }
 
     /// The request a call makes, or the message the model reads to correct itself. `nil` for a
@@ -157,6 +158,11 @@ public enum AgentTools {
         if let answer = lookRequest(name, arguments) { return answer }
         if let answer = overlayRequest(name, arguments, duration: duration) { return answer }
         if name == "zooms" { return .success(.zooms) }
+        if name == "import_image" {
+            let url = arguments.string("url")
+            if let refusal = ImageImport.refusal(for: url) { return .failure(.init(refusal)) }
+            return .success(.importImage(url: url, use: arguments.string("use"), reason: arguments.string("reason")))
+        }
         if name == "set_zoom" {
             return .success(.setZoom(Int(arguments.integer("zoom")), on: arguments.bool("on"), reason: arguments.string("reason")))
         }
@@ -233,4 +239,16 @@ extension AgentTools {
                               ToolParameter("on", .boolean, description: "true for on, false for off."),
                               .reason]),
     ]
+}
+
+extension AgentTools {
+    /// A picture from the web into the project — Soredemo fetches and checks it; see `ImageImport`.
+    static let importImageSpec = ToolSpec(
+        "import_image", title: "Bring in a picture from the web",
+        description: "Fetch a picture from a public https address into this project — a logo, an emblem, a screenshot of a site — for the background or to place on the recording. PNG, JPEG, HEIC, TIFF or GIF, up to 20 MB; not SVG. With use background it becomes the background at once; with use picture it is added to the project's pictures and you place it with add_mark shape image. Find the address with web search first.",
+        readOnly: false,
+        parameters: [ToolParameter("url", .string(longest: 2000, allowsEmpty: false), description: "The picture's own https address.",
+                                   invalid: "`url` is required: the picture's own https address."),
+                     ToolParameter("use", .choice(["background", "picture"]), description: "What it is for."),
+                     .reason])
 }

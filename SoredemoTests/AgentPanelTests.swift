@@ -9,6 +9,8 @@ import Overlays
 import Render
 import Project
 import Variants
+import ImageIO
+import CoreGraphics
 @testable import Soredemo
 
 // The agent panel's app half: the relay to the open editor, the live tools, and reverting a turn.
@@ -741,4 +743,92 @@ private let fiveHours = UsageWindow(minutes: 300, usedPercent: 34, resets: nil, 
     #expect(json.contains(#""number":2"#), "still two zooms: \(json)")
     guard case .success = bridge.perform(.setZoom(1, on: true, reason: "r")) else { Issue.record("could not turn zoom 1 back on"); return }
     #expect(editor.timeline.derivedZooms.allSatisfy { !editor.timeline.isZoomSuppressed($0.origin) })
+}
+
+// MARK: - pictures from the web
+
+/// A real PNG, made here, so the check is run against bytes that are a picture.
+private func png(width: Int, height: Int) -> Data {
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    let data = NSMutableData()
+    let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+    CGImageDestinationFinalize(destination)
+    return data as Data
+}
+
+/// What decodes is kept with its own kind; an SVG and a page are refused, each said for what it is.
+@Test func aPictureIsCheckedByWhatItDecodesAs() {
+    guard case .success(let picture) = PictureFetcher.check(png(width: 40, height: 20)) else { Issue.record("a PNG was refused"); return }
+    #expect(picture.fileExtension == "png" && picture.width == 40 && picture.height == 20)
+    guard case .failure(let svg) = PictureFetcher.check(Data(#"<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>"#.utf8)) else {
+        Issue.record("an SVG passed"); return
+    }
+    #expect(svg.message.contains("SVG"))
+    guard case .failure(let page) = PictureFetcher.check(Data("<html><body>Not found</body></html>".utf8)) else {
+        Issue.record("a page passed"); return
+    }
+    #expect(page.message.contains("not a picture"))
+}
+
+/// A fetched picture becomes the background as one look change named for the agent, copied into
+/// the package under the address's own name made safe; or is added to the pictures to place.
+@Test @MainActor func aFetchedPictureBecomesTheBackgroundOrAPictureToPlace() throws {
+    let editor = editor()
+    let package = FileManager.default.temporaryDirectory.appending(path: "import-\(ProcessInfo.processInfo.globallyUniqueString).soredemo")
+    try FileManager.default.createDirectory(at: package.appending(path: "media"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: package) }
+    editor.mediaURL = package.appending(path: "media").appending(path: "master-00.mov")
+    let bridge = AgentEditorBridge(editor: editor, agentName: "Claude Code")
+    var records: [AgentEditRecord] = []
+    bridge.onEdit = { records.append($0) }
+    guard case .success(let picture) = PictureFetcher.check(png(width: 64, height: 64)) else { Issue.record("no picture"); return }
+    guard case .success = bridge.adopt(picture, from: "https://www.nthu.edu.tw/img/NTHU Logo.png", use: "background", reason: "The emblem") else {
+        Issue.record("refused"); return
+    }
+    #expect(editor.stageStyle.style.background == .image(filename: "NTHU-Logo.png"))
+    #expect(FileManager.default.fileExists(atPath: package.appending(path: "backgrounds/NTHU-Logo.png").path(percentEncoded: false)))
+    #expect(records.first?.stepName == "Claude Code: The emblem")
+    guard case .success(let json) = bridge.adopt(picture, from: "https://x.edu/seal.png", use: "picture", reason: "r") else {
+        Issue.record("refused"); return
+    }
+    #expect(json.contains(#""picture":"seal.png""#))
+    guard case .success = bridge.perform(.overlay(.addMark(.init(shape: "image", fromX: 0.7, fromY: 0.1, toX: 0.9, toY: 0.3,
+                                                                    startNanos: 0, seconds: 5, picture: "seal.png")), reason: "r")) else {
+        Issue.record("could not place it"); return
+    }
+    #expect(editor.annotations.track.items.first?.imageName == "seal.png")
+    guard case .failure(let missing, _) = bridge.perform(.overlay(.addMark(.init(shape: "image", fromX: 0.7, fromY: 0.1, toX: 0.9, toY: 0.3,
+                                                                                startNanos: 0, seconds: 5, picture: "nope.png")), reason: "r")) else {
+        Issue.record("placed a picture that is not there"); return
+    }
+    #expect(missing.contains("import_image"))
+}
+
+/// The switch is remembered, on until the person turns it off.
+@Test @MainActor func theWebSwitchIsOnByDefaultAndRemembered() {
+    let defaults = UserDefaults(suiteName: "soredemo-web-\(ProcessInfo.processInfo.globallyUniqueString)")!
+    #expect(AgentPanelModel(providers: [ClaudeCodeProvider()], defaults: defaults).webAccess)
+    AgentPanelModel(providers: [ClaudeCodeProvider()], defaults: defaults).webAccess = false
+    #expect(!AgentPanelModel(providers: [ClaudeCodeProvider()], defaults: defaults).webAccess)
+}
+
+/// A redirect is checked by the same rule before it is followed: a public page cannot send the
+/// fetch to this Mac or its network. Run against the delegate itself, no network needed.
+@Test func aRedirectToThisMacOrItsNetworkIsNotFollowed() async throws {
+    let check = RedirectCheck()
+    let session = URLSession(configuration: .ephemeral)
+    let task = session.dataTask(with: URL(string: "https://example.com/a.png")!)
+    let response = try #require(HTTPURLResponse(url: URL(string: "https://example.com/a.png")!, statusCode: 302, httpVersion: nil, headerFields: nil))
+    func followed(_ target: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            check.urlSession(session, task: task, willPerformHTTPRedirection: response,
+                             newRequest: URLRequest(url: URL(string: target)!)) { continuation.resume(returning: $0 != nil) }
+        }
+    }
+    #expect(await followed("https://cdn.example.com/a.png"), "a public https address is followed")
+    #expect(await !followed("https://192.168.1.1/admin"))
+    #expect(await !followed("http://example.com/a.png"))
+    #expect(await !followed("https://localhost/a.png"))
 }

@@ -106,6 +106,13 @@ final class AgentPanelModel {
     private(set) var providerIndex: Int
     /// Whether what is on screen goes with the next message.
     var includesContext = true
+    /// Whether the agent may search the web, read pages and bring in pictures. **On by default**,
+    /// because it is what the person's own agent does everywhere else; remembered; and said in
+    /// the panel with what it costs (`docs/design/2026-11-13-the-agent-may-search-the-web.md`).
+    var webAccess: Bool {
+        didSet { defaults.set(webAccess, forKey: Self.webAccessDefaultsKey) }
+    }
+    static let webAccessDefaultsKey = "agentPanelWebAccess"
 
     var isRunning: Bool { turns.last?.running == true }
 
@@ -128,6 +135,7 @@ final class AgentPanelModel {
         self.defaults = defaults
         let remembered = defaults.string(forKey: Self.providerDefaultsKey)
         providerIndex = providers.firstIndex { $0.name == remembered } ?? 0
+        webAccess = defaults.object(forKey: Self.webAccessDefaultsKey) as? Bool ?? true
     }
 
     var providerName: String { provider.name }
@@ -182,7 +190,8 @@ final class AgentPanelModel {
         startTicking()
         let message = AgentPrompt.message(words, context: includesContext ? context : nil)
         let stream = provider.run(message: message, session: session, model: model,
-                                  tools: AgentTurnTools(relayConfigPath: relay.configPath, toolbox: toolbox))
+                                  tools: AgentTurnTools(relayConfigPath: relay.configPath, toolbox: toolbox,
+                                                        webAccess: webAccess))
         task = Task { [weak self] in
             for await event in stream { self?.receive(event) }
             self?.finishTurn()

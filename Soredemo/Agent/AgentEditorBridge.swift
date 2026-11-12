@@ -125,6 +125,9 @@ final class AgentEditorBridge {
             return overlaysReport()
         case .overlay(let edit, let reason):
             return performOverlay(edit, reason: reason)
+        case .importImage:
+            // Asynchronous, so the toolbox calls `importImage` itself; never reached.
+            return .failure(message: "A picture is imported through the toolbox.", code: "internal")
         case .zooms:
             return zoomsReport()
         case .setZoom(let number, let on, let reason):
@@ -418,6 +421,8 @@ struct LiveToolbox: MCPToolbox {
         guard let request = AgentTools.request(name, argumentsJSON: argumentsJSON, duration: duration) else { return nil }
         switch request {
         case .failure(let failure): return .failure(message: failure.message, code: "usage")
+        // Fetched off the main actor, then applied on it: a slow site must not stall the editor.
+        case .success(.importImage(let url, let use, let reason)): return await bridge.importImage(url, use: use, reason: reason)
         case .success(let request): return await bridge.perform(request)
         }
     }

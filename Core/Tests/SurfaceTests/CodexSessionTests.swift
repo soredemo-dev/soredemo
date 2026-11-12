@@ -31,8 +31,9 @@ private func object(_ text: String) -> [String: Any] {
 private let steps = MCPTool(name: "steps", title: "Recorded steps", description: "The recording's steps.",
                             inputSchema: #"{"additionalProperties":false,"properties":{},"type":"object"}"#, readOnly: true)
 
-private func session() -> CodexSession {
-    CodexSession(tools: [steps], instructions: "You are inside Soredemo.", workingDirectory: "/tmp/soredemo-agent")
+private func session(webAccess: Bool = false) -> CodexSession {
+    CodexSession(tools: [steps], instructions: "You are inside Soredemo.", workingDirectory: "/tmp/soredemo-agent",
+                 webAccess: webAccess)
 }
 
 private let thread = "01a1bee4-dc66-7102-9a47-1e13366164b2"
@@ -55,8 +56,8 @@ private func events(_ outputs: [CodexSession.Output]) -> [AgentEvent] {
 }
 
 /// A session past the handshake, with the recorded thread and turn running.
-private func running() throws -> CodexSession {
-    var codex = session()
+private func running(webAccess: Bool = false) throws -> CodexSession {
+    var codex = session(webAccess: webAccess)
     _ = codex.begin(message: "m", model: nil)
     for text in try serverLines().prefix(while: { !$0.contains(#""method":"item/started""#) }) {
         _ = codex.receive(text)
@@ -366,5 +367,26 @@ private func itemStarted(_ item: [String: Any]) -> String {
     @Test func anUnreadableCacheIsNoModels() {
         #expect(CodexAppServer.models(fromCache: Data("nope".utf8)).isEmpty)
         #expect(CodexAppServer.models(fromCache: Data(#"{"models":[{"display_name":"no slug"}]}"#.utf8)).isEmpty)
+    }
+
+    /// **The web is a switch, and both settings are what they say.** Off, Codex's search is
+    /// disabled at the server and a search in a turn still interrupts it; on, it is live and a
+    /// search passes and is shown — while every other foreign kind still interrupts.
+    @Test func webSearchIsOpenedOnlyByTheSwitch() throws {
+        #expect(CodexAppServer.serverArguments(closing: [], webAccess: false).contains(#"web_search="disabled""#))
+        let open = CodexAppServer.serverArguments(closing: [], webAccess: true)
+        #expect(open.contains(#"web_search="live""#) && !open.contains(#"web_search="disabled""#))
+        for feature in ["shell_tool", "unified_exec", "computer_use"] {
+            #expect(open.firstIndex(of: feature).map { open[$0 - 1] == "--disable" } == true, "\(feature) stays closed with the web open")
+        }
+        var codex = try running(webAccess: true)
+        let outputs = codex.receive(itemStarted(["type": "webSearch", "id": "w1", "query": "NTHU emblem png"]))
+        #expect(sent(outputs).isEmpty, "no interrupt")
+        #expect(events(outputs).contains(.toolStarted(id: "w1", name: "web_search")))
+        var shut = try running(webAccess: false)
+        #expect(sent(shut.receive(itemStarted(["type": "webSearch", "id": "w1", "query": "q"]))).contains { $0["method"] as? String == "turn/interrupt" })
+        var shell = try running(webAccess: true)
+        #expect(sent(shell.receive(itemStarted(["type": "commandExecution", "id": "c", "command": "ls", "status": "inProgress"])))
+                .contains { $0["method"] as? String == "turn/interrupt" }, "a shell is still not the web")
     }
 }

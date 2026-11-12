@@ -62,7 +62,8 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                           "fix_caption", "fix_captions_everywhere", "use_on_screen_spelling",
                           "set_look", "set_cursor", "set_audio",
                           "add_title", "edit_title", "remove_title", "add_chapter", "rename_chapter", "remove_chapter",
-                          "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera", "set_zoom"])
+                          "add_mark", "remove_mark", "hide_region", "remove_hidden_region", "set_camera", "set_zoom",
+                          "import_image"])
         #expect(AgentTools.definitions.allSatisfy { tool in
             (try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8))) != nil
         }, "every schema is valid JSON")
@@ -148,6 +149,10 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                 .contains("not after") == true)
         #expect(failure(request("hide_region", #"{"startNanos":0,"endNanos":5,"x":0,"y":0,"width":0,"height":0.2,"reason":"r"}"#))?
                 .contains("width and a height") == true)
+        #expect(failure(request("add_mark", #"{"shape":"image","fromX":0.1,"fromY":0.1,"toX":0.3,"toY":0.3,"startNanos":0,"reason":"r"}"#))
+                == "Shape image needs `picture`: a name from import_image.")
+        #expect(failure(request("add_mark", #"{"shape":"arrow","picture":"a.png","fromX":0.1,"fromY":0.1,"toX":0.3,"toY":0.3,"startNanos":0,"reason":"r"}"#))
+                == "`picture` is only for shape image.")
         #expect(request("add_chapter", #"{"atNanos":4000000000,"title":"Export","reason":"r"}"#)
                 == .success(.overlay(.addChapter(atNanos: 4_000_000_000, title: "Export"), reason: "r")))
         #expect(failure(request("set_camera", #"{"reason":"r"}"#))?.hasPrefix("Nothing to change") == true)
@@ -160,6 +165,16 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
                 == .success(.setZoom(3, on: false, reason: "Step 3 is already readable")))
         #expect(failure(request("set_zoom", #"{"zoom":3,"reason":"r"}"#)) == "`on` must be true or false.")
         #expect(failure(request("set_zoom", #"{"zoom":0,"on":true,"reason":"r"}"#)) == "`zoom` must be a zoom's number from zooms.")
+    }
+
+    /// A picture is named by its URL and what it is for; the URL is checked before anything is fetched.
+    @Test func aPictureIsImportedByAnHttpsURLForABackgroundOrAPicture() {
+        #expect(request("import_image", #"{"url":"https://example.edu/emblem.png","use":"background","reason":"The school's emblem"}"#)
+                == .success(.importImage(url: "https://example.edu/emblem.png", use: "background", reason: "The school's emblem")))
+        #expect(failure(request("import_image", #"{"url":"http://example.edu/a.png","use":"picture","reason":"r"}"#))
+                == "Only an https address can be imported; this is http.")
+        #expect(failure(request("import_image", #"{"url":"https://example.edu/a.png","use":"wallpaper","reason":"r"}"#))
+                == "`use` must be one of: background, picture.")
     }
 
     @Test func anOnScreenSpellingIsUsedByItsSuggestionsId() {
@@ -185,9 +200,20 @@ private func failure(_ result: Result<AgentTools.Request, MCPToolResultFailure>?
         #expect(AgentPrompt.message("hello", context: nil) == "hello")
     }
 
+    /// With the web open, Claude Code holds web search and page reading, auto-approved, and no
+    /// other built-in tool — no shell, no file reads or writes.
+    @Test func theWebOpensSearchAndReadingAndNothingElse() throws {
+        let open = AgentPrompt.claudeArguments(message: "m", session: nil, mcpConfigPath: "/tmp/c.json", model: nil, webAccess: true)
+        let tools = try #require(open.firstIndex(of: "--tools"))
+        #expect(open[tools + 1] == "WebSearch,WebFetch")
+        let allowed = try #require(open.firstIndex(of: "--allowedTools"))
+        #expect(open[allowed + 1] == "mcp__soredemo,WebSearch,WebFetch")
+        #expect(!open.contains { $0.contains("Bash") || $0.contains("Edit") || $0.contains("Write") || $0.contains("Read,") })
+    }
+
     /// The safety line: no built-in tool, only Soredemo's server, never a bypass.
     @Test func theAgentIsStartedWithSoredemosToolsAndNoOthers() throws {
-        let arguments = AgentPrompt.claudeArguments(message: "m", session: "s1", mcpConfigPath: "/tmp/c.json", model: nil)
+        let arguments = AgentPrompt.claudeArguments(message: "m", session: "s1", mcpConfigPath: "/tmp/c.json", model: nil, webAccess: false)
         let tools = try #require(arguments.firstIndex(of: "--tools"))
         #expect(arguments[tools + 1] == "", "--tools \"\" removes every built-in tool")
         #expect(arguments.contains("--strict-mcp-config"))

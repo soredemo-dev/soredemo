@@ -50,7 +50,8 @@ final class ClaudeCodeProvider: AgentProvider {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = AgentPrompt.claudeArguments(message: message, session: session,
-                                                            mcpConfigPath: mcpConfigPath, model: model)
+                                                            mcpConfigPath: mcpConfigPath, model: model,
+                                                            webAccess: tools.webAccess)
             // An empty working directory, so no project's own CLAUDE.md or settings join the turn.
             process.currentDirectoryURL = URL(fileURLWithPath: mcpConfigPath).deletingLastPathComponent()
             let out = Pipe()

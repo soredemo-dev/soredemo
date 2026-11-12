@@ -29,6 +29,9 @@ protocol AgentProvider: AnyObject {
 struct AgentTurnTools {
     let relayConfigPath: String
     let toolbox: any MCPToolbox
+    /// Whether the agent may search the web and read pages — the panel's switch
+    /// (`docs/design/2026-11-13-the-agent-may-search-the-web.md`).
+    var webAccess = false
 }
 
 enum AgentAvailability: Equatable {

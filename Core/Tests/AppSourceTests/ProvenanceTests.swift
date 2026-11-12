@@ -21,11 +21,11 @@ import Testing
     }
 }
 
-/// **One app file talks to a network, and it is the update check.**
+/// **Two app files talk to a network: the update check and the agent's picture import.**
 ///
-/// The privacy pane says nothing is sent unless a person asks, and the update check is the one
-/// request that exists. This keeps the sentence true: a second file naming a networking API is
-/// a second thing leaving the Mac that the pane does not mention.
+/// The privacy pane says nothing is sent unless a person asks, and names the two requests Soredemo
+/// itself makes: the update check, and the agent's picture import. This keeps the sentence true: a
+/// third file naming a networking API is a third thing leaving the Mac that the pane does not mention.
 @Test func noOtherAppSourceTalksToANetwork() throws {
     let networking = ["URLSession", "URLRequest", "NWConnection", "NWListener", "NSURLConnection",
                       "WKWebView", "CFStream", "Socket("]
@@ -45,6 +45,17 @@ import Testing
             #expect(reaches.isEmpty && code.contains(".unix(path:"), """
                 AgentRelay.swift is admitted as a local Unix-socket pipe, and it now names \(reaches) — \
                 something that reaches past this Mac. The privacy pane would no longer be true.
+                """)
+            continue
+        }
+        // The agent's picture import, the second request the privacy pane names
+        // (`docs/design/2026-11-13-the-agent-may-search-the-web.md`). Admitted only while every
+        // address it fetches is checked first and every redirect is checked before it is followed.
+        if file.lastPathComponent == "AgentEditorBridge+Import.swift" {
+            let code = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            #expect(code.contains("ImageImport.refusal(for: address)") && code.contains("delegate: RedirectCheck()"), """
+                AgentEditorBridge+Import.swift is admitted as the picture import that checks each address and each \
+                redirect; one of those checks is gone, and the privacy pane's promise with it.
                 """)
             continue
         }
