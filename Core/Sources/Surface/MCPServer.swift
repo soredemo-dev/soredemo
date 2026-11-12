@@ -2,7 +2,9 @@ import Foundation
 
 /// The surface as an MCP server over stdio: one JSON-RPC message in, at most one out.
 ///
-/// **No SDK** (architecture rule 4), and little is needed: a server that offers tools answers
+/// **No SDK, by choice rather than by rule.** Rule 4 has admitted `modelcontextprotocol` since
+/// 2026-11-08, and the package still holds zero dependencies because little is needed: a server
+/// that offers tools answers
 /// `initialize`, `ping`, `tools/list` and `tools/call`, and ignores notifications. The transport —
 /// a line on stdin, a line on stdout — is the app entry point's; this type only maps a message to
 /// its reply, so every rule below is tested without a process.

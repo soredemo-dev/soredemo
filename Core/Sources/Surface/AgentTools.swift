@@ -1,8 +1,9 @@
 import Foundation
 
 /// The tools the agent in Soredemo's own panel holds: the reads, over the **open** editor, and the
-/// edits. Defined here and validated here, so every rule about what an agent may ask for is a unit
-/// test; the app only performs a request that has already passed.
+/// edits. Declared once as `ToolSpec`s — the schema a client lists and the checks a call passes are
+/// both read from the declaration — and validated here, so every rule about what an agent may ask
+/// for is a unit test; the app only performs a request that has already passed.
 ///
 /// **Times are nanoseconds on the recording's clock**, the clock `steps` and `propose_cut` report
 /// in, so an agent can pass a span it read straight back. Every edit needs a `reason`, which
@@ -25,55 +26,59 @@ public enum AgentTools {
     /// Longest reason kept: it is an undo step's name, read in a menu.
     public static let longestReason = 160
 
-    private static let none = #"{"additionalProperties":false,"properties":{},"type":"object"}"#
-    private static let reason = #""reason":{"description":"Why, in one short sentence a person will read as the undo step's name. Name the step or proposal it rests on.","type":"string"}"#
+    private static let noteID = ToolParameter("id", .integer(minimum: 1), description: "The note's id, from notes.",
+                                              invalid: "`id` must be a note's id from notes.")
+    private static let nanosInvalid = "`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."
 
-    public static let definitions: [MCPTool] = [
-        MCPTool(name: status, title: "Project status",
-                description: "The open recording: its length, what still plays, its steps, the playhead, and how many cuts are pending.",
-                inputSchema: none, readOnly: true),
-        MCPTool(name: steps, title: "Recorded steps",
-                description: "Each step — a press on a named element — with its number, label, application and span on the recording's clock.",
-                inputSchema: none, readOnly: true),
-        MCPTool(name: proposeCut, title: "Pending cut proposals",
-                description: "The cuts the rules propose for the open recording (dead air), each with an id, the span it removes, and what bounded it. Accept one with accept_proposal.",
-                inputSchema: none, readOnly: true),
-        MCPTool(name: cutSpan, title: "Cut a span",
-                description: "Remove a span of the recording from the edit, now, as one undo step. Prefer cut_step or accept_proposal when one fits.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"endNanos":{"description":"End, nanoseconds on the recording's clock.","type":"integer"},"#
-                    + reason + #","startNanos":{"description":"Start, nanoseconds on the recording's clock.","type":"integer"}},"required":["startNanos","endNanos","reason"],"type":"object"}"#,
-                readOnly: false),
-        MCPTool(name: cutStep, title: "Cut a step",
-                description: "Remove one whole step — a second before its press to a second before the next — as one undo step.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"#
-                    + reason + #","step":{"description":"The step's number, from steps.","type":"integer"}},"required":["step","reason"],"type":"object"}"#,
-                readOnly: false),
-        MCPTool(name: acceptProposal, title: "Accept a proposed cut",
-                description: "Make one of propose_cut's proposals, by its id, as one undo step.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"id":{"description":"The proposal's id, from propose_cut.","type":"string"},"#
-                    + reason + #"},"required":["id","reason"],"type":"object"}"#,
-                readOnly: false),
-        MCPTool(name: seek, title: "Move the playhead",
-                description: "Move the playhead so the person sees the moment you are talking about. Changes no edit.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"atNanos":{"description":"Nanoseconds on the recording's clock.","type":"integer"}},"required":["atNanos"],"type":"object"}"#,
-                readOnly: true),
-        MCPTool(name: undoLastAgentEdit, title: "Undo your last edit",
-                description: "Undo the most recent edit, only if it was yours and nothing was edited after it.",
-                inputSchema: none, readOnly: false),
-        MCPTool(name: notes, title: "Pinned notes",
-                description: "The notes the person pinned on the recording: each with its id, its time on the recording's clock, the step it falls in, the point on the picture if any, its words, and whether it is still open.",
-                inputSchema: none, readOnly: true),
-        MCPTool(name: resolveNote, title: "Mark a note addressed",
-                description: "Mark an open note addressed, after you have made the edit it asks for. Say what you did; the person reads it beside their note.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"id":{"description":"The note's id, from notes.","type":"integer"},"#
-                    + reason + #"},"required":["id","reason"],"type":"object"}"#,
-                readOnly: false),
-        MCPTool(name: skipNote, title: "Leave a note open",
-                description: "Leave an open note as it is because you cannot or should not do what it asks, and say why. It stays for the person.",
-                inputSchema: #"{"additionalProperties":false,"properties":{"id":{"description":"The note's id, from notes.","type":"integer"},"#
-                    + reason + #"},"required":["id","reason"],"type":"object"}"#,
-                readOnly: false),
+    public static let specs: [ToolSpec] = [
+        ToolSpec(status, title: "Project status",
+                 description: "The open recording: its length, what still plays, its steps, the playhead, and how many cuts are pending.",
+                 readOnly: true),
+        ToolSpec(steps, title: "Recorded steps",
+                 description: "Each step — a press on a named element — with its number, label, application and span on the recording's clock.",
+                 readOnly: true),
+        ToolSpec(proposeCut, title: "Pending cut proposals",
+                 description: "The cuts the rules propose for the open recording (dead air), each with an id, the span it removes, and what bounded it. Accept one with accept_proposal.",
+                 readOnly: true),
+        ToolSpec(cutSpan, title: "Cut a span",
+                 description: "Remove a span of the recording from the edit, now, as one undo step. Prefer cut_step or accept_proposal when one fits.",
+                 readOnly: false,
+                 parameters: [ToolParameter("startNanos", .integer(minimum: nil), description: "Start, nanoseconds on the recording's clock.", invalid: nanosInvalid),
+                              ToolParameter("endNanos", .integer(minimum: nil), description: "End, nanoseconds on the recording's clock.", invalid: nanosInvalid),
+                              .reason]),
+        ToolSpec(cutStep, title: "Cut a step",
+                 description: "Remove one whole step — a second before its press to a second before the next — as one undo step.",
+                 readOnly: false,
+                 parameters: [ToolParameter("step", .integer(minimum: 1), description: "The step's number, from steps.",
+                                            invalid: "`step` must be a step number from steps."),
+                              .reason]),
+        ToolSpec(acceptProposal, title: "Accept a proposed cut",
+                 description: "Make one of propose_cut's proposals, by its id, as one undo step.",
+                 readOnly: false,
+                 parameters: [ToolParameter("id", .string(longest: 200, allowsEmpty: false), description: "The proposal's id, from propose_cut.",
+                                            invalid: "`id` is required: a proposal's id from propose_cut."),
+                              .reason]),
+        ToolSpec(seek, title: "Move the playhead",
+                 description: "Move the playhead so the person sees the moment you are talking about. Changes no edit.",
+                 readOnly: true,
+                 parameters: [ToolParameter("atNanos", .integer(minimum: nil), description: "Nanoseconds on the recording's clock.",
+                                            invalid: "`atNanos` must be an integer.")]),
+        ToolSpec(undoLastAgentEdit, title: "Undo your last edit",
+                 description: "Undo the most recent edit, only if it was yours and nothing was edited after it.",
+                 readOnly: false),
+        ToolSpec(notes, title: "Pinned notes",
+                 description: "The notes the person pinned on the recording: each with its id, its time on the recording's clock, the step it falls in, the point on the picture if any, its words, and whether it is still open.",
+                 readOnly: true),
+        ToolSpec(resolveNote, title: "Mark a note addressed",
+                 description: "Mark an open note addressed, after you have made the edit it asks for. Say what you did; the person reads it beside their note.",
+                 readOnly: false, parameters: [noteID, .reason]),
+        ToolSpec(skipNote, title: "Leave a note open",
+                 description: "Leave an open note as it is because you cannot or should not do what it asks, and say why. It stays for the person.",
+                 readOnly: false, parameters: [noteID, .reason]),
     ]
+
+    /// The tools as a client lists them.
+    public static var definitions: [MCPTool] { specs.map(\.listing) }
 
     /// A request that passed every check. What the app performs.
     public enum Request: Equatable, Sendable {
@@ -91,23 +96,11 @@ public enum AgentTools {
     /// name that is not one of these tools. `duration` is the recording's length, the one bound a
     /// span is checked against; whether a step or a proposal exists is the editor's to say.
     public static func request(_ name: String, argumentsJSON: String, duration: Int64) -> Result<Request, MCPToolResultFailure>? {
-        guard let tool = definitions.first(where: { $0.name == name }) else { return nil }
-        let arguments = (try? JSONSerialization.jsonObject(with: Data(argumentsJSON.utf8)) as? [String: Any]) ?? [:]
-        let allowed = Set((try? JSONSerialization.jsonObject(with: Data(tool.inputSchema.utf8)) as? [String: Any])
-            .flatMap { $0["properties"] as? [String: Any] }?.keys.map { $0 } ?? [])
-        if let extra = arguments.keys.sorted().first(where: { !allowed.contains($0) }) {
-            return .failure(.init("Unexpected argument `\(extra)` for \(name)."))
-        }
-        func integer(_ key: String) -> Int64? {
-            (arguments[key] as? NSNumber).flatMap { CFNumberIsFloatType($0) ? nil : $0.int64Value }
-        }
-        func why() -> Result<String, MCPToolResultFailure> {
-            let text = (arguments["reason"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return .failure(.init("`reason` is required: one sentence a person will read as the undo step.")) }
-            guard text.count <= longestReason else {
-                return .failure(.init("`reason` is \(text.count) characters; keep it under \(longestReason) — it is an undo step's name."))
-            }
-            return .success(text)
+        guard let spec = specs.first(where: { $0.name == name }) else { return nil }
+        let arguments: ToolArguments
+        switch spec.validate(argumentsJSON: argumentsJSON) {
+        case .failure(let failure): return .failure(failure)
+        case .success(let checked): arguments = checked
         }
         switch name {
         case status: return .success(.status)
@@ -115,38 +108,29 @@ public enum AgentTools {
         case proposeCut: return .success(.proposeCut)
         case undoLastAgentEdit: return .success(.undoLastAgentEdit)
         case notes: return .success(.notes)
-        case resolveNote, skipNote:
-            guard let id = integer("id"), id > 0, id <= Int64(Int.max) else {
-                return .failure(.init("`id` must be a note's id from notes."))
-            }
-            return why().map { name == resolveNote ? .resolveNote(Int(id), reason: $0) : .skipNote(Int(id), reason: $0) }
+        case resolveNote:
+            return .success(.resolveNote(Int(arguments.integer("id")), reason: arguments.string("reason")))
+        case skipNote:
+            return .success(.skipNote(Int(arguments.integer("id")), reason: arguments.string("reason")))
         case seek:
-            guard let at = integer("atNanos") else { return .failure(.init("`atNanos` must be an integer.")) }
+            let at = arguments.integer("atNanos")
             guard (0...duration).contains(at) else {
                 return .failure(.init("`atNanos` \(at) is outside the recording, 0…\(duration)."))
             }
             return .success(.seek(at))
         case cutSpan:
-            guard let start = integer("startNanos"), let end = integer("endNanos") else {
-                return .failure(.init("`startNanos` and `endNanos` must be integers, nanoseconds on the recording's clock."))
-            }
+            let start = arguments.integer("startNanos"), end = arguments.integer("endNanos")
             guard start >= 0, end <= duration else {
                 return .failure(.init("\(start)…\(end) runs outside the recording, 0…\(duration)."))
             }
             guard end - start >= shortestCut else {
                 return .failure(.init("\(start)…\(end) is \(end - start) ns; the shortest cut is \(shortestCut) ns (0.1 s). Check the arithmetic."))
             }
-            return why().map { .cutSpan(start: start, end: end, reason: $0) }
+            return .success(.cutSpan(start: start, end: end, reason: arguments.string("reason")))
         case cutStep:
-            guard let step = integer("step"), step > 0, step <= Int64(Int.max) else {
-                return .failure(.init("`step` must be a step number from steps."))
-            }
-            return why().map { .cutStep(Int(step), reason: $0) }
+            return .success(.cutStep(Int(arguments.integer("step")), reason: arguments.string("reason")))
         case acceptProposal:
-            guard let id = arguments["id"] as? String, !id.isEmpty else {
-                return .failure(.init("`id` is required: a proposal's id from propose_cut."))
-            }
-            return why().map { .acceptProposal(id: id, reason: $0) }
+            return .success(.acceptProposal(id: arguments.string("id"), reason: arguments.string("reason")))
         default:
             return nil
         }
